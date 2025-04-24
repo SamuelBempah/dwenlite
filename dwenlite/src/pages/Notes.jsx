@@ -340,6 +340,26 @@ function Notes() {
     }
   };
 
+  const handleDeleteNote = async (noteId) => {
+    try {
+      const updatedNotes = folder.notes.filter(note => note.id !== noteId);
+      const folderRef = doc(db, 'folders', folderId);
+      await updateDoc(folderRef, {
+        notes: updatedNotes,
+      });
+
+      setFolder(prev => ({
+        ...prev,
+        notes: updatedNotes,
+      }));
+
+      toast.success('Note deleted successfully!');
+    } catch (err) {
+      console.error('Delete note error:', err);
+      toast.error('Failed to delete note. Please try again.');
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
@@ -431,9 +451,15 @@ function Notes() {
           folder.notes.map((note) => (
             <div
               key={note.id}
-              className="bg-gray-800 p-3 md:p-4 rounded-lg mb-3 md:mb-4"
+              className="bg-gray-800 p-3 md:p-4 rounded-lg mb-3 md:mb-4 flex justify-between items-center"
             >
-              <p className="text-gray-300 text-sm md:text-base">{note.content}</p>
+              <p className="text-gray-300 text-sm md:text-base flex-1">{note.content}</p>
+              <button
+                onClick={() => handleDeleteNote(note.id)}
+                className="bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700 text-sm"
+              >
+                Delete
+              </button>
             </div>
           ))
         )}

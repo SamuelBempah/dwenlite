@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { auth, db } from '../firebase';
 import { collection, addDoc, query, where, getDocs, updateDoc, deleteDoc, doc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
@@ -21,6 +21,52 @@ function Dashboard() {
   const [editFolderName, setEditFolderName] = useState('');
   const [editLoading, setEditLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0);
+
+  const folderInputRef = useRef(null);
+  const createButtonRef = useRef(null);
+  const sidebarRef = useRef(null);
+  const uploadSectionRef = useRef(null);
+  const foldersSectionRef = useRef(null);
+
+  const tutorialSteps = [
+    {
+      title: "Welcome to the Dashboard!",
+      description: "This is your main hub for managing folders and uploads. Let's take a quick tour to get you started.",
+      highlightRef: null,
+    },
+    {
+      title: "Sidebar Navigation",
+      description: "The sidebar shows your profile and navigation links. Use it to access the dashboard and other features.",
+      highlightRef: sidebarRef,
+    },
+    {
+      title: "Upload Options",
+      description: "Use these buttons to upload audio, video, or documents. First, you'll need to create or select a folder.",
+      highlightRef: uploadSectionRef,
+    },
+    {
+      title: "Create a Folder",
+      description: "Enter a name for your new folder here. Folders help organize your notes, quizzes, and flashcards.",
+      highlightRef: folderInputRef,
+    },
+    {
+      title: "Confirm Folder Creation",
+      description: "Click this button to create your folder. It will appear in the list below.",
+      highlightRef: createButtonRef,
+    },
+    {
+      title: "Manage Folders",
+      description: "Your folders are listed here. Click a folder to view its contents, or use the menu to edit/delete.",
+      highlightRef: foldersSectionRef,
+    },
+    {
+      title: "You're All Set!",
+      description: "That's it! You can now create folders, upload content, and manage your study materials. Close this to continue.",
+      highlightRef: null,
+    },
+  ];
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -28,6 +74,9 @@ function Dashboard() {
         console.log('Authenticated user UID:', user.uid);
         setCurrentUser(user);
         fetchFolders(user.uid);
+        if (!localStorage.getItem('tutorialCompleted')) {
+          setShowTutorial(true);
+        }
       } else {
         navigate('/login');
       }
@@ -245,6 +294,21 @@ function Dashboard() {
     setDropdownOpen(dropdownOpen === folderId ? null : folderId);
   };
 
+  const handleNextStep = () => {
+    if (tutorialStep < tutorialSteps.length - 1) {
+      setTutorialStep(tutorialStep + 1);
+    } else {
+      setShowTutorial(false);
+      localStorage.setItem('tutorialCompleted', 'true');
+    }
+  };
+
+  const handlePrevStep = () => {
+    if (tutorialStep > 0) {
+      setTutorialStep(tutorialStep - 1);
+    }
+  };
+
   if (!currentUser) return null;
 
   return (
@@ -271,11 +335,46 @@ function Dashboard() {
         </svg>
       </button>
 
+      {/* Tutorial Modal */}
+      {showTutorial && (
+        <div className={`fixed inset-0 bg-black bg-opacity-50 flex justify-center z-50 px-4 ${
+          tutorialStep === 3 || tutorialStep === 4 || tutorialStep === 5 ? 'items-start pt-4' : 'items-center'
+        }`}>
+          <div className="bg-gray-800 p-4 sm:p-6 rounded-lg w-full max-w-sm sm:max-w-md">
+            <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4">{tutorialSteps[tutorialStep].title}</h2>
+            <p className="text-gray-300 text-sm sm:text-base mb-4 sm:mb-6">{tutorialSteps[tutorialStep].description}</p>
+            <div className="flex justify-between items-center">
+              <button
+                onClick={handlePrevStep}
+                disabled={tutorialStep === 0}
+                className={`py-1 px-3 sm:py-2 sm:px-4 rounded-lg text-xs sm:text-sm ${
+                  tutorialStep === 0
+                    ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                    : 'bg-purple-600 text-white hover:bg-purple-700'
+                }`}
+              >
+                Previous
+              </button>
+              <span className="text-gray-400 text-xs sm:text-sm">
+                {tutorialStep + 1} / {tutorialSteps.length}
+              </span>
+              <button
+                onClick={handleNextStep}
+                className="bg-purple-600 text-white py-1 px-3 sm:py-2 sm:px-4 rounded-lg hover:bg-purple-700 text-xs sm:text-sm"
+              >
+                {tutorialStep === tutorialSteps.length - 1 ? 'Finish' : 'Next'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Sidebar */}
       <div
+        ref={sidebarRef}
         className={`w-full md:w-64 bg-gray-800 p-4 md:p-6 flex flex-col justify-between absolute md:static z-10 transition-transform duration-300 ${
           isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } md:translate-x-0`}
+        } md:translate-x-0 ${tutorialStep === 1 ? 'ring-4 ring-purple-500' : ''}`}
       >
         <div className="relative">
           <button
@@ -350,39 +449,47 @@ function Dashboard() {
       <div className="flex-1 p-4 md:p-8">
         <div className="flex justify-between items-center mb-6 md:mb-8">
           <h1 className="text-2xl md:text-3xl font-bold">Dashboard</h1>
-          <button
-            onClick={handleLogout}
-            disabled={logoutLoading}
-            className={`text-gray-400 hover:text-white text-sm md:text-base ${
-              logoutLoading ? 'opacity-50 cursor-not-allowed' : ''
-            }`}
-          >
-            {logoutLoading ? (
-              <span className="flex items-center">
-                <svg
-                  className="animate-spin h-4 w-4 md:h-5 md:w-5 mr-2 text-white"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                    fill="none"
-                  />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                </svg>
-                Loading...
-              </span>
-            ) : (
-              'Logout'
-            )}
-          </button>
+          <div className="flex items-center space-x-4">
+            <button
+              onClick={() => setShowTutorial(true)}
+              className="text-purple-400 hover:text-purple-300 text-sm md:text-base"
+            >
+              Show Tutorial
+            </button>
+            <button
+              onClick={handleLogout}
+              disabled={logoutLoading}
+              className={`text-gray-400 hover:text-white text-sm md:text-base ${
+                logoutLoading ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
+              {logoutLoading ? (
+                <span className="flex items-center">
+                  <svg
+                    className="animate-spin h-4 w-4 md:h-5 md:w-5 mr-2 text-white"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      fill="none"
+                    />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
+                  Loading...
+                </span>
+              ) : (
+                'Logout'
+              )}
+            </button>
+          </div>
         </div>
 
-        <div className="mb-6 md:mb-8">
+        <div ref={uploadSectionRef} className={`mb-6 md:mb-8 ${tutorialStep === 2 ? 'ring-4 ring-purple-500' : ''}`}>
           <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Try Now For Free!</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
             <button
@@ -487,10 +594,11 @@ function Dashboard() {
           </div>
         </div>
 
-        <div>
+        <div ref={foldersSectionRef} className={tutorialStep === 5 ? 'ring-4 ring-purple-500' : ''}>
           <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">All Folders</h2>
-          <div className="flex flex-col sm:flex-row items-center mb-4 gap-3">
+          <div className={`flex flex-col sm:flex-row items-center mb-4 gap-3 ${tutorialStep === 3 || tutorialStep === 4 ? 'ring-4 ring-purple-500' : ''}`}>
             <input
+              ref={folderInputRef}
               type="text"
               value={newFolderName}
               onChange={(e) => setNewFolderName(e.target.value)}
@@ -498,6 +606,7 @@ function Dashboard() {
               className="p-2 rounded-lg bg-gray-700 text-white w-full sm:w-auto"
             />
             <button
+              ref={createButtonRef}
               onClick={handleCreateFolder}
               disabled={createFolderLoading}
               className={`bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base w-full sm:w-auto ${

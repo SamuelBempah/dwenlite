@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { db, auth, storage } from '../firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
@@ -12,6 +12,46 @@ function ViewFolder() {
   const [loading, setLoading] = useState(true);
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [showTutorial, setShowTutorial] = useState(false);
+  const [tutorialStep, setTutorialStep] = useState(0);
+
+  const fileInputRef = useRef(null);
+  const uploadButtonRef = useRef(null);
+  const documentsSectionRef = useRef(null);
+  const studyMaterialsRef = useRef(null);
+
+  const tutorialSteps = [
+    {
+      title: "Welcome to Your Folder!",
+      description: "This page lets you manage documents and study materials for this folder. Let's explore the features.",
+      highlightRef: null,
+    },
+    {
+      title: "Select a File",
+      description: "Choose a file to upload here. You can upload text (.txt), audio, or video files.",
+      highlightRef: fileInputRef,
+    },
+    {
+      title: "Upload the File",
+      description: "Click this button to upload your selected file to the folder.",
+      highlightRef: uploadButtonRef,
+    },
+    {
+      title: "View Documents",
+      description: "Your uploaded documents appear here. Click to view or delete them.",
+      highlightRef: documentsSectionRef,
+    },
+    {
+      title: "Study Materials",
+      description: "Access notes, quizzes, and flashcards for this folder from these links.",
+      highlightRef: studyMaterialsRef,
+    },
+    {
+      title: "You're Ready!",
+      description: "You now know how to use this folder. Start uploading and studying!",
+      highlightRef: null,
+    },
+  ];
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -21,6 +61,9 @@ function ViewFolder() {
         return;
       }
       fetchFolder(user.uid);
+      if (!localStorage.getItem(`tutorialCompleted_folder_${folderId}`)) {
+        setShowTutorial(true);
+      }
     });
     return () => unsubscribe();
   }, [navigate, folderId]);
@@ -90,7 +133,6 @@ function ViewFolder() {
       return;
     }
 
-    // Check if a document already exists in the folder
     if (folder.documents.length >= 1) {
       toast.error('This folder already has a document. Only one document is allowed per folder. Delete the existing document to upload a new one.');
       setFile(null);
@@ -102,7 +144,6 @@ function ViewFolder() {
       let documentData;
       let extractedText = '';
 
-      // Handle text file
       if (file.name.toLowerCase().endsWith('.txt')) {
         try {
           extractedText = await extractTextFromTextFile(file);
@@ -117,12 +158,10 @@ function ViewFolder() {
         }
       }
 
-      // Upload file to Firebase Storage
       const storageRef = ref(storage, `documents/${folderId}/${file.name}`);
       await uploadBytes(storageRef, file);
       const downloadURL = await getDownloadURL(storageRef);
 
-      // Determine file type
       const isAudio = ['.mp3', '.wav', '.m4a', '.ogg', '.flac'].some(ext => file.name.toLowerCase().endsWith(ext));
       const isVideo = ['.mp4', '.mov', '.avi', '.mkv', '.webm'].some(ext => file.name.toLowerCase().endsWith(ext));
 
@@ -160,23 +199,19 @@ function ViewFolder() {
   const handleDeleteDocument = async (docId, docName, isVideo, isAudio) => {
     try {
       if (!isVideo && !isAudio) {
-        // Delete file from Firebase Storage for text files
         const storageRef = ref(storage, `documents/${folderId}/${docName}`);
         await deleteObject(storageRef);
       } else {
-        // For audio and video, also delete from storage
         const storageRef = ref(storage, `documents/${folderId}/${docName}`);
         await deleteObject(storageRef);
       }
 
-      // Update Firestore by removing the document from the documents array
       const updatedDocuments = folder.documents.filter(doc => doc.id !== docId);
       const folderRef = doc(db, 'folders', folderId);
       await updateDoc(folderRef, {
         documents: updatedDocuments,
       });
 
-      // Update local state
       setFolder(prev => ({
         ...prev,
         documents: updatedDocuments,
@@ -186,6 +221,21 @@ function ViewFolder() {
     } catch (err) {
       console.error('Delete document error:', err);
       toast.error('Failed to delete document. Please try again.');
+    }
+  };
+
+  const handleNextStep = () => {
+    if (tutorialStep < tutorialSteps.length - 1) {
+      setTutorialStep(tutorialStep + 1);
+    } else {
+      setShowTutorial(false);
+      localStorage.setItem(`tutorialCompleted_folder_${folderId}`, 'true');
+    }
+  };
+
+  const handlePrevStep = () => {
+    if (tutorialStep > 0) {
+      setTutorialStep(tutorialStep - 1);
     }
   };
 
@@ -221,37 +271,81 @@ function ViewFolder() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-4 md:p-8">
+      {/* Tutorial Modal */}
+      {showTutorial && (
+        <div className={`fixed inset-0 bg-black bg-opacity-50 flex justify-center z-50 px-4 ${
+          tutorialStep === 1 || tutorialStep === 2 || tutorialStep === 3 || tutorialStep === 4 ? 'items-start pt-4' : 'items-center'
+        }`}>
+          <div className="bg-gray-800 p-4 sm:p-6 rounded-lg w-full max-w-sm sm:max-w-md">
+            <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4">{tutorialSteps[tutorialStep].title}</h2>
+            <p className="text-gray-300 text-sm sm:text-base mb-4 sm:mb-6">{tutorialSteps[tutorialStep].description}</p>
+            <div className="flex justify-between items-center">
+              <button
+                onClick={handlePrevStep}
+                disabled={tutorialStep === 0}
+                className={`py-1 px-3 sm:py-2 sm:px-4 rounded-lg text-xs sm:text-sm ${
+                  tutorialStep === 0
+                    ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                    : 'bg-purple-600 text-white hover:bg-purple-700'
+                }`}
+              >
+                Previous
+              </button>
+              <span className="text-gray-400 text-xs sm:text-sm">
+                {tutorialStep + 1} / {tutorialSteps.length}
+              </span>
+              <button
+                onClick={handleNextStep}
+                className="bg-purple-600 text-white py-1 px-3 sm:py-2 sm:px-4 rounded-lg hover:bg-purple-700 text-xs sm:text-sm"
+              >
+                {tutorialStep === tutorialSteps.length - 1 ? 'Finish' : 'Next'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-between items-center mb-6 md:mb-8">
         <h1 className="text-2xl md:text-3xl font-bold">{folder.name}</h1>
-        <Link
-          to="/dashboard"
-          className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base"
-        >
-          Back to Dashboard
-        </Link>
+        <div className="flex items-center space-x-4">
+          <button
+            onClick={() => setShowTutorial(true)}
+            className="text-purple-400 hover:text-purple-300 text-sm md:text-base"
+          >
+            Show Tutorial
+          </button>
+          <Link
+            to="/dashboard"
+            className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base"
+          >
+            Back to Dashboard
+          </Link>
+        </div>
       </div>
 
       <div className="mb-6">
         <p className="text-gray-400 text-sm md:text-base">Created on {new Date(folder.createdAt).toLocaleDateString()}</p>
       </div>
 
-      <div className="mb-6 md:mb-8">
+      <div className={`mb-6 md:mb-8 ${tutorialStep === 1 || tutorialStep === 2 ? 'ring-4 ring-purple-500' : ''}`}>
         <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Upload Document(.txt only), Audio Files(All Formats) Or Video Files(All Formats)</h2>
         <div className="bg-gray-800 p-3 md:p-4 rounded-lg">
           <div>
             <input
+              ref={fileInputRef}
               type="file"
               onChange={handleFileChange}
-              className="mb-3 text-sm md:text-base text-gray-300"
+              className={`mb-3 text-sm md:text-base text-gray-300 ${tutorialStep === 1 ? 'ring-4 ring-purple-500' : ''}`}
               accept=".txt,audio/*,video/*"
             />
           </div>
           <button
+            ref={uploadButtonRef}
             onClick={handleUpload}
             disabled={uploading || !file}
             className={`w-full bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base flex items-center justify-center ${
               uploading || !file ? 'opacity-50 cursor-not-allowed' : ''
-            }`}
+            } ${tutorialStep === 2 ? 'ring-4 ring-purple-500' : ''}`}
           >
             {uploading ? (
               <span className="flex items-center">
@@ -283,7 +377,7 @@ function ViewFolder() {
         </div>
       </div>
 
-      <div className="mb-6 md:mb-8">
+      <div ref={documentsSectionRef} className={`mb-6 md:mb-8 ${tutorialStep === 3 ? 'ring-4 ring-purple-500' : ''}`}>
         <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Uploaded Documents</h2>
         {folder.documents.length === 0 ? (
           <p className="text-gray-400 text-sm md:text-base">No documents uploaded yet.</p>
@@ -317,7 +411,7 @@ function ViewFolder() {
         )}
       </div>
 
-      <div className="mb-6 md:mb-8">
+      <div ref={studyMaterialsRef} className={`mb-6 md:mb-8 ${tutorialStep === 4 ? 'ring-4 ring-purple-500' : ''}`}>
         <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Study Materials</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
           <Link
