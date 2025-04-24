@@ -40,24 +40,24 @@ function Welcome() {
       </video>
 
       {/* Overlay to improve text readability */}
-      <div className="absolute top-0 left-0 w-full h-full bg-black/50 z-10"></div>
+      <div className="absolute top-0 left-0 w-full h-full bg-black/60 z-10"></div>
 
       {/* Main Content */}
-      <div className="relative container mx-auto py-16 text-center flex-grow z-20">
-        <h1 className="text-5xl font-extrabold text-white mb-4 drop-shadow-[0_0_10px_rgba(147,51,234,0.5)]">
+      <div className="relative container mx-auto px-4 sm:px-6 py-12 sm:py-16 text-center flex-grow z-20">
+        <h1 className="text-4xl sm:text-5xl font-extrabold text-white mb-4 drop-shadow-[0_0_10px_rgba(147,51,234,0.5)]">
           DwenLite{' '}
-          <span className="text-purple-400 bg-purple-950/50 px-3 py-1 rounded-full text-sm align-middle">
+          <span className="text-purple-400 bg-purple-950/50 px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm align-middle">
             Beta
           </span>
         </h1>
-        <p className="text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
+        <p className="text-lg sm:text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
           Transform your study materials into notes, quizzes, and flashcards with AI. We're in beta—join us to shape the future of learning!
         </p>
-        <div className="flex justify-center space-x-4 mb-12">
+        <div className="flex flex-col sm:flex-row justify-center space-y-4 sm:space-y-0 sm:space-x-4 mb-12">
           <Link
             to="/signup"
             onClick={handleStartClick}
-            className={`bg-purple-600 text-white px-8 py-3 rounded-full transition-all hover:bg-purple-500 animate-pulse ${startLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+            className={`bg-purple-600 text-white px-6 py-3 sm:px-8 sm:py-3 rounded-full transition-all hover:bg-purple-500 text-base sm:text-lg ${startLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             {startLoading ? (
               <span className="flex items-center justify-center">
@@ -74,7 +74,7 @@ function Welcome() {
           <Link
             to="/login"
             onClick={handleSignInClick}
-            className={`bg-cyan-500 text-white px-8 py-3 rounded-full transition-all hover:bg-cyan-400 animate-pulse ${signInLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+            className={`bg-cyan-500 text-white px-6 py-3 sm:px-8 sm:py-3 rounded-full transition-all hover:bg-cyan-400 text-base sm:text-lg ${signInLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             {signInLoading ? (
               <span className="flex items-center justify-center">
@@ -89,22 +89,22 @@ function Welcome() {
             )}
           </Link>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-3xl mx-auto">
-          <div className="bg-indigo-800/50 p-6 rounded-lg shadow-lg border border-purple-500/30">
-            <h3 className="text-lg font-semibold text-white mb-2">Upload a File</h3>
-            <p className="text-gray-400">TXT</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 max-w-3xl mx-auto">
+          <div className="bg-indigo-800/50 p-4 sm:p-6 rounded-lg shadow-lg border border-purple-500/30">
+            <h3 className="text-base sm:text-lg font-semibold text-white mb-2">Upload a File</h3>
+            <p className="text-gray-400 text-sm sm:text-base">TXT</p>
           </div>
-          <div className="bg-indigo-800/50 p-6 rounded-lg shadow-lg border border-purple-500/30">
-            <h3 className="text-lg font-semibold text-white mb-2">Paste a Link</h3>
-            <p className="text-gray-400">Coming Soon</p>
+          <div className="bg-indigo-800/50 p-4 sm:p-6 rounded-lg shadow-lg border border-purple-500/30">
+            <h3 className="text-base sm:text-lg font-semibold text-white mb-2">Paste a Link</h3>
+            <p className="text-gray-400 text-sm sm:text-base">Coming Soon</p>
           </div>
-          <div className="bg-indigo-800/50 p-6 rounded-lg shadow-lg border border-purple-500/30">
-            <h3 className="text-lg font-semibold text-white mb-2">Record Audio</h3>
-            <p className="text-gray-400">Coming Soon</p>
+          <div className="bg-indigo-800/50 p-4 sm:p-6 rounded-lg shadow-lg border border-purple-500/30">
+            <h3 className="text-base sm:text-lg font-semibold text-white mb-2">Record Audio</h3>
+            <p className="text-gray-400 text-sm sm:text-base">Coming Soon</p>
           </div>
         </div>
       </div>
-      <footer className="relative text-center py-4 text-gray-400 z-20">
+      <footer className="relative text-center py-4 text-gray-400 text-sm sm:text-base z-20">
         <p>Made With ❤️ By Samuel Bempah • DwenLite © 2025</p>
       </footer>
     </div>

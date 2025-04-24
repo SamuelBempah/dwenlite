@@ -64,13 +64,13 @@ function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-purple-50 to-blue-50 flex items-center justify-center">
-      <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
-        <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">Sign In</h2>
+    <div className="min-h-screen bg-gradient-to-b from-purple-50 to-blue-50 flex items-center justify-center px-4">
+      <div className="bg-white p-6 sm:p-8 rounded-lg shadow-lg w-full max-w-md">
+        <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-6 text-center">Sign In</h2>
         <button
           onClick={handleGoogleLogin}
           disabled={googleLoading}
-          className={`w-full bg-white border border-gray-300 text-gray-800 py-3 rounded-lg mb-4 flex items-center justify-center hover:bg-gray-50 ${
+          className={`w-full bg-white border border-gray-300 text-gray-800 py-3 rounded-lg mb-4 flex items-center justify-center hover:bg-gray-50 text-sm sm:text-base ${
             googleLoading ? 'opacity-50 cursor-not-allowed' : ''
           }`}
         >
@@ -99,7 +99,7 @@ function Login() {
             </>
           )}
         </button>
-        <div className="text-center text-gray-500 mb-6">or sign in with your email</div>
+        <div className="text-center text-gray-500 mb-6 text-sm sm:text-base">or sign in with your email</div>
         <form onSubmit={handleLogin}>
           <div className="mb-4">
             <input
@@ -108,7 +108,7 @@ function Login() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Email"
-              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600"
+              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600 text-sm sm:text-base"
               required
             />
           </div>
@@ -119,14 +119,14 @@ function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Password"
-              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600"
+              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600 text-sm sm:text-base"
               required
             />
           </div>
           <button
             type="submit"
             disabled={signInLoading}
-            className={`w-full bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 transition ${
+            className={`w-full bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 transition text-sm sm:text-base ${
               signInLoading ? 'opacity-50 cursor-not-allowed' : ''
             }`}
           >
@@ -155,13 +155,13 @@ function Login() {
           </button>
         </form>
         <div className="text-center mt-4">
-          <Link to="/reset-password" className="text-purple-600 hover:underline">
+          <Link to="/reset-password" className="text-purple-600 hover:underline text-sm sm:text-base">
             Forgot Password?
           </Link>
         </div>
         <div className="text-center mt-2">
-          <span className="text-gray-500">Need an account? </span>
-          <Link to="/signup" className="text-purple-600 hover:underline">
+          <span className="text-gray-500 text-sm sm:text-base">Need an account? </span>
+          <Link to="/signup" className="text-purple-600 hover:underline text-sm sm:text-base">
             Sign Up
           </Link>
         </div>

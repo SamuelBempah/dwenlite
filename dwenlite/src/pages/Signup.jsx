@@ -84,7 +84,9 @@ function Signup() {
           triggerConfetti();
           navigate('/dashboard');
           setGoogleLoading(false);
-        }, 3000); // 3-second delay
+        },
+
+3000); // 3-second delay
       })
       .catch((err) => {
         toast.error(getFriendlyErrorMessage(err.code));
@@ -93,7 +95,7 @@ function Signup() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-purple-50 to-blue-50 flex items-center justify-center">
+    <div className="min-h-screen bg-gradient-to-b from-purple-50 to-blue-50 flex items-center justify-center px-4">
       {showConfetti && (
         <Confetti
           width={window.innerWidth}
@@ -103,12 +105,12 @@ function Signup() {
           gravity={0.1}
         />
       )}
-      <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
-        <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">Sign Up</h2>
+      <div className="bg-white p-6 sm:p-8 rounded-lg shadow-lg w-full max-w-md">
+        <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-6 text-center">Sign Up</h2>
         <button
           onClick={handleGoogleSignup}
           disabled={googleLoading}
-          className={`w-full bg-white border border-gray-300 text-gray-800 py-3 rounded-lg mb-4 flex items-center justify-center hover:bg-gray-50 ${googleLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+          className={`w-full bg-white border border-gray-300 text-gray-800 py-3 rounded-lg mb-4 flex items-center justify-center hover:bg-gray-50 text-sm sm:text-base ${googleLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
           {googleLoading ? (
             <span className="flex items-center">
@@ -124,7 +126,7 @@ function Signup() {
             </>
           )}
         </button>
-        <div className="text-center text-gray-500 mb-6">or create manually</div>
+        <div className="text-center text-gray-500 mb-6 text-sm sm:text-base">or create manually</div>
         <form onSubmit={handleSignup}>
           <div className="mb-4">
             <input
@@ -133,7 +135,7 @@ function Signup() {
               value={firstName}
               onChange={(e) => setFirstName(e.target.value)}
               placeholder="First Name"
-              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600"
+              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600 text-sm sm:text-base"
               required
             />
           </div>
@@ -144,7 +146,7 @@ function Signup() {
               value={lastName}
               onChange={(e) => setLastName(e.target.value)}
               placeholder="Last Name"
-              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600"
+              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600 text-sm sm:text-base"
               required
             />
           </div>
@@ -155,7 +157,7 @@ function Signup() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Email"
-              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600"
+              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600 text-sm sm:text-base"
               required
             />
           </div>
@@ -166,7 +168,7 @@ function Signup() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Password"
-              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600"
+              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600 text-sm sm:text-base"
               required
             />
           </div>
@@ -177,14 +179,14 @@ function Signup() {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Confirm Password"
-              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600"
+              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600 text-sm sm:text-base"
               required
             />
           </div>
           <button
             type="submit"
             disabled={signupLoading}
-            className={`w-full bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 transition ${signupLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+            className={`w-full bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 transition text-sm sm:text-base ${signupLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             {signupLoading ? (
               <span className="flex items-center justify-center">
@@ -199,14 +201,14 @@ function Signup() {
             )}
           </button>
         </form>
-        <div className="text-center mt-4 text-gray-500 text-sm">
+        <div className="text-center mt-4 text-gray-500 text-xs sm:text-sm">
           By signing up you agree to our{' '}
           <a href="/legal" className="text-purple-600 hover:underline">Terms of Service</a> and{' '}
           <a href="./legal" className="text-purple-600 hover:underline">Privacy Policy.</a> They're all the same either way 😂
         </div>
         <div className="text-center mt-2">
-          <span className="text-gray-500">Already have an account? </span>
-          <Link to="/login" className="text-purple-600 hover:underline">Log In</Link>
+          <span className="text-gray-500 text-sm sm:text-base">Already have an account? </span>
+          <Link to="/login" className="text-purple-600 hover:underline text-sm sm:text-base">Log In</Link>
         </div>
       </div>
     </div>
