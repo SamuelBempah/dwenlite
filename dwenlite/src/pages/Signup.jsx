@@ -203,8 +203,8 @@ function Signup() {
         </form>
         <div className="text-center mt-4 text-gray-500 text-xs sm:text-sm">
           By signing up you agree to our{' '}
-          <Link to="/legal" className="text-purple-600 hover:underline">Terms of Service</Link> and{' '}
-          <Link to="/legal" className="text-purple-600 hover:underline">Privacy Policy</Link>. They're all the same either way 😂
+          <a href="/legal" className="text-purple-600 hover:underline">Terms of Service</a> and{' '}
+          <a href="/legal" className="text-purple-600 hover:underline">Privacy Policy.</a> They're all the same either way 😂
         </div>
         <div className="text-center mt-2">
           <span className="text-gray-500 text-sm sm:text-base">Already have an account? </span>
