@@ -8,7 +8,7 @@ import Flashcards from './pages/Flashcards';
 import Dashboard from './pages/Dashboard';
 import ViewFolder from './pages/ViewFolder';
 import SupportMe from './pages/SupportMe';
-import Legal from './pages/Legal';
+import Terms from './pages/Terms';
 import ResetPassword from './pages/ResetPassword'; // Add this import
 import ErrorBoundary from './ErrorBoundary';
 import { Toaster } from 'react-hot-toast';
@@ -28,7 +28,7 @@ function App() {
           <Route path="/folder/:folderId/quizzes" element={<Quizzes />} />
           <Route path="/folder/:folderId/flashcards" element={<Flashcards />} />
           <Route path="/support-me" element={<SupportMe />} />
-          <Route path="/legal" element={<Legal />} />
+          <Route path="/terms" element={<Terms />} />
           <Route path="/reset-password" element={<ResetPassword />} /> {/* Add this route */}
         </Routes>
       </Router>

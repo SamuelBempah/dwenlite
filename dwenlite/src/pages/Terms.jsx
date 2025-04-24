@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 
-function Legal() {
+function Terms() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-purple-50 to-blue-50 flex items-center justify-center py-8">
       <div className="bg-white p-6 sm:p-8 md:p-12 rounded-lg shadow-lg w-full max-w-md sm:max-w-lg md:max-w-3xl">
@@ -97,12 +97,14 @@ function Legal() {
             </div>
             <div className="mb-6">
               <h4 className="text-lg sm:text-xl font-medium text-gray-800 mb-2">5. Your Control</h4>
-              <ul className="list-disc pl-6 text-grayomnibus leading-relaxed">
-                <li>Email{' '}
+              <ul className="list-disc pl-6 text-gray-600 leading-relaxed">
+                <li>
+                  Email{' '}
                   <a href="mailto:samuelbempah@sbmintechnologies.com" className="text-purple-600 hover:underline hover:bg-purple-50 px-1 rounded">
                     samuelbempah@sbmintechnologies.com
                   </a>{' '}
-                  to delete your account. I’ll miss you.</li>
+                  to delete your account. I’ll miss you.
+                </li>
                 <li>Opt out of emails—your inbox deserves peace.</li>
               </ul>
             </div>
@@ -141,4 +143,4 @@ function Legal() {
   );
 }
 
-export default Legal;
+export default Terms;
