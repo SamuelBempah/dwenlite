@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { auth, googleProvider } from '../firebase';
-import { createUserWithEmailAndPassword, signInWithPopup, updateProfile } from 'firebase/auth';
+import { createUserWithEmailAndPassword, signInWithPopup, updateProfile, sendEmailVerification } from 'firebase/auth';
 import toast from 'react-hot-toast';
 import Confetti from 'react-confetti';
 
@@ -57,12 +57,20 @@ function Signup() {
           displayName: `${firstName} ${lastName}`,
         })
           .then(() => {
-            setTimeout(() => {
-              toast.success('Successfully signed up!');
-              triggerConfetti();
-              navigate('/dashboard');
-              setSignupLoading(false);
-            }, 3000); // 3-second delay
+            // Send email verification
+            sendEmailVerification(user)
+              .then(() => {
+                setTimeout(() => {
+                  toast.success('Sign-up successful! Please verify your email.');
+                  triggerConfetti();
+                  navigate('/verify-email');
+                  setSignupLoading(false);
+                }, 3000); // 3-second delay
+              })
+              .catch((err) => {
+                toast.error('Failed to send verification email. Please try again.');
+                setSignupLoading(false);
+              });
           })
           .catch((err) => {
             toast.error(getFriendlyErrorMessage(err.code));

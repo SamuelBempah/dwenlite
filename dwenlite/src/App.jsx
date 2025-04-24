@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Welcome from './pages/Welcome';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import VerifyEmail from './pages/VerifyEmail';
 import Notes from './pages/Notes';
 import Quizzes from './pages/Quizzes';
 import Flashcards from './pages/Flashcards';
@@ -9,7 +10,7 @@ import Dashboard from './pages/Dashboard';
 import ViewFolder from './pages/ViewFolder';
 import SupportMe from './pages/SupportMe';
 import Terms from './pages/Terms';
-import ResetPassword from './pages/ResetPassword'; // Add this import
+import ResetPassword from './pages/ResetPassword';
 import ErrorBoundary from './ErrorBoundary';
 import { Toaster } from 'react-hot-toast';
 
@@ -22,6 +23,7 @@ function App() {
           <Route path="/" element={<Welcome />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
+          <Route path="/verify-email" element={<VerifyEmail />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/folder/:folderId" element={<ViewFolder />} />
           <Route path="/folder/:folderId/notes" element={<Notes />} />
@@ -29,7 +31,7 @@ function App() {
           <Route path="/folder/:folderId/flashcards" element={<Flashcards />} />
           <Route path="/support-me" element={<SupportMe />} />
           <Route path="/terms" element={<Terms />} />
-          <Route path="/reset-password" element={<ResetPassword />} /> {/* Add this route */}
+          <Route path="/reset-password" element={<ResetPassword />} />
         </Routes>
       </Router>
     </ErrorBoundary>
