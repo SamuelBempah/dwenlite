@@ -505,6 +505,8 @@ function Quizzes() {
 
       <div className="mb-6 md:mb-8">
         <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Generate Quizzes</h2>
+        <p className="text-gray-400 text-sm md:text-base mb-3 md:mb-4">
+          Quiz generation typically takes 60-180 seconds. Processing time may vary based on server load and document size.</p>
         <button
           onClick={handleRegenerateQuiz}
           disabled={quizLoading}
