@@ -217,7 +217,7 @@ function Dashboard() {
     setAudioLoading(true);
     setTimeout(() => {
       setAudioLoading(false);
-      toast.success('Record Audio Coming Soon!');
+      toast.success('Create Or Select A Folder To Upload Audio!');
     }, 3000);
   };
 
@@ -225,7 +225,7 @@ function Dashboard() {
     setYoutubeLoading(true);
     setTimeout(() => {
       setYoutubeLoading(false);
-      toast.success('Video Upload Coming Soon!');
+      toast.success('Create Or Select A Folder To Upload Video!');
     }, 3000);
   };
 
@@ -383,7 +383,7 @@ function Dashboard() {
         </div>
 
         <div className="mb-6 md:mb-8">
-          <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Upcoming</h2>
+          <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Try Now For Free!</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
             <button
               onClick={handleAudioClick}
@@ -413,7 +413,7 @@ function Dashboard() {
                 </span>
               ) : (
                 <>
-                  <span>Record or upload audio</span>
+                  <span>Audio Upload</span>
                   <span>➔</span>
                 </>
               )}
@@ -479,7 +479,7 @@ function Dashboard() {
                 </span>
               ) : (
                 <>
-                  <span>Document upload</span>
+                  <span>Document Upload</span>
                   <span>➔</span>
                 </>
               )}

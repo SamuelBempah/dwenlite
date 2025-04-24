@@ -57,6 +57,190 @@ function Notes() {
     }
   };
 
+  const transcribeAudio = async (audioUrl) => {
+    try {
+      const apiKey = import.meta.env.VITE_ASSEMBLYAI_API_KEY;
+      if (!apiKey) {
+        throw new Error('AssemblyAI API key not found. Please set VITE_ASSEMBLYAI_API_KEY in your .env file.');
+      }
+
+      console.log('Transcribing audio URL:', audioUrl);
+
+      const response = await axios.post(
+        'https://api.assemblyai.com/v2/transcript',
+        {
+          audio_url: audioUrl,
+          auto_highlights: false,
+          sentiment_analysis: false,
+          content_safety: false,
+          iab_categories: false,
+          auto_chapters: false,
+          format_text: false,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      ).catch(err => {
+        console.error('Audio transcription request error:', {
+          status: err.response?.status,
+          statusText: err.response?.statusText,
+          data: err.response?.data,
+          message: err.message,
+        });
+        throw new Error(`Audio transcription request failed: ${err.message}`);
+      });
+
+      const transcriptId = response.data.id;
+
+      let status = 'queued';
+      let transcribedText = '';
+      const maxAttempts = 30; // ~60 seconds
+      let attempts = 0;
+
+      while (status !== 'completed' && status !== 'error' && attempts < maxAttempts) {
+        const checkResponse = await axios.get(
+          `https://api.assemblyai.com/v2/transcript/${transcriptId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+            },
+          }
+        ).catch(err => {
+          console.error('Audio transcription polling error:', {
+            status: err.response?.status,
+            statusText: err.response?.statusText,
+            data: err.response?.data,
+            message: err.message,
+          });
+          throw new Error(`Audio transcription polling failed: ${err.message}`);
+        });
+
+        status = checkResponse.data.status;
+        if (status === 'completed') {
+          transcribedText = checkResponse.data.text || '';
+        } else if (status === 'error') {
+          throw new Error(`Audio transcription failed: ${checkResponse.data.error || 'Unknown error'}`);
+        }
+        attempts++;
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
+      if (attempts >= maxAttempts) {
+        throw new Error('Audio transcription timed out.');
+      }
+
+      if (!transcribedText) {
+        throw new Error('Audio transcription returned empty text.');
+      }
+
+      return transcribedText;
+    } catch (err) {
+      console.error('Audio transcription error:', err);
+      throw new Error(`Audio transcription failed: ${err.message}`);
+    }
+  };
+
+  const transcribeVideo = async (videoUrl) => {
+    try {
+      const apiKey = import.meta.env.VITE_ASSEMBLYAI_API_KEY;
+      if (!apiKey) {
+        throw new Error('AssemblyAI API key not found. Please set VITE_ASSEMBLYAI_API_KEY in your .env file.');
+      }
+
+      console.log('Transcribing video URL:', videoUrl);
+
+      const response = await axios.post(
+        'https://api.assemblyai.com/v2/transcript',
+        {
+          audio_url: videoUrl,
+          auto_highlights: false,
+          sentiment_analysis: false,
+          content_safety: false,
+          iab_categories: false,
+          auto_chapters: false,
+          format_text: false,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      ).catch(err => {
+        console.error('Video transcription request error:', {
+          status: err.response?.status,
+          statusText: err.response?.statusText,
+          data: err.response?.data,
+          message: err.message,
+        });
+        let errorMessage = 'Video transcription request failed';
+        if (err.response?.status === 400 && err.response?.data?.error?.includes('transcoding failed')) {
+          errorMessage = 'Video file does not contain audio or is corrupted. Please ensure the video has audio and is in a supported format (mp4, mov, avi, mkv, webm).';
+        } else if (err.response?.status === 401) {
+          errorMessage = 'Invalid AssemblyAI API key. Please check your API key in the .env file.';
+        } else if (err.response?.status === 429) {
+          errorMessage = 'AssemblyAI rate limit exceeded. Please wait a few minutes and try again.';
+        }
+        throw new Error(`${errorMessage}: ${err.message}`);
+      });
+
+      const transcriptId = response.data.id;
+
+      let status = 'queued';
+      let transcribedText = '';
+      const maxAttempts = 60; // ~120 seconds for videos
+      let attempts = 0;
+
+      while (status !== 'completed' && status !== 'error' && attempts < maxAttempts) {
+        const checkResponse = await axios.get(
+          `https://api.assemblyai.com/v2/transcript/${transcriptId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+            },
+          }
+        ).catch(err => {
+          console.error('Video transcription polling error:', {
+            status: err.response?.status,
+            statusText: err.response?.statusText,
+            data: err.response?.data,
+            message: err.message,
+          });
+          throw new Error(`Video transcription polling failed: ${err.message}`);
+        });
+
+        status = checkResponse.data.status;
+        if (status === 'completed') {
+          transcribedText = checkResponse.data.text || '';
+        } else if (status === 'error') {
+          let errorMessage = checkResponse.data.error || 'Unknown error';
+          if (errorMessage.includes('transcoding failed')) {
+            errorMessage = 'Video file does not contain audio or is corrupted. Please ensure the video has audio and is in a supported format.';
+          }
+          throw new Error(`Video transcription failed: ${errorMessage}`);
+        }
+        attempts++;
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
+      if (attempts >= maxAttempts) {
+        throw new Error('Video transcription timed out.');
+      }
+
+      if (!transcribedText) {
+        throw new Error('Video transcription returned empty text.');
+      }
+
+      return transcribedText;
+    } catch (err) {
+      console.error('Video transcription error:', err);
+      throw new Error(`Video transcription failed: ${err.message}`);
+    }
+  };
+
   const generateContent = async () => {
     try {
       const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
@@ -70,7 +254,17 @@ function Notes() {
           }, folder.documents[0])
         : null;
 
-      const context = latestDocument?.extractedText || folder.name;
+      let context = folder.name;
+      if (latestDocument) {
+        if (latestDocument.isAudio) {
+          context = await transcribeAudio(latestDocument.url);
+        } else if (latestDocument.isVideo) {
+          context = await transcribeVideo(latestDocument.url);
+        } else {
+          context = latestDocument.extractedText || folder.name;
+        }
+      }
+
       const prompt = `Generate concise study notes based on the following content: "${context}". Format as a single paragraph, 50-100 words.`;
 
       const response = await axios.post(
@@ -91,7 +285,7 @@ function Notes() {
           },
         }
       ).catch(err => {
-        console.error('Axios error:', {
+        console.error('DeepSeek API error:', {
           status: err.response?.status,
           statusText: err.response?.statusText,
           data: err.response?.data,
@@ -104,11 +298,9 @@ function Notes() {
         } else if (err.response?.status === 404) {
           throw new Error('DeepSeek API endpoint not found. The endpoint may have changed.');
         } else {
-          throw new Error(`API request failed: ${err.message}`);
+          throw new Error(`DeepSeek API request failed: ${err.message}`);
         }
       });
-
-      console.log('DeepSeek API response:', response.data);
 
       let generatedText;
       if (response.data.choices?.[0]?.message?.content) {
@@ -116,7 +308,7 @@ function Notes() {
       } else if (response.data.choices?.[0]?.text) {
         generatedText = response.data.choices[0].text.trim();
       } else {
-        throw new Error('Invalid API response: No generated content found in response.');
+        throw new Error('Invalid DeepSeek API response: No generated content found.');
       }
 
       return { id: Date.now().toString(), content: generatedText };
@@ -195,9 +387,7 @@ function Notes() {
         <button
           onClick={handleGenerateNotes}
           disabled={notesLoading}
-          className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base w-full ${
-            notesLoading ? 'opacity-50 cursor-not-allowed' : ''
-          }`}
+          className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base w-full ${notesLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
           {notesLoading ? (
             <span className="flex items-center">

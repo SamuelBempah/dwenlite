@@ -64,8 +64,10 @@ function ViewFolder() {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
       const fileName = selectedFile.name.toLowerCase();
-      if (!fileName.endsWith('.txt')) {
-        toast.error('Only .txt files are allowed. Please upload a .txt file.');
+      const allowedExtensions = ['.txt', '.mp3', '.wav', '.m4a', '.ogg', '.flac', '.mp4', '.mov', '.avi', '.mkv', '.webm'];
+      const isValidFile = allowedExtensions.some(ext => fileName.endsWith(ext));
+      if (!isValidFile) {
+        toast.error('Only .txt, audio (mp3, wav, m4a, ogg, flac), or video (mp4, mov, avi, mkv, webm) files are allowed.');
         setFile(null);
         return;
       }
@@ -88,39 +90,51 @@ function ViewFolder() {
       return;
     }
 
-    // Check if a file already exists in the folder
+    // Check if a document already exists in the folder
     if (folder.documents.length >= 1) {
-      toast.error('This folder already has a file. Only one file is allowed per folder. Delete the existing file to upload a new one.');
+      toast.error('This folder already has a document. Only one document is allowed per folder. Delete the existing document to upload a new one.');
       setFile(null);
       return;
     }
 
     setUploading(true);
     try {
-      let extractedText;
-      try {
-        extractedText = await extractTextFromTextFile(file);
-      } catch (err) {
-        console.warn('Text extraction failed:', err.message);
-        extractedText = '';
-        toast('Text extraction failed. File will still be uploaded.', {
-          style: {
-            background: '#fefcbf',
-            color: '#744210',
-          },
-        });
+      let documentData;
+      let extractedText = '';
+
+      // Handle text file
+      if (file.name.toLowerCase().endsWith('.txt')) {
+        try {
+          extractedText = await extractTextFromTextFile(file);
+        } catch (err) {
+          console.warn('Text extraction failed:', err.message);
+          toast('Text extraction failed. File will still be uploaded.', {
+            style: {
+              background: '#fefcbf',
+              color: '#744210',
+            },
+          });
+        }
       }
 
+      // Upload file to Firebase Storage
       const storageRef = ref(storage, `documents/${folderId}/${file.name}`);
       await uploadBytes(storageRef, file);
       const downloadURL = await getDownloadURL(storageRef);
 
-      const documentData = {
+      // Determine file type
+      const isAudio = ['.mp3', '.wav', '.m4a', '.ogg', '.flac'].some(ext => file.name.toLowerCase().endsWith(ext));
+      const isVideo = ['.mp4', '.mov', '.avi', '.mkv', '.webm'].some(ext => file.name.toLowerCase().endsWith(ext));
+
+      documentData = {
         id: Date.now().toString(),
         name: file.name,
         url: downloadURL,
-        extractedText: extractedText || '',
+        extractedText,
         uploadedAt: new Date().toISOString(),
+        isAudio,
+        isVideo,
+        isText: file.name.toLowerCase().endsWith('.txt'),
       };
 
       const folderRef = doc(db, 'folders', folderId);
@@ -143,11 +157,17 @@ function ViewFolder() {
     }
   };
 
-  const handleDeleteDocument = async (docId, docName) => {
+  const handleDeleteDocument = async (docId, docName, isVideo, isAudio) => {
     try {
-      // Delete the file from Firebase Storage
-      const storageRef = ref(storage, `documents/${folderId}/${docName}`);
-      await deleteObject(storageRef);
+      if (!isVideo && !isAudio) {
+        // Delete file from Firebase Storage for text files
+        const storageRef = ref(storage, `documents/${folderId}/${docName}`);
+        await deleteObject(storageRef);
+      } else {
+        // For audio and video, also delete from storage
+        const storageRef = ref(storage, `documents/${folderId}/${docName}`);
+        await deleteObject(storageRef);
+      }
 
       // Update Firestore by removing the document from the documents array
       const updatedDocuments = folder.documents.filter(doc => doc.id !== docId);
@@ -216,14 +236,16 @@ function ViewFolder() {
       </div>
 
       <div className="mb-6 md:mb-8">
-        <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Upload Document - .txt Only</h2>
+        <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Upload Document(.txt only), Audio Files(All Formats) Or Video Files(All Formats)</h2>
         <div className="bg-gray-800 p-3 md:p-4 rounded-lg">
-          <input
-            type="file"
-            onChange={handleFileChange}
-            className="mb-3 text-sm md:text-base text-gray-300"
-            accept=".txt"
-          />
+          <div>
+            <input
+              type="file"
+              onChange={handleFileChange}
+              className="mb-3 text-sm md:text-base text-gray-300"
+              accept=".txt,audio/*,video/*"
+            />
+          </div>
           <button
             onClick={handleUpload}
             disabled={uploading || !file}
@@ -277,14 +299,14 @@ function ViewFolder() {
                 rel="noopener noreferrer"
                 className="text-purple-400 hover:underline text-sm md:text-base"
               >
-                {doc.name}
+                {doc.name} {doc.isAudio ? '(Audio)' : doc.isVideo ? '(Video)' : '(Text)'}
               </a>
               <div className="flex items-center space-x-3">
                 <span className="text-gray-400 text-sm">
                   Uploaded on {new Date(doc.uploadedAt).toLocaleDateString()}
                 </span>
                 <button
-                  onClick={() => handleDeleteDocument(doc.id, doc.name)}
+                  onClick={() => handleDeleteDocument(doc.id, doc.name, doc.isVideo, doc.isAudio)}
                   className="bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700"
                 >
                   Delete

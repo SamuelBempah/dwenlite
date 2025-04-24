@@ -15,7 +15,7 @@ function Flashcards() {
   const [showAnswer, setShowAnswer] = useState(false);
   const [showStoredFlashcards, setShowStoredFlashcards] = useState(false);
   const [selectedFlashcardGroup, setSelectedFlashcardGroup] = useState(null);
-  const [expandedGroups, setExpandedGroups] = useState({}); // Track which groups are expanded
+  const [expandedGroups, setExpandedGroups] = useState({});
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -61,7 +61,191 @@ function Flashcards() {
     }
   };
 
-  const generateContent = async (retry = false) => {
+  const transcribeAudio = async (audioUrl) => {
+    try {
+      const apiKey = import.meta.env.VITE_ASSEMBLYAI_API_KEY;
+      if (!apiKey) {
+        throw new Error('AssemblyAI API key not found. Please set VITE_ASSEMBLYAI_API_KEY in your .env file.');
+      }
+
+      console.log('Transcribing audio URL:', audioUrl);
+
+      const response = await axios.post(
+        'https://api.assemblyai.com/v2/transcript',
+        {
+          audio_url: audioUrl,
+          auto_highlights: false,
+          sentiment_analysis: false,
+          content_safety: false,
+          iab_categories: false,
+          auto_chapters: false,
+          format_text: false,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      ).catch(err => {
+        console.error('Audio transcription request error:', {
+          status: err.response?.status,
+          statusText: err.response?.statusText,
+          data: err.response?.data,
+          message: err.message,
+        });
+        throw new Error(`Audio transcription request failed: ${err.message}`);
+      });
+
+      const transcriptId = response.data.id;
+
+      let status = 'queued';
+      let transcribedText = '';
+      const maxAttempts = 30; // ~60 seconds
+      let attempts = 0;
+
+      while (status !== 'completed' && status !== 'error' && attempts < maxAttempts) {
+        const checkResponse = await axios.get(
+          `https://api.assemblyai.com/v2/transcript/${transcriptId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+            },
+          }
+        ).catch(err => {
+          console.error('Audio transcription polling error:', {
+            status: err.response?.status,
+            statusText: err.response?.statusText,
+            data: err.response?.data,
+            message: err.message,
+          });
+          throw new Error(`Audio transcription polling failed: ${err.message}`);
+        });
+
+        status = checkResponse.data.status;
+        if (status === 'completed') {
+          transcribedText = checkResponse.data.text || '';
+        } else if (status === 'error') {
+          throw new Error(`Audio transcription failed: ${checkResponse.data.error || 'Unknown error'}`);
+        }
+        attempts++;
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
+      if (attempts >= maxAttempts) {
+        throw new Error('Audio transcription timed out.');
+      }
+
+      if (!transcribedText) {
+        throw new Error('Audio transcription returned empty text.');
+      }
+
+      return transcribedText;
+    } catch (err) {
+      console.error('Audio transcription error:', err);
+      throw new Error(`Audio transcription failed: ${err.message}`);
+    }
+  };
+
+  const transcribeVideo = async (videoUrl) => {
+    try {
+      const apiKey = import.meta.env.VITE_ASSEMBLYAI_API_KEY;
+      if (!apiKey) {
+        throw new Error('AssemblyAI API key not found. Please set VITE_ASSEMBLYAI_API_KEY in your .env file.');
+      }
+
+      console.log('Transcribing video URL:', videoUrl);
+
+      const response = await axios.post(
+        'https://api.assemblyai.com/v2/transcript',
+        {
+          audio_url: videoUrl,
+          auto_highlights: false,
+          sentiment_analysis: false,
+          content_safety: false,
+          iab_categories: false,
+          auto_chapters: false,
+          format_text: false,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      ).catch(err => {
+        console.error('Video transcription request error:', {
+          status: err.response?.status,
+          statusText: err.response?.statusText,
+          data: err.response?.data,
+          message: err.message,
+        });
+        let errorMessage = 'Video transcription request failed';
+        if (err.response?.status === 400 && err.response?.data?.error?.includes('transcoding failed')) {
+          errorMessage = 'Video file does not contain audio or is corrupted. Please ensure the video has audio and is in a supported format (mp4, mov, avi, mkv, webm).';
+        } else if (err.response?.status === 401) {
+          errorMessage = 'Invalid AssemblyAI API key. Please check your API key in the .env file.';
+        } else if (err.response?.status === 429) {
+          errorMessage = 'AssemblyAI rate limit exceeded. Please wait a few minutes and try again.';
+        }
+        throw new Error(`${errorMessage}: ${err.message}`);
+      });
+
+      const transcriptId = response.data.id;
+
+      let status = 'queued';
+      let transcribedText = '';
+      const maxAttempts = 60; // ~120 seconds for videos
+      let attempts = 0;
+
+      while (status !== 'completed' && status !== 'error' && attempts < maxAttempts) {
+        const checkResponse = await axios.get(
+          `https://api.assemblyai.com/v2/transcript/${transcriptId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+            },
+          }
+        ).catch(err => {
+          console.error('Video transcription polling error:', {
+            status: err.response?.status,
+            statusText: err.response?.statusText,
+            data: err.response?.data,
+            message: err.message,
+          });
+          throw new Error(`Video transcription polling failed: ${err.message}`);
+        });
+
+        status = checkResponse.data.status;
+        if (status === 'completed') {
+          transcribedText = checkResponse.data.text || '';
+        } else if (status === 'error') {
+          let errorMessage = checkResponse.data.error || 'Unknown error';
+          if (errorMessage.includes('transcoding failed')) {
+            errorMessage = 'Video file does not contain audio or is corrupted. Please ensure the video has audio and is in a supported format.';
+          }
+          throw new Error(`Video transcription failed: ${errorMessage}`);
+        }
+        attempts++;
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
+      if (attempts >= maxAttempts) {
+        throw new Error('Video transcription timed out.');
+      }
+
+      if (!transcribedText) {
+        throw new Error('Video transcription returned empty text.');
+      }
+
+      return transcribedText;
+    } catch (err) {
+      console.error('Video transcription error:', err);
+      throw new Error(`Video transcription failed: ${err.message}`);
+    }
+  };
+
+  const generateContent = async () => {
     try {
       const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
       if (!apiKey) {
@@ -74,12 +258,18 @@ function Flashcards() {
           }, folder.documents[0])
         : null;
 
-      const context = latestDocument?.extractedText || folder.name;
-      let prompt = `Generate 40 flashcards based on the following content: "${context}". For each flashcard, provide a question and answer. Format as a JSON array: [{ "question": "...", "answer": "..." }, ...]. Return only the JSON array string, without any markdown, code block markers (like \`\`\`json), or additional text. Ensure the output is valid JSON.`;
-      
-      if (retry) {
-        prompt = `You previously failed to return valid JSON. Generate 40 flashcards based on the following content: "${context}". For each flashcard, provide a question and answer. Format as a JSON array: [{ "question": "...", "answer": "..." }, ...]. Return ONLY the JSON array string. Do NOT include markdown, code block markers (like \`\`\`json), or any additional text before or after the JSON. The output MUST be valid JSON, parsable by JSON.parse().`;
+      let context = folder.name;
+      if (latestDocument) {
+        if (latestDocument.isAudio) {
+          context = await transcribeAudio(latestDocument.url);
+        } else if (latestDocument.isVideo) {
+          context = await transcribeVideo(latestDocument.url);
+        } else {
+          context = latestDocument.extractedText || folder.name;
+        }
       }
+
+      const prompt = `Generate 20 flashcards based on the following content: "${context}". Each flashcard should have a question and an answer. Format as a JSON array: [{ "question": "...", "answer": "..." }, ...]. Return only the JSON array string, without any markdown, code block markers (like \`\`\`json), or additional text. Ensure the output is valid JSON.`;
 
       const response = await axios.post(
         'https://api.deepseek.com/v1/chat/completions',
@@ -89,7 +279,7 @@ function Flashcards() {
             { role: 'system', content: 'You are a helpful assistant for generating educational content.' },
             { role: 'user', content: prompt },
           ],
-          max_tokens: 4000,
+          max_tokens: 2000,
           temperature: 0.7,
         },
         {
@@ -99,7 +289,7 @@ function Flashcards() {
           },
         }
       ).catch(err => {
-        console.error('Axios error:', {
+        console.error('DeepSeek API error:', {
           status: err.response?.status,
           statusText: err.response?.statusText,
           data: err.response?.data,
@@ -112,7 +302,7 @@ function Flashcards() {
         } else if (err.response?.status === 404) {
           throw new Error('DeepSeek API endpoint not found. The endpoint may have changed.');
         } else {
-          throw new Error(`API request failed: ${err.message}`);
+          throw new Error(`DeepSeek API request failed: ${err.message}`);
         }
       });
 
@@ -122,7 +312,7 @@ function Flashcards() {
       } else if (response.data.choices?.[0]?.text) {
         generatedText = response.data.choices[0].text.trim();
       } else {
-        throw new Error('Invalid API response: No generated content found in response.');
+        throw new Error('Invalid DeepSeek API response: No generated content found.');
       }
 
       generatedText = generatedText
@@ -136,35 +326,16 @@ function Flashcards() {
         flashcards = JSON.parse(generatedText);
       } catch (parseErr) {
         console.error('JSON parse error:', parseErr, 'Cleaned response:', generatedText);
-        if (!retry) {
-          console.log('Retrying API call with stricter prompt...');
-          return await generateContent(true);
-        }
-        console.warn('Falling back to default flashcard due to repeated parsing failure.');
-        flashcards = [
-          {
-            question: 'What is the capital of France?',
-            answer: 'Paris',
-          },
-        ];
+        throw new Error('Failed to parse flashcard data. Please try again.');
       }
 
       if (!Array.isArray(flashcards)) {
         throw new Error('API response must be a JSON array.');
       }
 
-      while (flashcards.length < 40) {
-        flashcards.push({
-          question: `Sample question ${flashcards.length + 1}`,
-          answer: `Sample answer ${flashcards.length + 1}`,
-        });
-      }
-
-      flashcards = flashcards.slice(0, 40);
-
-      return flashcards.map(flashcard => ({
+      return flashcards.map(card => ({
         id: Date.now().toString() + Math.random().toString(36).substring(2),
-        ...flashcard,
+        ...card,
       }));
     } catch (err) {
       console.error('Error generating flashcards:', err);
@@ -172,7 +343,7 @@ function Flashcards() {
     }
   };
 
-  const handleRegenerateFlashcards = async () => {
+  const handleGenerateFlashcards = async () => {
     setFlashcardsLoading(true);
     try {
       const newFlashcards = await generateContent();
@@ -245,9 +416,18 @@ function Flashcards() {
     }));
   };
 
+  const handleToggleAnswer = () => {
+    setShowAnswer(prev => !prev);
+  };
+
   const handleNextFlashcard = () => {
     setShowAnswer(false);
     setCurrentFlashcardIndex(prev => prev + 1);
+  };
+
+  const handlePreviousFlashcard = () => {
+    setShowAnswer(false);
+    setCurrentFlashcardIndex(prev => Math.max(0, prev - 1));
   };
 
   if (loading) {
@@ -297,7 +477,7 @@ function Flashcards() {
       <div className="mb-6 md:mb-8">
         <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Generate Flashcards</h2>
         <button
-          onClick={handleRegenerateFlashcards}
+          onClick={handleGenerateFlashcards}
           disabled={flashcardsLoading}
           className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base w-full ${
             flashcardsLoading ? 'opacity-50 cursor-not-allowed' : ''
@@ -328,7 +508,7 @@ function Flashcards() {
             </span>
           ) : (
             <>
-              <span>Regenerate Flashcards</span>
+              <span>Generate Flashcards</span>
               <span>➔</span>
             </>
           )}
@@ -340,27 +520,38 @@ function Flashcards() {
         {!selectedFlashcardGroup ? (
           <p className="text-gray-400 text-sm md:text-base">Select a flashcard group from the stored flashcards to start!</p>
         ) : currentFlashcardIndex >= selectedFlashcardGroup.flashcards.length ? (
-          <p className="text-gray-400 text-sm md:text-base">You've reviewed all flashcards in this group! Select another to continue.</p>
+          <p className="text-gray-400 text-sm md:text-base">You've completed this flashcard group! Select another to continue.</p>
         ) : currentFlashcard ? (
           <div className="bg-gray-800 p-3 md:p-4 rounded-lg mb-3 md:mb-4">
             <h3 className="text-base md:text-lg font-semibold mb-2">
-              Flashcard {currentFlashcardIndex + 1} of {selectedFlashcardGroup.flashcards.length}: {currentFlashcard.question}
+              Flashcard {currentFlashcardIndex + 1} of {selectedFlashcardGroup.flashcards.length}
             </h3>
-            {showAnswer && (
-              <p className="text-gray-300 text-sm md:text-base mb-4">{currentFlashcard.answer}</p>
-            )}
+            <p className="text-gray-300 text-sm md:text-base mb-4">
+              {showAnswer ? currentFlashcard.answer : currentFlashcard.question}
+            </p>
             <button
-              onClick={() => setShowAnswer(!showAnswer)}
+              onClick={handleToggleAnswer}
               className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 mr-2"
             >
-              {showAnswer ? 'Hide Answer' : 'Show Answer'}
+              {showAnswer ? 'Show Question' : 'Show Answer'}
             </button>
-            <button
-              onClick={handleNextFlashcard}
-              className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700"
-            >
-              Next Flashcard
-            </button>
+            <div className="mt-4 flex justify-between">
+              <button
+                onClick={handlePreviousFlashcard}
+                disabled={currentFlashcardIndex === 0}
+                className={`bg-gray-700 text-white py-2 px-4 rounded-lg hover:bg-gray-600 ${
+                  currentFlashcardIndex === 0 ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                Previous
+              </button>
+              <button
+                onClick={handleNextFlashcard}
+                className="bg-gray-700 text-white py-2 px-4 rounded-lg hover:bg-gray-600"
+              >
+                Next
+              </button>
+            </div>
           </div>
         ) : (
           <p className="text-gray-400 text-sm md:text-base">Loading flashcard...</p>
@@ -369,7 +560,7 @@ function Flashcards() {
 
       <div className="mb-6">
         <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Stored Flashcard Groups</h2>
-        {folder.flashcardGroups?.length === 0 ? (
+        {folder.flashcardGroups.length === 0 ? (
           <p className="text-gray-400 text-sm md:text-base">No flashcard groups available. Generate a new group to start!</p>
         ) : (
           <div>
@@ -411,13 +602,16 @@ function Flashcards() {
                     </div>
                     {expandedGroups[group.id] && (
                       <div className="mt-2 space-y-3">
-                        {group.flashcards.map((flashcard, fIndex) => (
-                          <div key={flashcard.id} className="bg-gray-700 p-3 rounded-lg">
-                            <h4 className="text-sm md:text-base font-semibold">
-                              Flashcard {fIndex + 1}: {flashcard.question}
-                            </h4>
-                            <p className="text-gray-300 text-sm md:text-base mt-1">
-                              Answer: {flashcard.answer}
+                        {group.flashcards.map((card, cIndex) => (
+                          <div key={card.id} className="bg-gray-700 p-3 rounded-lg">
+                            <p className="text-sm md:text-base font-semibold">
+                              Flashcard {cIndex + 1}
+                            </p>
+                            <p className="text-gray-300 text-sm md:text-base">
+                              <strong>Question:</strong> {card.question}
+                            </p>
+                            <p className="text-gray-300 text-sm md:text-base">
+                              <strong>Answer:</strong> {card.answer}
                             </p>
                           </div>
                         ))}

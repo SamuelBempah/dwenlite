@@ -95,12 +95,12 @@ function Welcome() {
             <p className="text-gray-400 text-sm sm:text-base">TXT</p>
           </div>
           <div className="bg-indigo-800/50 p-4 sm:p-6 rounded-lg shadow-lg border border-purple-500/30">
-            <h3 className="text-base sm:text-lg font-semibold text-white mb-2">Paste a Link</h3>
-            <p className="text-gray-400 text-sm sm:text-base">Coming Soon</p>
+            <h3 className="text-base sm:text-lg font-semibold text-white mb-2">Upload A Video</h3>
+            <p className="text-gray-400 text-sm sm:text-base">.mp4, .mov, .avi, .mkv, .webm</p>
           </div>
           <div className="bg-indigo-800/50 p-4 sm:p-6 rounded-lg shadow-lg border border-purple-500/30">
-            <h3 className="text-base sm:text-lg font-semibold text-white mb-2">Record Audio</h3>
-            <p className="text-gray-400 text-sm sm:text-base">Coming Soon</p>
+            <h3 className="text-base sm:text-lg font-semibold text-white mb-2">Upload An Audio</h3>
+            <p className="text-gray-400 text-sm sm:text-base">.mp3, .wav, .m4a, .ogg, .flac</p>
           </div>
         </div>
       </div>
