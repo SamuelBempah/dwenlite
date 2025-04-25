@@ -2,31 +2,53 @@
 <html lang="en">
   <head>
     <!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=AW-16618305484"></script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-
-  gtag('config', 'AW-16618305484');
-</script>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=AW-16618305484"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'AW-16618305484');
+    </script>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="src/assets/react.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DwenLite – AI Study Companion | Create Notes, Quizzes & Flashcards from Lecture Slides & Class Notes</title>
-    <!-- Google tag (gtag.js) -->
-<script async src="https://www.googletagmanager.com/gtag/js?id=AW-16618305484">
-</script>
-<script>
-  window.dataLayer = window.dataLayer || [];
-  function gtag(){dataLayer.push(arguments);}
-  gtag('js', new Date());
-
-  gtag('config', 'AW-16618305484');
-</script>
+    <!-- Google tag (gtag.js) - Repeated in original, keeping as-is -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=AW-16618305484"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'AW-16618305484');
+    </script>
+    <!-- Add pdf.js and mammoth.js for text extraction -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    <!-- Custom styles for glowing animation -->
+    <style>
+      @keyframes pulse-glow {
+        0%, 100% {
+          text-shadow: 0 0 5px rgba(192, 132, 252, 0.5), 0 0 10px rgba(192, 132, 252, 0.3);
+          opacity: 1;
+        }
+        50% {
+          text-shadow: 0 0 10px rgba(192, 132, 252, 0.8), 0 0 20px rgba(192, 132, 252, 0.5);
+          opacity: 0.9;
+        }
+      }
+      .animate-pulse-glow {
+        animation: pulse-glow 2s ease-in-out infinite;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <!-- Configure pdf.js worker -->
+    <script>
+      if (window.pdfjsLib) {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+      }
+    </script>
   </body>
 </html>

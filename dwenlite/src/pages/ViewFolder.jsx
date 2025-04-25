@@ -4,6 +4,7 @@ import { db, auth, storage } from '../firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import toast from 'react-hot-toast';
+import axios from 'axios';
 
 function ViewFolder() {
   const { folderId } = useParams();
@@ -20,6 +21,12 @@ function ViewFolder() {
   const documentsSectionRef = useRef(null);
   const studyMaterialsRef = useRef(null);
 
+  const acceptedFormats = [
+    'pdf', 'docx', 'txt',
+    'mp3', 'wav', 'm4a', 'ogg', 'flac',
+    'mp4', 'mov', 'avi', 'mkv', 'webm'
+  ];
+
   const tutorialSteps = [
     {
       title: "Welcome to Your Folder!",
@@ -28,12 +35,12 @@ function ViewFolder() {
     },
     {
       title: "Select a File",
-      description: "Choose a file to upload here. You can upload text (.txt), audio, or video files.",
+      description: "Choose a file to upload here. You can upload PDF (.pdf), Word (.docx), text (.txt), audio, or video files.",
       highlightRef: fileInputRef,
     },
     {
       title: "Upload the File",
-      description: "Click this button to upload your selected file to the folder.",
+      description: "Click to upload your file. Text files will be extracted and saved as .txt for processing.",
       highlightRef: uploadButtonRef,
     },
     {
@@ -103,28 +110,81 @@ function ViewFolder() {
     }
   };
 
+  const extractPdfText = async (file) => {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let fullText = '';
+      const numPages = pdf.numPages;
+
+      for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map(item => item.str).join(' ');
+        fullText += pageText + ' ';
+      }
+
+      return fullText.trim() || 'No text found in the PDF.';
+    } catch (error) {
+      throw new Error('PDF text extraction failed: ' + error.message);
+    }
+  };
+
+  const extractDocxText = async (file) => {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await window.mammoth.extractRawText({ arrayBuffer });
+      return result.value.trim() || 'No text found in the DOCX.';
+    } catch (error) {
+      throw new Error('DOCX text extraction failed: ' + error.message);
+    }
+  };
+
+  const extractTxtText = async (file) => {
+    try {
+      const text = await file.text();
+      return text.trim() || 'No text found in the TXT file.';
+    } catch (error) {
+      throw new Error('TXT text extraction failed: ' + error.message);
+    }
+  };
+
+  const sendToDeepSeek = async (text) => {
+    try {
+      const response = await axios.post(
+        'https://api.deepseek.com/v1/process', // Replace with actual DeepSeek endpoint
+        { text },
+        {
+          headers: {
+            'Authorization': 'Bearer YOUR_DEEPSEEK_API_KEY', // Replace with actual key
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      return response.data.results || 'No results from DeepSeek.';
+    } catch (error) {
+      console.warn('DeepSeek API error:', error.message);
+      return 'Failed to process text with DeepSeek: ' + error.message;
+    }
+  };
+
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
       const fileName = selectedFile.name.toLowerCase();
-      const allowedExtensions = ['.txt', '.mp3', '.wav', '.m4a', '.ogg', '.flac', '.mp4', '.mov', '.avi', '.mkv', '.webm'];
+      const allowedExtensions = [
+        '.pdf', '.docx', '.txt',
+        '.mp3', '.wav', '.m4a', '.ogg', '.flac',
+        '.mp4', '.mov', '.avi', '.mkv', '.webm'
+      ];
       const isValidFile = allowedExtensions.some(ext => fileName.endsWith(ext));
       if (!isValidFile) {
-        toast.error('Only .txt, audio (mp3, wav, m4a, ogg, flac), or video (mp4, mov, avi, mkv, webm) files are allowed.');
+        toast.error('Only .pdf, .docx, .txt, audio (mp3, wav, m4a, ogg, flac), or video (mp4, mov, avi, mkv, webm) files are allowed.');
         setFile(null);
         return;
       }
       setFile(selectedFile);
     }
-  };
-
-  const extractTextFromTextFile = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result.trim());
-      reader.onerror = () => reject(new Error('Failed to read text file.'));
-      reader.readAsText(file);
-    });
   };
 
   const handleUpload = async () => {
@@ -141,15 +201,45 @@ function ViewFolder() {
 
     setUploading(true);
     try {
-      let documentData;
       let extractedText = '';
+      let deepSeekResults = '';
+      let isText = false;
+      let isAudio = false;
+      let isVideo = false;
+      let extractedTextUrl = '';
 
-      if (file.name.toLowerCase().endsWith('.txt')) {
-        try {
-          extractedText = await extractTextFromTextFile(file);
-        } catch (err) {
-          console.warn('Text extraction failed:', err.message);
-          toast('Text extraction failed. File will still be uploaded.', {
+      const fileExtension = file.name.split('.').pop().toLowerCase();
+      try {
+        if (['pdf', 'docx', 'txt'].includes(fileExtension)) {
+          isText = true;
+          switch (fileExtension) {
+            case 'pdf':
+              extractedText = await extractPdfText(file);
+              break;
+            case 'docx':
+              extractedText = await extractDocxText(file);
+              break;
+            case 'txt':
+              extractedText = await extractTxtText(file);
+              break;
+          }
+          // Create and upload .txt file
+          const txtBlob = new Blob([extractedText], { type: 'text/plain' });
+          const txtFileName = `extracted_${file.name}.txt`;
+          const txtStorageRef = ref(storage, `documents/${folderId}/${txtFileName}`);
+          await uploadBytes(txtStorageRef, txtBlob);
+          extractedTextUrl = await getDownloadURL(txtStorageRef);
+          // Send extracted text to DeepSeek
+          deepSeekResults = await sendToDeepSeek(extractedText);
+        } else if (['mp3', 'wav', 'm4a', 'ogg', 'flac'].includes(fileExtension)) {
+          isAudio = true;
+        } else if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(fileExtension)) {
+          isVideo = true;
+        }
+      } catch (err) {
+        if (isText) {
+          console.warn('Text extraction or DeepSeek processing failed:', err.message);
+          toast('Text extraction or processing failed. File will still be uploaded.', {
             style: {
               background: '#fefcbf',
               color: '#744210',
@@ -158,22 +248,22 @@ function ViewFolder() {
         }
       }
 
+      // Upload original file
       const storageRef = ref(storage, `documents/${folderId}/${file.name}`);
       await uploadBytes(storageRef, file);
       const downloadURL = await getDownloadURL(storageRef);
 
-      const isAudio = ['.mp3', '.wav', '.m4a', '.ogg', '.flac'].some(ext => file.name.toLowerCase().endsWith(ext));
-      const isVideo = ['.mp4', '.mov', '.avi', '.mkv', '.webm'].some(ext => file.name.toLowerCase().endsWith(ext));
-
-      documentData = {
+      const documentData = {
         id: Date.now().toString(),
         name: file.name,
         url: downloadURL,
-        extractedText,
+        extractedText: isText ? extractedText : '',
+        extractedTextUrl: isText ? extractedTextUrl : '',
+        deepSeekResults: isText ? deepSeekResults : '',
         uploadedAt: new Date().toISOString(),
+        isText,
         isAudio,
         isVideo,
-        isText: file.name.toLowerCase().endsWith('.txt'),
       };
 
       const folderRef = doc(db, 'folders', folderId);
@@ -196,14 +286,16 @@ function ViewFolder() {
     }
   };
 
-  const handleDeleteDocument = async (docId, docName, isVideo, isAudio) => {
+  const handleDeleteDocument = async (docId, docName, isVideo, isAudio, extractedTextUrl) => {
     try {
-      if (!isVideo && !isAudio) {
-        const storageRef = ref(storage, `documents/${folderId}/${docName}`);
-        await deleteObject(storageRef);
-      } else {
-        const storageRef = ref(storage, `documents/${folderId}/${docName}`);
-        await deleteObject(storageRef);
+      // Delete original file
+      const storageRef = ref(storage, `documents/${folderId}/${docName}`);
+      await deleteObject(storageRef);
+
+      // Delete extracted .txt file if it exists
+      if (extractedTextUrl) {
+        const txtStorageRef = ref(storage, `documents/${folderId}/extracted_${docName}.txt`);
+        await deleteObject(txtStorageRef);
       }
 
       const updatedDocuments = folder.documents.filter(doc => doc.id !== docId);
@@ -271,7 +363,6 @@ function ViewFolder() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-4 md:p-8">
-      {/* Tutorial Modal */}
       {showTutorial && (
         <div className={`fixed inset-0 bg-black bg-opacity-50 flex justify-center z-50 px-4 ${
           tutorialStep === 1 || tutorialStep === 2 || tutorialStep === 3 || tutorialStep === 4 ? 'items-start pt-4' : 'items-center'
@@ -328,7 +419,10 @@ function ViewFolder() {
       </div>
 
       <div className={`mb-6 md:mb-8 ${tutorialStep === 1 || tutorialStep === 2 ? 'ring-4 ring-purple-500' : ''}`}>
-        <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Upload Document(.txt only), Audio Files(All Formats) Or Video Files(All Formats)</h2>
+        <h2 className="text-lg md:text-xl font-semibold mb-2 md:mb-3">Upload Document, Audio, or Video</h2>
+        <p className="text-purple-400 text-sm md:text-base mb-3 animate-pulse-glow">
+          Accepted formats: {acceptedFormats.map(fmt => `.${fmt}`).join(', ')}
+        </p>
         <div className="bg-gray-800 p-3 md:p-4 rounded-lg">
           <div>
             <input
@@ -336,7 +430,7 @@ function ViewFolder() {
               type="file"
               onChange={handleFileChange}
               className={`mb-3 text-sm md:text-base text-gray-300 ${tutorialStep === 1 ? 'ring-4 ring-purple-500' : ''}`}
-              accept=".txt,audio/*,video/*"
+              accept=".pdf,.docx,.txt,audio/*,video/*"
             />
           </div>
           <button
@@ -385,26 +479,28 @@ function ViewFolder() {
           folder.documents.map((doc) => (
             <div
               key={doc.id}
-              className="bg-gray-800 p-3 md:p-4 rounded-lg mb-3 md:mb-4 flex justify-between items-center"
+              className="bg-gray-800 p-3 md:p-4 rounded-lg mb-3 md:mb-4"
             >
-              <a
-                href={doc.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-purple-400 hover:underline text-sm md:text-base"
-              >
-                {doc.name} {doc.isAudio ? '(Audio)' : doc.isVideo ? '(Video)' : '(Text)'}
-              </a>
-              <div className="flex items-center space-x-3">
-                <span className="text-gray-400 text-sm">
-                  Uploaded on {new Date(doc.uploadedAt).toLocaleDateString()}
-                </span>
-                <button
-                  onClick={() => handleDeleteDocument(doc.id, doc.name, doc.isVideo, doc.isAudio)}
-                  className="bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700"
+              <div className="flex justify-between items-center">
+                <a
+                  href={doc.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-purple-400 hover:underline text-sm md:text-base"
                 >
-                  Delete
-                </button>
+                  {doc.name} {doc.isAudio ? '(Audio)' : doc.isVideo ? '(Video)' : `(${doc.name.split('.').pop().toUpperCase()})`}
+                </a>
+                <div className="flex items-center space-x-3">
+                  <span className="text-gray-400 text-sm">
+                    Uploaded on {new Date(doc.uploadedAt).toLocaleDateString()}
+                  </span>
+                  <button
+                    onClick={() => handleDeleteDocument(doc.id, doc.name, doc.isVideo, doc.isAudio, doc.extractedTextUrl)}
+                    className="bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700"
+                  >
+                    Delete
+                  </button>
+                </div>
               </div>
             </div>
           ))
