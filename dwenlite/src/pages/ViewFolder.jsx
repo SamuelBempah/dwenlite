@@ -5,6 +5,7 @@ import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import toast from 'react-hot-toast';
 import axios from 'axios';
+import JSZip from 'jszip';
 
 function ViewFolder() {
   const { folderId } = useParams();
@@ -22,7 +23,7 @@ function ViewFolder() {
   const studyMaterialsRef = useRef(null);
 
   const acceptedFormats = [
-    'pdf', 'docx', 'txt',
+    'pdf', 'docx', 'txt', 'pptx',
     'mp3', 'wav', 'm4a', 'ogg', 'flac',
     'mp4', 'mov', 'avi', 'mkv', 'webm'
   ];
@@ -35,7 +36,7 @@ function ViewFolder() {
     },
     {
       title: "Select a File",
-      description: "Choose a file to upload here. You can upload PDF (.pdf), Word (.docx), text (.txt), audio, or video files.",
+      description: "Choose a file to upload here. You can upload PDF (.pdf), Word (.docx), text (.txt), PowerPoint (.pptx), audio, or video files.",
       highlightRef: fileInputRef,
     },
     {
@@ -149,6 +150,30 @@ function ViewFolder() {
     }
   };
 
+  const extractPptxText = async (file) => {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const zip = await JSZip.loadAsync(arrayBuffer);
+      let text = '';
+      const slideFiles = Object.keys(zip.files).filter(file => 
+        file.match(/ppt\/slides\/slide\d+\.xml/)
+      );
+      for (const slideFile of slideFiles) {
+        const xmlText = await zip.file(slideFile).async('string');
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(xmlText, 'text/xml');
+        const textNodes = xmlDoc.getElementsByTagName('a:t');
+        for (let i = 0; i < textNodes.length; i++) {
+          text += textNodes[i].textContent + ' ';
+        }
+        text += '\n';
+      }
+      return text.trim() || 'No text found in the PPTX.';
+    } catch (error) {
+      throw new Error('PPTX text extraction failed: ' + error.message);
+    }
+  };
+
   const sendToDeepSeek = async (text) => {
     try {
       const response = await axios.post(
@@ -173,13 +198,13 @@ function ViewFolder() {
     if (selectedFile) {
       const fileName = selectedFile.name.toLowerCase();
       const allowedExtensions = [
-        '.pdf', '.docx', '.txt',
+        '.pdf', '.docx', '.txt', '.pptx',
         '.mp3', '.wav', '.m4a', '.ogg', '.flac',
         '.mp4', '.mov', '.avi', '.mkv', '.webm'
       ];
       const isValidFile = allowedExtensions.some(ext => fileName.endsWith(ext));
       if (!isValidFile) {
-        toast.error('Only .pdf, .docx, .txt, audio (mp3, wav, m4a, ogg, flac), or video (mp4, mov, avi, mkv, webm) files are allowed.');
+        toast.error('Only .pdf, .docx, .txt, .pptx, audio (mp3, wav, m4a, ogg, flac), or video (mp4, mov, avi, mkv, webm) files are allowed.');
         setFile(null);
         return;
       }
@@ -210,7 +235,7 @@ function ViewFolder() {
 
       const fileExtension = file.name.split('.').pop().toLowerCase();
       try {
-        if (['pdf', 'docx', 'txt'].includes(fileExtension)) {
+        if (['pdf', 'docx', 'txt', 'pptx'].includes(fileExtension)) {
           isText = true;
           switch (fileExtension) {
             case 'pdf':
@@ -221,6 +246,9 @@ function ViewFolder() {
               break;
             case 'txt':
               extractedText = await extractTxtText(file);
+              break;
+            case 'pptx':
+              extractedText = await extractPptxText(file);
               break;
           }
           // Create and upload .txt file
@@ -430,7 +458,7 @@ function ViewFolder() {
               type="file"
               onChange={handleFileChange}
               className={`mb-3 text-sm md:text-base text-gray-300 ${tutorialStep === 1 ? 'ring-4 ring-purple-500' : ''}`}
-              accept=".pdf,.docx,.txt,audio/*,video/*"
+              accept=".pdf,.docx,.txt,.pptx,audio/*,video/*"
             />
           </div>
           <button
