@@ -91,7 +91,7 @@ function Welcome() {
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 max-w-3xl mx-auto">
           <div className="bg-indigo-800/50 p-4 sm:p-6 rounded-lg shadow-lg border border-purple-500/30">
-            <h3 className="text-base sm:text-lg font-semibold text-white mb-2">Upload a File</h3>
+            <h3 className="text-base sm:text-lg font-semibold text-white mb-2">Upload a Document</h3>
             <p className="text-gray-400 text-sm sm:text-base">.pdf, .docx, .txt</p>
           </div>
           <div className="bg-indigo-800/50 p-4 sm:p-6 rounded-lg shadow-lg border border-purple-500/30">
