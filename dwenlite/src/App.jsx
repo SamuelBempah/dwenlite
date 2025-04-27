@@ -13,6 +13,7 @@ import Terms from './pages/Terms';
 import ResetPassword from './pages/ResetPassword';
 import ErrorBoundary from './ErrorBoundary';
 import { Toaster } from 'react-hot-toast';
+import Support from './pages/Support';
 
 function App() {
   return (
@@ -32,6 +33,7 @@ function App() {
           <Route path="/support-me" element={<SupportMe />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/support" element={<Support />} />
           <Route path="*" element={<Navigate to="/404.html" replace />} />
         </Routes>
       </Router>
