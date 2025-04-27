@@ -322,7 +322,7 @@ function Support() {
               </div>
             </div>
             <div className="text-gray-500 text-xs text-center pt-2">
-              For privacy purposes, all conversation with our bot is erased from the database after conversation ends or page reload.
+              For privacy purposes, all conversation with this bot is erased from the database after conversation ends or page reload.
             </div>
             <div ref={chatDisplayRef} className="flex-1 p-3 overflow-y-auto flex flex-col space-y-2">
               {messages.map(msg => (
