@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Welcome from './pages/Welcome';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
@@ -32,6 +32,7 @@ function App() {
           <Route path="/support-me" element={<SupportMe />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="*" element={<Navigate to="/404.html" replace />} />
         </Routes>
       </Router>
     </ErrorBoundary>
