@@ -440,7 +440,7 @@ function Notes() {
   return (
     <div className="min-h-screen bg-gray-900 text-white p-4 md:p-8">
       <div className="flex justify-between items-center mb-6 md:mb-8">
-        <h1 className="text-2xl md:text-3xl font-bold">{folder.name} - Running Notes</h1>
+        <h1 className="text-2xl md:text-3xl font-bold">{folder.name} - Notes</h1>
         <Link
           to={`/folder/${folderId}`}
           className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base"
