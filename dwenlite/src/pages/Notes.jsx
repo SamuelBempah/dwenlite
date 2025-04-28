@@ -5,6 +5,7 @@ import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { arrayUnion } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
+import jsPDF from 'jspdf';
 
 function Notes() {
   const { folderId } = useParams();
@@ -12,6 +13,8 @@ function Notes() {
   const [folder, setFolder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [notesLoading, setNotesLoading] = useState(false);
+  const [showStoredNotes, setShowStoredNotes] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState({});
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -54,7 +57,7 @@ function Notes() {
       toast.error('Failed to fetch folder. Please try again.');
       setLoading(false);
       navigate('/dashboard');
-    }
+      }
   };
 
   const transcribeAudio = async (audioUrl) => {
@@ -265,7 +268,7 @@ function Notes() {
         }
       }
 
-      const prompt = `Generate concise study notes based on the following content: "${context}". Format as a single paragraph, 50-100 words.`;
+      const prompt = `Generate comprehensive and well-organized study notes based on the following content: "${context}". Structure the notes with clear headings, subheadings, and bullet points where appropriate to enhance readability and understanding. Ensure the notes are detailed, covering key concepts, definitions, and examples. Do not limit the length; aim for completeness and clarity. Format the output as plain text suitable for rendering in a React component.`;
 
       const response = await axios.post(
         'https://api.deepseek.com/v1/chat/completions',
@@ -275,7 +278,7 @@ function Notes() {
             { role: 'system', content: 'You are a helpful assistant for generating educational content.' },
             { role: 'user', content: prompt },
           ],
-          max_tokens: 500,
+          max_tokens: 4000,
           temperature: 0.7,
         },
         {
@@ -311,7 +314,11 @@ function Notes() {
         throw new Error('Invalid DeepSeek API response: No generated content found.');
       }
 
-      return { id: Date.now().toString(), content: generatedText };
+      return { 
+        id: Date.now().toString(), 
+        content: generatedText,
+        createdAt: new Date().toISOString()
+      };
     } catch (err) {
       console.error('Error generating notes:', err);
       throw new Error(err.message);
@@ -360,6 +367,46 @@ function Notes() {
     }
   };
 
+  const handleToggleGroup = (noteId) => {
+    setExpandedGroups(prev => ({
+      ...prev,
+      [noteId]: !prev[noteId],
+    }));
+  };
+
+  const handleDownloadPDF = (note) => {
+    try {
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const margin = 10;
+      const maxWidth = pageWidth - 2 * margin;
+
+      // Set title
+      doc.setFontSize(16);
+      doc.text(`Notes (Created: ${new Date(note.createdAt).toLocaleDateString()})`, margin, 20);
+
+      // Add content
+      doc.setFontSize(12);
+      const splitText = doc.splitTextToSize(note.content, maxWidth);
+      let y = 30;
+      splitText.forEach(line => {
+        if (y > doc.internal.pageSize.getHeight() - margin) {
+          doc.addPage();
+          y = margin;
+        }
+        doc.text(line, margin, y);
+        y += 7; // Line height
+      });
+
+      // Save the PDF
+      doc.save(`notes_${note.id}.pdf`);
+      toast.success('PDF downloaded successfully!');
+    } catch (err) {
+      console.error('PDF generation error:', err);
+      toast.error('Failed to generate PDF. Please try again.');
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
@@ -393,7 +440,7 @@ function Notes() {
   return (
     <div className="min-h-screen bg-gray-900 text-white p-4 md:p-8">
       <div className="flex justify-between items-center mb-6 md:mb-8">
-        <h1 className="text-2xl md:text-3xl font-bold">{folder.name} - Notes</h1>
+        <h1 className="text-2xl md:text-3xl font-bold">{folder.name} - Running Notes</h1>
         <Link
           to={`/folder/${folderId}`}
           className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base"
@@ -448,20 +495,59 @@ function Notes() {
         {folder.notes?.length === 0 ? (
           <p className="text-gray-400 text-sm md:text-base">No notes available in this folder.</p>
         ) : (
-          folder.notes.map((note) => (
-            <div
-              key={note.id}
-              className="bg-gray-800 p-3 md:p-4 rounded-lg mb-3 md:mb-4 flex justify-between items-center"
+          <div>
+            <button
+              onClick={() => setShowStoredNotes(!showStoredNotes)}
+              className="bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base w-full mb-3"
             >
-              <p className="text-gray-300 text-sm md:text-base flex-1">{note.content}</p>
-              <button
-                onClick={() => handleDeleteNote(note.id)}
-                className="bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700 text-sm"
-              >
-                Delete
-              </button>
-            </div>
-          ))
+              <span>{showStoredNotes ? 'Hide Stored Notes' : 'Show Stored Notes'}</span>
+              <span>{showStoredNotes ? '▼' : '▶'}</span>
+            </button>
+            {showStoredNotes && (
+              <div className="space-y-3">
+                {folder.notes.map((note, index) => (
+                  <div
+                    key={note.id}
+                    className="bg-gray-800 p-3 md:p-4 rounded-lg"
+                  >
+                    <div className="flex justify-between items-center mb-2">
+                      <button
+                        onClick={() => handleToggleGroup(note.id)}
+                        className="text-left flex-1 text-base md:text-lg font-semibold hover:text-purple-400"
+                      >
+                        Notes {index + 1} (Created: {new Date(note.createdAt).toLocaleDateString()})
+                      </button>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={() => handleToggleGroup(note.id)}
+                          className="text-gray-400 hover:text-white"
+                        >
+                          {expandedGroups[note.id] ? 'Hide Notes' : 'Show Notes'}
+                        </button>
+                        <button
+                          onClick={() => handleDownloadPDF(note)}
+                          className="bg-blue-600 text-white py-1 px-3 rounded-lg hover:bg-blue-700"
+                        >
+                          Download PDF
+                        </button>
+                        <button
+                          onClick={() => handleDeleteNote(note.id)}
+                          className="bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                    {expandedGroups[note.id] && (
+                      <div className="mt-2">
+                        <p className="text-gray-300 text-sm md:text-base whitespace-pre-wrap">{note.content}</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>
