@@ -17,6 +17,12 @@ function Quizzes() {
   const [showStoredQuizzes, setShowStoredQuizzes] = useState(false);
   const [selectedQuizGroup, setSelectedQuizGroup] = useState(null);
   const [expandedGroups, setExpandedGroups] = useState({});
+  // New state for DwenLite AI Chat
+  const [chatInput, setChatInput] = useState('');
+  const [selectedQuizGroupId, setSelectedQuizGroupId] = useState('');
+  const [chatHistory, setChatHistory] = useState([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [showQuizGroupPrompt, setShowQuizGroupPrompt] = useState(false);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -459,6 +465,161 @@ function Quizzes() {
     setCurrentQuizIndex(prev => prev + 1);
   };
 
+  // New function for DwenLite AI Chat
+  const handleChatSubmit = async (e) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+
+    const question = chatInput.trim();
+    setChatInput('');
+
+    // Check if user specified a quiz group (e.g., "reference quiz group 1", "check quiz group one")
+    const quizGroupRegex = /(?:reference|check|use|from)\s*(?:quiz\s*group\s*)(\d+|one|two|three|four|five)/i;
+    const match = question.match(quizGroupRegex);
+    let quizGroupIndex = null;
+
+    if (match) {
+      const quizGroupRef = match[1].toLowerCase();
+      const numberWords = ['one', 'two', 'three', 'four', 'five'];
+      if (numberWords.includes(quizGroupRef)) {
+        quizGroupIndex = numberWords.indexOf(quizGroupRef);
+      } else if (!isNaN(parseInt(quizGroupRef))) {
+        quizGroupIndex = parseInt(quizGroupRef) - 1;
+      }
+    }
+
+    if (quizGroupIndex !== null && folder.quizGroups[quizGroupIndex]) {
+      // Quiz group specified, proceed with that quiz group
+      const selectedQuizGroup = folder.quizGroups[quizGroupIndex];
+      await processQuestion(question, selectedQuizGroup);
+    } else if (folder.quizGroups.length === 0) {
+      toast.error('No quiz groups available to reference.');
+      return;
+    } else {
+      // Prompt user to select a quiz group
+      setShowQuizGroupPrompt(true);
+      setChatHistory(prev => [
+        ...prev,
+        { type: 'user', content: question },
+        { type: 'system', content: 'Please select a quiz group to reference for this question.' },
+      ]);
+      setSelectedQuizGroupId('');
+    }
+  };
+
+  const handleQuizGroupSelection = async () => {
+    if (!selectedQuizGroupId) {
+      toast.error('Please select a quiz group.');
+      return;
+    }
+
+    const selectedQuizGroup = folder.quizGroups.find(group => group.id === selectedQuizGroupId);
+    if (!selectedQuizGroup) {
+      toast.error('Selected quiz group not found.');
+      return;
+    }
+
+    const lastQuestion = chatHistory.findLast(item => item.type === 'user')?.content;
+    if (!lastQuestion) {
+      toast.error('No question found to process.');
+      return;
+    }
+
+    setShowQuizGroupPrompt(false);
+    await processQuestion(lastQuestion, selectedQuizGroup);
+  };
+
+  const processQuestion = async (question, quizGroup) => {
+    setChatLoading(true);
+    try {
+      // Prepare quiz group content as context
+      const quizContent = quizGroup.quizzes.map((quiz, index) => {
+        return `Question ${index + 1}: ${quiz.question}\nOptions: ${quiz.options.join(', ')}\nCorrect Answer: ${quiz.correctAnswer}`;
+      }).join('\n\n');
+
+      // Simulate reading the quiz group
+      const quizGroupIndex = folder.quizGroups.findIndex(g => g.id === quizGroup.id) + 1;
+      setChatHistory(prev => [
+        ...prev,
+        { type: 'system', content: `DwenLite AI is reading Quiz Group ${quizGroupIndex}...` },
+      ]);
+
+      await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate reading delay
+
+      // Generate answer using DeepSeek API
+      const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
+      if (!apiKey) {
+        throw new Error('DeepSeek API key not found. Please set VITE_DEEPSEEK_API_KEY in your .env file.');
+      }
+
+      const prompt = `You are DwenLite AI, an assistant that answers questions based on provided quiz group content. Here is the content of the quiz group:\n\n${quizContent}\n\nQuestion: ${question}\n\nProvide a clear, concise, and accurate answer based on the quiz group content. If the question cannot be answered from the quiz group, state so and provide a brief explanation. Format the answer as plain text suitable for rendering in a React component.`;
+
+      setChatHistory(prev => [
+        ...prev,
+        { type: 'system', content: 'DwenLite AI is typing...' },
+      ]);
+
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate typing delay
+
+      const response = await axios.post(
+        'https://api.deepseek.com/v1/chat/completions',
+        {
+          model: 'deepseek-chat',
+          messages: [
+            { role: 'system', content: 'You are DwenLite AI, a helpful assistant for answering questions based on quiz groups.' },
+            { role: 'user', content: prompt },
+          ],
+          max_tokens: 1000,
+          temperature: 0.7,
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      ).catch(err => {
+        console.error('DeepSeek API error:', {
+          status: err.response?.status,
+          statusText: err.response?.statusText,
+          data: err.response?.data,
+          message: err.message,
+        });
+        if (err.response?.status === 401) {
+          throw new Error('Invalid DeepSeek API key. Please check your API key in the .env file.');
+        } else if (err.response?.status === 429) {
+          throw new Error('Rate limit exceeded. Please wait a few minutes and try again.');
+        } else if (err.response?.status === 404) {
+          throw new Error('DeepSeek API endpoint not found. The endpoint may have changed.');
+        } else {
+          throw new Error(`DeepSeek API request failed: ${err.message}`);
+        }
+      });
+
+      let answer;
+      if (response.data.choices?.[0]?.message?.content) {
+        answer = response.data.choices[0].message.content.trim();
+      } else if (response.data.choices?.[0]?.text) {
+        answer = response.data.choices[0].text.trim();
+      } else {
+        throw new Error('Invalid DeepSeek API response: No answer found.');
+      }
+
+      // Update chat history with the answer
+      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...').concat({
+        type: 'ai',
+        content: answer,
+      }));
+
+    } catch (err) {
+      console.error('Error processing question:', err);
+      toast.error(err.message);
+      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...'));
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
@@ -506,7 +667,8 @@ function Quizzes() {
       <div className="mb-6 md:mb-8">
         <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Generate Quizzes</h2>
         <p className="text-gray-400 text-sm md:text-base mb-3 md:mb-4">
-          Quiz generation typically takes 60-180 seconds. Processing time may vary based on server load and document size.</p>
+          Quiz generation typically takes 60-180 seconds. Processing time may vary based on server load and document size.
+        </p>
         <button
           onClick={handleRegenerateQuiz}
           disabled={quizLoading}
@@ -662,6 +824,78 @@ function Quizzes() {
             )}
           </div>
         )}
+      </div>
+
+      <div className="mb-6">
+        <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">DwenLite AI Chat</h2>
+        <p className="text-gray-400 text-sm md:text-base mb-3 md:mb-4">
+          Ask questions about your quiz groups, and DwenLite AI will provide answers based on the selected quiz group.
+        </p>
+        <div className="bg-gray-800 p-3 md:p-4 rounded-lg">
+          <div className="mb-3 max-h-96 overflow-y-auto">
+            {chatHistory.map((message, index) => (
+              <div
+                key={index}
+                className={`mb-2 ${message.type === 'user' ? 'text-right' : 'text-left'}`}
+              >
+                <span
+                  className={`inline-block p-2 rounded-lg ${
+                    message.type === 'user'
+                      ? 'bg-purple-600'
+                      : message.type === 'ai'
+                      ? 'bg-gray-700'
+                      : 'text-gray-400 italic'
+                  }`}
+                >
+                  {message.content}
+                </span>
+              </div>
+            ))}
+          </div>
+          {showQuizGroupPrompt && (
+            <div className="mb-3">
+              <select
+                value={selectedQuizGroupId}
+                onChange={(e) => setSelectedQuizGroupId(e.target.value)}
+                className="w-full p-2 bg-gray-700 text-white rounded-lg"
+              >
+                <option value="">Select a quiz group</option>
+                {folder.quizGroups.map((group, index) => (
+                  <option key={group.id} value={group.id}>
+                    Quiz Group {index + 1} (Created: {new Date(group.createdAt).toLocaleDateString()})
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={handleQuizGroupSelection}
+                className="mt-2 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 w-full"
+              >
+                Submit
+              </button>
+            </div>
+          )}
+          {!showQuizGroupPrompt && (
+            <form onSubmit={handleChatSubmit} className="flex items-center">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Ask DwenLite AI a question..."
+                className="flex-1 p-2 bg-gray-700 text-white rounded-l-lg focus:outline-none"
+                disabled={chatLoading}
+              />
+              <button
+                type="submit"
+                disabled={chatLoading}
+                className={`bg-purple-600 text-white py-2 px-4 rounded-r-lg hover:bg-purple-700 ${
+                  chatLoading ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                Send
+              </button>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -15,6 +15,12 @@ function Notes() {
   const [notesLoading, setNotesLoading] = useState(false);
   const [showStoredNotes, setShowStoredNotes] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState({});
+  // New state for DwenLite AI
+  const [chatInput, setChatInput] = useState('');
+  const [selectedNoteId, setSelectedNoteId] = useState('');
+  const [chatHistory, setChatHistory] = useState([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [showNotePrompt, setShowNotePrompt] = useState(false);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -57,7 +63,7 @@ function Notes() {
       toast.error('Failed to fetch folder. Please try again.');
       setLoading(false);
       navigate('/dashboard');
-      }
+    }
   };
 
   const transcribeAudio = async (audioUrl) => {
@@ -407,6 +413,156 @@ function Notes() {
     }
   };
 
+  // New function for DwenLite AI
+  const handleChatSubmit = async (e) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+
+    const question = chatInput.trim();
+    setChatInput('');
+
+    // Check if user specified a note (e.g., "reference note 1", "check note one")
+    const noteRegex = /(?:reference|check|use|from)\s*(?:note\s*)(\d+|one|two|three|four|five)/i;
+    const match = question.match(noteRegex);
+    let noteIndex = null;
+
+    if (match) {
+      const noteRef = match[1].toLowerCase();
+      const numberWords = ['one', 'two', 'three', 'four', 'five'];
+      if (numberWords.includes(noteRef)) {
+        noteIndex = numberWords.indexOf(noteRef);
+      } else if (!isNaN(parseInt(noteRef))) {
+        noteIndex = parseInt(noteRef) - 1;
+      }
+    }
+
+    if (noteIndex !== null && folder.notes[noteIndex]) {
+      // Note specified, proceed with that note
+      const selectedNote = folder.notes[noteIndex];
+      await processQuestion(question, selectedNote);
+    } else if (folder.notes.length === 0) {
+      toast.error('No notes available to reference.');
+      return;
+    } else {
+      // Prompt user to select a note
+      setShowNotePrompt(true);
+      setChatHistory(prev => [
+        ...prev,
+        { type: 'user', content: question },
+        { type: 'system', content: 'Please select a note to reference for this question.' },
+      ]);
+      setSelectedNoteId('');
+    }
+  };
+
+  const handleNoteSelection = async () => {
+    if (!selectedNoteId) {
+      toast.error('Please select a note.');
+      return;
+    }
+
+    const selectedNote = folder.notes.find(note => note.id === selectedNoteId);
+    if (!selectedNote) {
+      toast.error('Selected note not found.');
+      return;
+    }
+
+    const lastQuestion = chatHistory.findLast(item => item.type === 'user')?.content;
+    if (!lastQuestion) {
+      toast.error('No question found to process.');
+      return;
+    }
+
+    setShowNotePrompt(false);
+    await processQuestion(lastQuestion, selectedNote);
+  };
+
+  const processQuestion = async (question, note) => {
+    setChatLoading(true);
+    try {
+      // Simulate reading the note
+      const noteIndex = folder.notes.findIndex(n => n.id === note.id) + 1;
+      setChatHistory(prev => [
+        ...prev,
+        { type: 'system', content: `DwenLite AI is reading Note ${noteIndex}...` },
+      ]);
+
+      await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate reading delay
+
+      // Generate answer using DeepSeek API
+      const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
+      if (!apiKey) {
+        throw new Error('DeepSeek API key not found. Please set VITE_DEEPSEEK_API_KEY in your .env file.');
+      }
+
+      const prompt = `You are DwenLite AI, an assistant that answers questions based on provided notes. Here is the content of the note:\n\n${note.content}\n\nQuestion: ${question}\n\nProvide a clear, concise, and accurate answer based on the note. If the question cannot be answered from the note, state so and provide a brief explanation. Format the answer as plain text suitable for rendering in a React component.`;
+
+      setChatHistory(prev => [
+        ...prev,
+        { type: 'system', content: 'DwenLite AI is typing...' },
+      ]);
+
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate typing delay
+
+      const response = await axios.post(
+        'https://api.deepseek.com/v1/chat/completions',
+        {
+          model: 'deepseek-chat',
+          messages: [
+            { role: 'system', content: 'You are DwenLite AI, a helpful assistant for answering questions based on notes.' },
+            { role: 'user', content: prompt },
+          ],
+          max_tokens: 1000,
+          temperature: 0.7,
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      ).catch(err => {
+        console.error('DeepSeek API error:', {
+          status: err.response?.status,
+          statusText: err.response?.statusText,
+          data: err.response?.data,
+          message: err.message,
+        });
+        if (err.response?.status === 401) {
+          throw new Error('Invalid DeepSeek API key. Please check your API key in the .env file.');
+        } else if (err.response?.status === 429) {
+          throw new Error('Rate limit exceeded. Please wait a few minutes and try again.');
+        } else if (err.response?.status === 404) {
+          throw new Error('DeepSeek API endpoint not found. The endpoint may have changed.');
+        } else {
+          throw new Error(`DeepSeek API request failed: ${err.message}`);
+        }
+      });
+
+      let answer;
+      if (response.data.choices?.[0]?.message?.content) {
+        answer = response.data.choices[0].message.content.trim();
+      } else if (response.data.choices?.[0]?.text) {
+        answer = response.data.choices[0].text.trim();
+      } else {
+        throw new Error('Invalid DeepSeek API response: No answer found.');
+      }
+
+      // Update chat history with the answer
+      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...').concat({
+        type: 'ai',
+        content: answer,
+      }));
+
+    } catch (err) {
+      console.error('Error processing question:', err);
+      toast.error(err.message);
+      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...'));
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
@@ -452,7 +608,8 @@ function Notes() {
       <div className="mb-6 md:mb-8">
         <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Generate Notes</h2>
         <p className="text-gray-400 text-sm md:text-base mb-3 md:mb-4">
-          Note generation typically takes 1-5 Minutes. Processing time may vary based on server load and document size.</p>
+          Note generation typically takes 1-5 Minutes. Processing time may vary based on server load and document size.
+        </p>
         <button
           onClick={handleGenerateNotes}
           disabled={notesLoading}
@@ -549,6 +706,78 @@ function Notes() {
             )}
           </div>
         )}
+      </div>
+
+      <div className="mb-6">
+        <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">DwenLite AI Chat</h2>
+        <p className="text-gray-400 text-sm md:text-base mb-3 md:mb-4">
+          Ask questions about your notes, and DwenLite AI will provide answers based on the selected note.
+        </p>
+        <div className="bg-gray-800 p-3 md:p-4 rounded-lg">
+          <div className="mb-3 max-h-96 overflow-y-auto">
+            {chatHistory.map((message, index) => (
+              <div
+                key={index}
+                className={`mb-2 ${message.type === 'user' ? 'text-right' : 'text-left'}`}
+              >
+                <span
+                  className={`inline-block p-2 rounded-lg ${
+                    message.type === 'user'
+                      ? 'bg-purple-600'
+                      : message.type === 'ai'
+                      ? 'bg-gray-700'
+                      : 'text-gray-400 italic'
+                  }`}
+                >
+                  {message.content}
+                </span>
+              </div>
+            ))}
+          </div>
+          {showNotePrompt && (
+            <div className="mb-3">
+              <select
+                value={selectedNoteId}
+                onChange={(e) => setSelectedNoteId(e.target.value)}
+                className="w-full p-2 bg-gray-700 text-white rounded-lg"
+              >
+                <option value="">Select a note</option>
+                {folder.notes.map((note, index) => (
+                  <option key={note.id} value={note.id}>
+                    Note {index + 1} (Created: {new Date(note.createdAt).toLocaleDateString()})
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={handleNoteSelection}
+                className="mt-2 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 w-full"
+              >
+                Submit
+              </button>
+            </div>
+          )}
+          {!showNotePrompt && (
+            <form onSubmit={handleChatSubmit} className="flex items-center">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Ask DwenLite AI a question..."
+                className="flex-1 p-2 bg-gray-700 text-white rounded-l-lg focus:outline-none"
+                disabled={chatLoading}
+              />
+              <button
+                type="submit"
+                disabled={chatLoading}
+                className={`bg-purple-600 text-white py-2 px-4 rounded-r-lg hover:bg-purple-700 ${
+                  chatLoading ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                Send
+              </button>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );

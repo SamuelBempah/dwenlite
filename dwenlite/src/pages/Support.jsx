@@ -34,7 +34,7 @@ function Support() {
         // Initialize with a welcome message
         setMessages([{
           id: Date.now(),
-          sender: 'bot',
+          sender: 'dwenlite',
           content: 'Welcome to Dwenlite Support! How can I assist you today?',
           timestamp: new Date().toLocaleString(),
         }]);
@@ -64,7 +64,7 @@ function Support() {
       inactivityTimerRef.current = setTimeout(() => {
         setMessages(prev => [...prev, {
           id: Date.now(),
-          sender: 'bot',
+          sender: 'dwenlite',
           content: "Looks like there's no further conversation, so I'm ending this session. Goodbye.",
           timestamp: new Date().toLocaleString(),
         }]);
@@ -98,7 +98,7 @@ function Support() {
     setTimeout(() => {
       setMessages(prev => [...prev, {
         id: Date.now(),
-        sender: 'bot',
+        sender: 'dwenlite',
         content: message,
         timestamp: new Date().toLocaleString(),
       }]);
@@ -156,7 +156,7 @@ function Support() {
         setTimeout(() => {
           setMessages(prev => [...prev, {
             id: Date.now(),
-            sender: 'bot',
+            sender: 'dwenlite',
             content: responseText,
             timestamp: new Date().toLocaleString(),
           }]);
@@ -216,7 +216,7 @@ function Support() {
         setTimeout(() => {
           setMessages(prev => [...prev, {
             id: Date.now(),
-            sender: 'bot',
+            sender: 'dwenlite',
             content: generatedText,
             timestamp: new Date().toLocaleString(),
           }]);
@@ -229,7 +229,7 @@ function Support() {
         setTimeout(() => {
           setMessages(prev => [...prev, {
             id: Date.now(),
-            sender: 'bot',
+            sender: 'dwenlite',
             content: 'Sorry, I encountered an error. Please try again or email samuelbempah@sbmindtechnologies.com for assistance. Is that all?',
             timestamp: new Date().toLocaleString(),
           }]);
@@ -334,14 +334,14 @@ function Support() {
                       : 'self-start bg-gray-700 text-white'
                   }`}
                 >
-                  <strong>{msg.sender === 'user' ? 'You' : 'Bot'}:</strong> {msg.content}
+                  <strong>{msg.sender === 'user' ? 'You' : 'DwenLite Support AI'}:</strong> {msg.content}
                   <small className="block text-xs opacity-75">{msg.timestamp}</small>
                 </div>
               ))}
             </div>
             {isTyping && (
               <div className="flex items-center px-3 py-2 text-gray-400 text-sm">
-                <span>Bot is typing</span>
+                <span>DwenLite Support AI is typing</span>
                 <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink"></span>
                 <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-200"></span>
                 <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-400"></span>
@@ -373,7 +373,7 @@ function Support() {
               <div className="text-gray-500 text-xs mt-2 text-center">Made by Samuel Bempah</div>
               {isConversationEnded && (
                 <div className="text-gray-500 text-xs mt-2 text-center">
-                  Bot has ended this conversation. No messages can be sent until page reload.
+                  DwenLite Support AI has ended this conversation. No messages can be sent until page reload.
                 </div>
               )}
             </div>

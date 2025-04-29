@@ -16,6 +16,12 @@ function Flashcards() {
   const [showStoredFlashcards, setShowStoredFlashcards] = useState(false);
   const [selectedFlashcardGroup, setSelectedFlashcardGroup] = useState(null);
   const [expandedGroups, setExpandedGroups] = useState({});
+  // New state for DwenLite AI Chat
+  const [chatInput, setChatInput] = useState('');
+  const [selectedFlashcardGroupId, setSelectedFlashcardGroupId] = useState('');
+  const [chatHistory, setChatHistory] = useState([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [showFlashcardGroupPrompt, setShowFlashcardGroupPrompt] = useState(false);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -430,6 +436,257 @@ function Flashcards() {
     setCurrentFlashcardIndex(prev => Math.max(0, prev - 1));
   };
 
+  // New function for DwenLite AI Chat
+  const handleChatSubmit = async (e) => {
+    e.preventDefault();
+    if (!chatInput.trim()) return;
+
+    const question = chatInput.trim();
+    setChatInput('');
+
+    // Check if user specified a flashcard group (e.g., "reference flashcard group 1", "check flashcard group one")
+    const flashcardGroupRegex = /(?:reference|check|use|from)\s*(?:flashcard\s*group\s*)(\d+|one|two|three|four|five)/i;
+    const match = question.match(flashcardGroupRegex);
+    let flashcardGroupIndex = null;
+
+    if (match) {
+      const flashcardGroupRef = match[1].toLowerCase();
+      const numberWords = ['one', 'two', 'three', 'four', 'five'];
+      if (numberWords.includes(flashcardGroupRef)) {
+        flashcardGroupIndex = numberWords.indexOf(flashcardGroupRef);
+      } else if (!isNaN(parseInt(flashcardGroupRef))) {
+        flashcardGroupIndex = parseInt(flashcardGroupRef) - 1;
+      }
+    }
+
+    if (flashcardGroupIndex !== null && folder.flashcardGroups[flashcardGroupIndex]) {
+      // Flashcard group specified, proceed with that flashcard group
+      const selectedFlashcardGroup = folder.flashcardGroups[flashcardGroupIndex];
+      await processQuestion(question, selectedFlashcardGroup);
+    } else if (folder.flashcardGroups.length === 0) {
+      toast.error('No flashcard groups available to reference.');
+      return;
+    } else {
+      // Prompt user to select a flashcard group
+      setShowFlashcardGroupPrompt(true);
+      setChatHistory(prev => [
+        ...prev,
+        { type: 'user', content: question },
+        { type: 'system', content: 'Please select a flashcard group to reference for this question.' },
+      ]);
+      setSelectedFlashcardGroupId('');
+    }
+  };
+
+  const handleFlashcardGroupSelection = async () => {
+    if (!selectedFlashcardGroupId) {
+      toast.error('Please select a flashcard group.');
+      return;
+    }
+
+    const selectedFlashcardGroup = folder.flashcardGroups.find(group => group.id === selectedFlashcardGroupId);
+    if (!selectedFlashcardGroup) {
+      toast.error('Selected flashcard group not found.');
+      return;
+    }
+
+    const lastQuestion = chatHistory.findLast(item => item.type === 'user')?.content;
+    if (!lastQuestion) {
+      toast.error('No question found to process.');
+      return;
+    }
+
+    setShowFlashcardGroupPrompt(false);
+    await processQuestion(lastQuestion, selectedFlashcardGroup);
+  };
+
+  const scrapeWeb = async (query) => {
+    try {
+      const apiKey = import.meta.env.VITE_SERPAPI_API_KEY;
+      if (!apiKey) {
+        throw new Error('SerpApi API key not found. Please set VITE_SERPAPI_API_KEY in your .env file.');
+      }
+  
+      const params = new URLSearchParams({
+        q: query,
+        api_key: apiKey,
+      });
+  
+      const response = await axios.get(`https://serpapi.com/search?${params.toString()}`).catch(err => {
+        console.error('SerpApi request error:', {
+          status: err.response?.status,
+          statusText: err.response?.statusText,
+          data: err.response?.data,
+          message: err.message,
+        });
+        let errorMessage = 'Web search request failed';
+        if (err.response?.status === 401) {
+          errorMessage = 'Invalid SerpApi API key. Please check your API key in the .env file.';
+        } else if (err.response?.status === 429) {
+          errorMessage = 'SerpApi rate limit exceeded. Please wait a few minutes and try again.';
+        }
+        throw new Error(`${errorMessage}: ${err.message}`);
+      });
+  
+      const organicResults = response.data.organic_results || [];
+      let searchResults = organicResults.slice(0, 3).map(result => ({
+        title: result.title,
+        snippet: result.snippet,
+        link: result.link,
+      }));
+  
+      if (searchResults.length === 0) {
+        searchResults = [{ title: 'No results found', snippet: 'No relevant information was found for your query.', link: '' }];
+      }
+  
+      return searchResults;
+    } catch (err) {
+      console.error('Web scraping error:', err);
+      throw new Error(`Web scraping failed: ${err.message}`);
+    }
+  };
+
+  const processQuestion = async (question, flashcardGroup) => {
+    setChatLoading(true);
+    try {
+      // Prepare flashcard group content as context
+      const flashcardContent = flashcardGroup.flashcards.map((card, index) => {
+        return `Flashcard ${index + 1}:\nQuestion: ${card.question}\nAnswer: ${card.answer}`;
+      }).join('\n\n');
+
+      // Simulate reading the flashcard group
+      const flashcardGroupIndex = folder.flashcardGroups.findIndex(g => g.id === flashcardGroup.id) + 1;
+      setChatHistory(prev => [
+        ...prev,
+        { type: 'system', content: `DwenLite AI is reading Flashcard Group ${flashcardGroupIndex}...` },
+      ]);
+
+      await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate reading delay
+
+      // Generate answer using DeepSeek API
+      const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
+      if (!apiKey) {
+        throw new Error('DeepSeek API key not found. Please set VITE_DEEPSEEK_API_KEY in your .env file.');
+      }
+
+      let prompt = `You are DwenLite AI, an assistant that answers questions based on provided flashcard group content. Here is the content of the flashcard group:\n\n${flashcardContent}\n\nQuestion: ${question}\n\nProvide a clear, concise, and accurate answer based on the flashcard group content. If the question cannot be answered from the flashcard group, state so and provide a brief explanation. Format the answer as plain text suitable for rendering in a React component.`;
+
+      setChatHistory(prev => [
+        ...prev,
+        { type: 'system', content: 'DwenLite AI is typing...' },
+      ]);
+
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate typing delay
+
+      let response = await axios.post(
+        'https://api.deepseek.com/v1/chat/completions',
+        {
+          model: 'deepseek-chat',
+          messages: [
+            { role: 'system', content: 'You are DwenLite AI, a helpful assistant for answering questions based on flashcard groups.' },
+            { role: 'user', content: prompt },
+          ],
+          max_tokens: 1000,
+          temperature: 0.7,
+        },
+        {
+          headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      ).catch(err => {
+        console.error('DeepSeek API error:', {
+          status: err.response?.status,
+          statusText: err.response?.statusText,
+          data: err.response?.data,
+          message: err.message,
+        });
+        if (err.response?.status === 401) {
+          throw new Error('Invalid DeepSeek API key. Please check your API key in the .env file.');
+        } else if (err.response?.status === 429) {
+          throw new Error('Rate limit exceeded. Please wait a few minutes and try again.');
+        } else if (err.response?.status === 404) {
+          throw new Error('DeepSeek API endpoint not found. The endpoint may have changed.');
+        } else {
+          throw new Error(`DeepSeek API request failed: ${err.message}`);
+        }
+      });
+
+      let answer;
+      if (response.data.choices?.[0]?.message?.content) {
+        answer = response.data.choices[0].message.content.trim();
+      } else if (response.data.choices?.[0]?.text) {
+        answer = response.data.choices[0].text.trim();
+      } else {
+        throw new Error('Invalid DeepSeek API response: No answer found.');
+      }
+
+      // If the answer indicates the question cannot be answered, perform a web search
+      if (answer.includes('cannot be answered from the flashcard group')) {
+        setChatHistory(prev => [
+          ...prev,
+          { type: 'system', content: 'DwenLite AI is searching the web for additional information...' },
+        ]);
+
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate search delay
+
+        const searchResults = await scrapeWeb(question);
+        const searchContent = searchResults.map(result => `Title: ${result.title}\nSnippet: ${result.snippet}\nLink: ${result.link}`).join('\n\n');
+
+        prompt = `You are DwenLite AI, an assistant that answers questions using provided flashcard group content and web search results. The flashcard group content did not provide enough information to answer the question. Here is the flashcard group content:\n\n${flashcardContent}\n\nHere are the web search results:\n\n${searchContent}\n\nQuestion: ${question}\n\nProvide a clear, concise, and accurate answer based on the web search results. If the question still cannot be answered, state so and provide a brief explanation. Format the answer as plain text suitable for rendering in a React component.`;
+
+        response = await axios.post(
+          'https://api.deepseek.com/v1/chat/completions',
+          {
+            model: 'deepseek-chat',
+            messages: [
+              { role: 'system', content: 'You are DwenLite AI, a helpful assistant for answering questions using flashcard groups and web search results.' },
+              { role: 'user', content: prompt },
+            ],
+            max_tokens: 1000,
+            temperature: 0.7,
+          },
+          {
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        ).catch(err => {
+          console.error('DeepSeek API error (web search):', {
+            status: err.response?.status,
+            statusText: err.response?.statusText,
+            data: err.response?.data,
+            message: err.message,
+          });
+          throw new Error(`DeepSeek API request failed: ${err.message}`);
+        });
+
+        if (response.data.choices?.[0]?.message?.content) {
+          answer = response.data.choices[0].message.content.trim();
+        } else if (response.data.choices?.[0]?.text) {
+          answer = response.data.choices[0].text.trim();
+        } else {
+          throw new Error('Invalid DeepSeek API response: No answer found after web search.');
+        }
+      }
+
+      // Update chat history with the answer
+      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...' && item.content !== 'DwenLite AI is searching the web for additional information...').concat({
+        type: 'ai',
+        content: answer,
+      }));
+
+    } catch (err) {
+      console.error('Error processing question:', err);
+      toast.error(err.message);
+      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...' && item.content !== 'DwenLite AI is searching the web for additional information...'));
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
@@ -477,7 +734,8 @@ function Flashcards() {
       <div className="mb-6 md:mb-8">
         <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Generate Flashcards</h2>
         <p className="text-gray-400 text-sm md:text-base mb-3 md:mb-4">
-          FlashCards generation typically takes 30-60 seconds. Processing time may vary based on server load and document size.</p>
+          FlashCards generation typically takes 30-60 seconds. Processing time may vary based on server load and document size.
+        </p>
         <button
           onClick={handleGenerateFlashcards}
           disabled={flashcardsLoading}
@@ -625,6 +883,78 @@ function Flashcards() {
             )}
           </div>
         )}
+      </div>
+
+      <div className="mb-6">
+        <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">DwenLite AI Chat</h2>
+        <p className="text-gray-400 text-sm md:text-base mb-3 md:mb-4">
+          Ask questions about your flashcard groups, and DwenLite AI will provide answers based on the selected flashcard group.
+        </p>
+        <div className="bg-gray-800 p-3 md:p-4 rounded-lg">
+          <div className="mb-3 max-h-96 overflow-y-auto">
+            {chatHistory.map((message, index) => (
+              <div
+                key={index}
+                className={`mb-2 ${message.type === 'user' ? 'text-right' : 'text-left'}`}
+              >
+                <span
+                  className={`inline-block p-2 rounded-lg ${
+                    message.type === 'user'
+                      ? 'bg-purple-600'
+                      : message.type === 'ai'
+                      ? 'bg-gray-700'
+                      : 'text-gray-400 italic'
+                  }`}
+                >
+                  {message.content}
+                </span>
+              </div>
+            ))}
+          </div>
+          {showFlashcardGroupPrompt && (
+            <div className="mb-3">
+              <select
+                value={selectedFlashcardGroupId}
+                onChange={(e) => setSelectedFlashcardGroupId(e.target.value)}
+                className="w-full p-2 bg-gray-700 text-white rounded-lg"
+              >
+                <option value="">Select a flashcard group</option>
+                {folder.flashcardGroups.map((group, index) => (
+                  <option key={group.id} value={group.id}>
+                    Flashcard Group {index + 1} (Created: {new Date(group.createdAt).toLocaleDateString()})
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={handleFlashcardGroupSelection}
+                className="mt-2 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 w-full"
+              >
+                Submit
+              </button>
+            </div>
+          )}
+          {!showFlashcardGroupPrompt && (
+            <form onSubmit={handleChatSubmit} className="flex items-center">
+              <input
+                type="text"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                placeholder="Ask DwenLite AI a question..."
+                className="flex-1 p-2 bg-gray-700 text-white rounded-l-lg focus:outline-none"
+                disabled={chatLoading}
+              />
+              <button
+                type="submit"
+                disabled={chatLoading}
+                className={`bg-purple-600 text-white py-2 px-4 rounded-r-lg hover:bg-purple-700 ${
+                  chatLoading ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                Send
+              </button>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );
