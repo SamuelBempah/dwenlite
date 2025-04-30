@@ -16,7 +16,6 @@ function Flashcards() {
   const [showStoredFlashcards, setShowStoredFlashcards] = useState(false);
   const [selectedFlashcardGroup, setSelectedFlashcardGroup] = useState(null);
   const [expandedGroups, setExpandedGroups] = useState({});
-  // New state for DwenLite AI Chat
   const [chatInput, setChatInput] = useState('');
   const [selectedFlashcardGroupId, setSelectedFlashcardGroupId] = useState('');
   const [chatHistory, setChatHistory] = useState([]);
@@ -107,7 +106,7 @@ function Flashcards() {
 
       let status = 'queued';
       let transcribedText = '';
-      const maxAttempts = 30; // ~60 seconds
+      const maxAttempts = 30;
       let attempts = 0;
 
       while (status !== 'completed' && status !== 'error' && attempts < maxAttempts) {
@@ -201,7 +200,7 @@ function Flashcards() {
 
       let status = 'queued';
       let transcribedText = '';
-      const maxAttempts = 60; // ~120 seconds for videos
+      const maxAttempts = 60;
       let attempts = 0;
 
       while (status !== 'completed' && status !== 'error' && attempts < maxAttempts) {
@@ -436,7 +435,6 @@ function Flashcards() {
     setCurrentFlashcardIndex(prev => Math.max(0, prev - 1));
   };
 
-  // New function for DwenLite AI Chat
   const handleChatSubmit = async (e) => {
     e.preventDefault();
     if (!chatInput.trim()) return;
@@ -444,7 +442,6 @@ function Flashcards() {
     const question = chatInput.trim();
     setChatInput('');
 
-    // Check if user specified a flashcard group (e.g., "reference flashcard group 1", "check flashcard group one")
     const flashcardGroupRegex = /(?:reference|check|use|from)\s*(?:flashcard\s*group\s*)(\d+|one|two|three|four|five)/i;
     const match = question.match(flashcardGroupRegex);
     let flashcardGroupIndex = null;
@@ -460,14 +457,12 @@ function Flashcards() {
     }
 
     if (flashcardGroupIndex !== null && folder.flashcardGroups[flashcardGroupIndex]) {
-      // Flashcard group specified, proceed with that flashcard group
       const selectedFlashcardGroup = folder.flashcardGroups[flashcardGroupIndex];
       await processQuestion(question, selectedFlashcardGroup);
     } else if (folder.flashcardGroups.length === 0) {
       toast.error('No flashcard groups available to reference.');
       return;
     } else {
-      // Prompt user to select a flashcard group
       setShowFlashcardGroupPrompt(true);
       setChatHistory(prev => [
         ...prev,
@@ -506,12 +501,12 @@ function Flashcards() {
       if (!apiKey) {
         throw new Error('SerpApi API key not found. Please set VITE_SERPAPI_API_KEY in your .env file.');
       }
-  
+
       const params = new URLSearchParams({
         q: query,
         api_key: apiKey,
       });
-  
+
       const response = await axios.get(`https://serpapi.com/search?${params.toString()}`).catch(err => {
         console.error('SerpApi request error:', {
           status: err.response?.status,
@@ -527,18 +522,18 @@ function Flashcards() {
         }
         throw new Error(`${errorMessage}: ${err.message}`);
       });
-  
+
       const organicResults = response.data.organic_results || [];
       let searchResults = organicResults.slice(0, 3).map(result => ({
         title: result.title,
         snippet: result.snippet,
         link: result.link,
       }));
-  
+
       if (searchResults.length === 0) {
         searchResults = [{ title: 'No results found', snippet: 'No relevant information was found for your query.', link: '' }];
       }
-  
+
       return searchResults;
     } catch (err) {
       console.error('Web scraping error:', err);
@@ -549,21 +544,18 @@ function Flashcards() {
   const processQuestion = async (question, flashcardGroup) => {
     setChatLoading(true);
     try {
-      // Prepare flashcard group content as context
       const flashcardContent = flashcardGroup.flashcards.map((card, index) => {
         return `Flashcard ${index + 1}:\nQuestion: ${card.question}\nAnswer: ${card.answer}`;
       }).join('\n\n');
 
-      // Simulate reading the flashcard group
       const flashcardGroupIndex = folder.flashcardGroups.findIndex(g => g.id === flashcardGroup.id) + 1;
       setChatHistory(prev => [
         ...prev,
         { type: 'system', content: `DwenLite AI is reading Flashcard Group ${flashcardGroupIndex}...` },
       ]);
 
-      await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate reading delay
+      await new Promise(resolve => setTimeout(resolve, 1500));
 
-      // Generate answer using DeepSeek API
       const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
       if (!apiKey) {
         throw new Error('DeepSeek API key not found. Please set VITE_DEEPSEEK_API_KEY in your .env file.');
@@ -576,7 +568,7 @@ function Flashcards() {
         { type: 'system', content: 'DwenLite AI is typing...' },
       ]);
 
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate typing delay
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       let response = await axios.post(
         'https://api.deepseek.com/v1/chat/completions',
@@ -622,14 +614,13 @@ function Flashcards() {
         throw new Error('Invalid DeepSeek API response: No answer found.');
       }
 
-      // If the answer indicates the question cannot be answered, perform a web search
       if (answer.includes('cannot be answered from the flashcard group')) {
         setChatHistory(prev => [
           ...prev,
           { type: 'system', content: 'DwenLite AI is searching the web for additional information...' },
         ]);
 
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate search delay
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
         const searchResults = await scrapeWeb(question);
         const searchContent = searchResults.map(result => `Title: ${result.title}\nSnippet: ${result.snippet}\nLink: ${result.link}`).join('\n\n');
@@ -672,7 +663,6 @@ function Flashcards() {
         }
       }
 
-      // Update chat history with the answer
       setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...' && item.content !== 'DwenLite AI is searching the web for additional information...').concat({
         type: 'ai',
         content: answer,
@@ -721,6 +711,58 @@ function Flashcards() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-4 md:p-8">
+      <style>
+        {`
+          @keyframes slideInFromRight {
+            0% { transform: translateX(100%); opacity: 0; }
+            100% { transform: translateX(0); opacity: 1; }
+          }
+          @keyframes slideInFromLeft {
+            0% { transform: translateX(-100%); opacity: 0; }
+            100% { transform: translateX(0); opacity: 1; }
+          }
+          @keyframes fadeIn {
+            0% { opacity: 0; }
+            100% { opacity: 1; }
+          }
+          @keyframes pulseDots {
+            0% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+            100% { transform: translateY(0); }
+          }
+          @keyframes pulseContainer {
+            0% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(147, 51, 234, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0); }
+          }
+          .animate-slide-in-right {
+            animation: slideInFromRight 0.3s ease-out forwards;
+          }
+          .animate-slide-in-left {
+            animation: slideInFromLeft 0.3s ease-out forwards;
+          }
+          .animate-fade-in {
+            animation: fadeIn 0.5s ease-in forwards;
+          }
+          .typing-dots span {
+            display: inline-block;
+            animation: pulseDots 0.5s infinite alternate;
+          }
+          .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+          .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+          .pulse-container {
+            animation: pulseContainer 2s infinite;
+          }
+          .hover-scale {
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+          }
+          .hover-scale:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+          }
+        `}
+      </style>
+
       <div className="flex justify-between items-center mb-6 md:mb-8">
         <h1 className="text-2xl md:text-3xl font-bold">{folder.name} - Flashcards</h1>
         <Link
@@ -890,12 +932,14 @@ function Flashcards() {
         <p className="text-gray-400 text-sm md:text-base mb-3 md:mb-4">
           Ask questions about your flashcard groups, and DwenLite AI will provide answers based on the selected flashcard group.
         </p>
-        <div className="bg-gray-800 p-3 md:p-4 rounded-lg">
+        <div className={`bg-gray-800 p-3 md:p-4 rounded-lg ${chatLoading ? 'pulse-container' : ''}`}>
           <div className="mb-3 max-h-96 overflow-y-auto">
             {chatHistory.map((message, index) => (
               <div
                 key={index}
-                className={`mb-2 ${message.type === 'user' ? 'text-right' : 'text-left'}`}
+                className={`mb-2 ${message.type === 'user' ? 'text-right' : 'text-left'} ${
+                  message.type === 'user' ? 'animate-slide-in-right' : 'animate-slide-in-left'
+                }`}
               >
                 <span
                   className={`inline-block p-2 rounded-lg ${
@@ -903,16 +947,25 @@ function Flashcards() {
                       ? 'bg-purple-600'
                       : message.type === 'ai'
                       ? 'bg-gray-700'
-                      : 'text-gray-400 italic'
+                      : 'text-gray-400 italic typing-dots'
                   }`}
                 >
-                  {message.content}
+                  {message.content.includes('DwenLite AI is typing...') || message.content.includes('DwenLite AI is searching the web...') ? (
+                    <>
+                      {message.content.replace('...', '')}
+                      <span>.</span>
+                      <span>.</span>
+                      <span>.</span>
+                    </>
+                  ) : (
+                    message.content
+                  )}
                 </span>
               </div>
             ))}
           </div>
           {showFlashcardGroupPrompt && (
-            <div className="mb-3">
+            <div className="mb-3 animate-fade-in">
               <select
                 value={selectedFlashcardGroupId}
                 onChange={(e) => setSelectedFlashcardGroupId(e.target.value)}
@@ -927,7 +980,7 @@ function Flashcards() {
               </select>
               <button
                 onClick={handleFlashcardGroupSelection}
-                className="mt-2 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 w-full"
+                className="mt-2 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 w-full hover-scale"
               >
                 Submit
               </button>
@@ -946,7 +999,7 @@ function Flashcards() {
               <button
                 type="submit"
                 disabled={chatLoading}
-                className={`bg-purple-600 text-white py-2 px-4 rounded-r-lg hover:bg-purple-700 ${
+                className={`bg-purple-600 text-white py-2 px-4 rounded-r-lg hover:bg-purple-700 hover-scale ${
                   chatLoading ? 'opacity-50 cursor-not-allowed' : ''
                 }`}
               >

@@ -17,7 +17,6 @@ function Quizzes() {
   const [showStoredQuizzes, setShowStoredQuizzes] = useState(false);
   const [selectedQuizGroup, setSelectedQuizGroup] = useState(null);
   const [expandedGroups, setExpandedGroups] = useState({});
-  // New state for DwenLite AI Chat
   const [chatInput, setChatInput] = useState('');
   const [selectedQuizGroupId, setSelectedQuizGroupId] = useState('');
   const [chatHistory, setChatHistory] = useState([]);
@@ -108,7 +107,7 @@ function Quizzes() {
 
       let status = 'queued';
       let transcribedText = '';
-      const maxAttempts = 30; // ~60 seconds
+      const maxAttempts = 30;
       let attempts = 0;
 
       while (status !== 'completed' && status !== 'error' && attempts < maxAttempts) {
@@ -202,7 +201,7 @@ function Quizzes() {
 
       let status = 'queued';
       let transcribedText = '';
-      const maxAttempts = 60; // ~120 seconds for videos
+      const maxAttempts = 60;
       let attempts = 0;
 
       while (status !== 'completed' && status !== 'error' && attempts < maxAttempts) {
@@ -277,7 +276,7 @@ function Quizzes() {
       }
 
       let prompt = `Generate 40 multiple-choice quiz questions based on the following content: "${context}". For each question, provide the question, four options (labeled a, b, c, d), and the correct answer. Format as a JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }, ...]. Return only the JSON array string, without any markdown, code block markers (like \`\`\`json), or additional text. Ensure the output is valid JSON.`;
-      
+
       if (retry) {
         prompt = `You previously failed to return valid JSON. Generate 40 multiple-choice quiz questions based on the following content: "${context}". For each question, provide the question, four options (labeled a, b, c, d), and the correct answer. Format as a JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }, ...]. Return ONLY the JSON array string. Do NOT include markdown, code block markers (like \`\`\`json), or any additional text before or after the JSON. The output MUST be valid JSON, parsable by JSON.parse().`;
       }
@@ -465,7 +464,6 @@ function Quizzes() {
     setCurrentQuizIndex(prev => prev + 1);
   };
 
-  // New function for DwenLite AI Chat
   const handleChatSubmit = async (e) => {
     e.preventDefault();
     if (!chatInput.trim()) return;
@@ -473,7 +471,6 @@ function Quizzes() {
     const question = chatInput.trim();
     setChatInput('');
 
-    // Check if user specified a quiz group (e.g., "reference quiz group 1", "check quiz group one")
     const quizGroupRegex = /(?:reference|check|use|from)\s*(?:quiz\s*group\s*)(\d+|one|two|three|four|five)/i;
     const match = question.match(quizGroupRegex);
     let quizGroupIndex = null;
@@ -489,14 +486,12 @@ function Quizzes() {
     }
 
     if (quizGroupIndex !== null && folder.quizGroups[quizGroupIndex]) {
-      // Quiz group specified, proceed with that quiz group
       const selectedQuizGroup = folder.quizGroups[quizGroupIndex];
       await processQuestion(question, selectedQuizGroup);
     } else if (folder.quizGroups.length === 0) {
       toast.error('No quiz groups available to reference.');
       return;
     } else {
-      // Prompt user to select a quiz group
       setShowQuizGroupPrompt(true);
       setChatHistory(prev => [
         ...prev,
@@ -532,21 +527,18 @@ function Quizzes() {
   const processQuestion = async (question, quizGroup) => {
     setChatLoading(true);
     try {
-      // Prepare quiz group content as context
       const quizContent = quizGroup.quizzes.map((quiz, index) => {
         return `Question ${index + 1}: ${quiz.question}\nOptions: ${quiz.options.join(', ')}\nCorrect Answer: ${quiz.correctAnswer}`;
       }).join('\n\n');
 
-      // Simulate reading the quiz group
       const quizGroupIndex = folder.quizGroups.findIndex(g => g.id === quizGroup.id) + 1;
       setChatHistory(prev => [
         ...prev,
         { type: 'system', content: `DwenLite AI is reading Quiz Group ${quizGroupIndex}...` },
       ]);
 
-      await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate reading delay
+      await new Promise(resolve => setTimeout(resolve, 1500));
 
-      // Generate answer using DeepSeek API
       const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
       if (!apiKey) {
         throw new Error('DeepSeek API key not found. Please set VITE_DEEPSEEK_API_KEY in your .env file.');
@@ -559,7 +551,7 @@ function Quizzes() {
         { type: 'system', content: 'DwenLite AI is typing...' },
       ]);
 
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate typing delay
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       const response = await axios.post(
         'https://api.deepseek.com/v1/chat/completions',
@@ -605,7 +597,6 @@ function Quizzes() {
         throw new Error('Invalid DeepSeek API response: No answer found.');
       }
 
-      // Update chat history with the answer
       setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...').concat({
         type: 'ai',
         content: answer,
@@ -654,6 +645,58 @@ function Quizzes() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-4 md:p-8">
+      <style>
+        {`
+          @keyframes slideInFromRight {
+            0% { transform: translateX(100%); opacity: 0; }
+            100% { transform: translateX(0); opacity: 1; }
+          }
+          @keyframes slideInFromLeft {
+            0% { transform: translateX(-100%); opacity: 0; }
+            100% { transform: translateX(0); opacity: 1; }
+          }
+          @keyframes fadeIn {
+            0% { opacity: 0; }
+            100% { opacity: 1; }
+          }
+          @keyframes pulseDots {
+            0% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+            100% { transform: translateY(0); }
+          }
+          @keyframes pulseContainer {
+            0% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(147, 51, 234, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0); }
+          }
+          .animate-slide-in-right {
+            animation: slideInFromRight 0.3s ease-out forwards;
+          }
+          .animate-slide-in-left {
+            animation: slideInFromLeft 0.3s ease-out forwards;
+          }
+          .animate-fade-in {
+            animation: fadeIn 0.5s ease-in forwards;
+          }
+          .typing-dots span {
+            display: inline-block;
+            animation: pulseDots 0.5s infinite alternate;
+          }
+          .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+          .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+          .pulse-container {
+            animation: pulseContainer 2s infinite;
+          }
+          .hover-scale {
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+          }
+          .hover-scale:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+          }
+        `}
+      </style>
+
       <div className="flex justify-between items-center mb-6 md:mb-8">
         <h1 className="text-2xl md:text-3xl font-bold">{folder.name} - Quizzes</h1>
         <Link
@@ -831,12 +874,14 @@ function Quizzes() {
         <p className="text-gray-400 text-sm md:text-base mb-3 md:mb-4">
           Ask questions about your quiz groups, and DwenLite AI will provide answers based on the selected quiz group.
         </p>
-        <div className="bg-gray-800 p-3 md:p-4 rounded-lg">
+        <div className={`bg-gray-800 p-3 md:p-4 rounded-lg ${chatLoading ? 'pulse-container' : ''}`}>
           <div className="mb-3 max-h-96 overflow-y-auto">
             {chatHistory.map((message, index) => (
               <div
                 key={index}
-                className={`mb-2 ${message.type === 'user' ? 'text-right' : 'text-left'}`}
+                className={`mb-2 ${message.type === 'user' ? 'text-right' : 'text-left'} ${
+                  message.type === 'user' ? 'animate-slide-in-right' : 'animate-slide-in-left'
+                }`}
               >
                 <span
                   className={`inline-block p-2 rounded-lg ${
@@ -844,16 +889,25 @@ function Quizzes() {
                       ? 'bg-purple-600'
                       : message.type === 'ai'
                       ? 'bg-gray-700'
-                      : 'text-gray-400 italic'
+                      : 'text-gray-400 italic typing-dots'
                   }`}
                 >
-                  {message.content}
+                  {message.content.includes('DwenLite AI is typing...') ? (
+                    <>
+                      DwenLite AI is typing
+                      <span>.</span>
+                      <span>.</span>
+                      <span>.</span>
+                    </>
+                  ) : (
+                    message.content
+                  )}
                 </span>
               </div>
             ))}
           </div>
           {showQuizGroupPrompt && (
-            <div className="mb-3">
+            <div className="mb-3 animate-fade-in">
               <select
                 value={selectedQuizGroupId}
                 onChange={(e) => setSelectedQuizGroupId(e.target.value)}
@@ -868,7 +922,7 @@ function Quizzes() {
               </select>
               <button
                 onClick={handleQuizGroupSelection}
-                className="mt-2 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 w-full"
+                className="mt-2 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 w-full hover-scale"
               >
                 Submit
               </button>
@@ -887,7 +941,7 @@ function Quizzes() {
               <button
                 type="submit"
                 disabled={chatLoading}
-                className={`bg-purple-600 text-white py-2 px-4 rounded-r-lg hover:bg-purple-700 ${
+                className={`bg-purple-600 text-white py-2 px-4 rounded-r-lg hover:bg-purple-700 hover-scale ${
                   chatLoading ? 'opacity-50 cursor-not-allowed' : ''
                 }`}
               >
