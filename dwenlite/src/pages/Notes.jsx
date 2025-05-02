@@ -273,7 +273,7 @@ function Notes() {
         }
       }
 
-      const prompt = `Generate comprehensive and well-organized study notes based on the following content: "${context}". Structure the notes with clear headings, subheadings, and bullet points where appropriate to enhance readability and understanding. Ensure the notes are detailed, covering key concepts, definitions, and examples. Do not limit the length; aim for completeness and clarity. Format the output as plain text suitable for rendering in a React component.`;
+      const prompt = `Generate comprehensive and well-organized study notes based on the following content: "${context}". Structure the notes with clear headings, subheadings, and bullet points where appropriate to enhance readability and understanding. Ensure the notes are detailed, covering key concepts, definitions, and examples. Do not include any introductory or concluding statements such as "Here are the notes" or "Let me know if you need modifications." Do not use asterisks (*) for bullet points; use plain text indentation for lists if needed. Format the output as plain text suitable for rendering in a React component.`;
 
       const response = await axios.post(
         'https://api.deepseek.com/v1/chat/completions',
@@ -288,7 +288,7 @@ function Notes() {
         },
         {
           headers: {
-            'Authorization': `Bearer ${apiKey}`,
+            Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
           },
         }
@@ -318,6 +318,9 @@ function Notes() {
       } else {
         throw new Error('Invalid DeepSeek API response: No generated content found.');
       }
+
+      // Replace asterisks used as bullet points with a bullet symbol (•)
+      generatedText = generatedText.replace(/^\* /gm, '• ');
 
       return { 
         id: Date.now().toString(), 
@@ -489,7 +492,7 @@ function Notes() {
 
       setChatHistory(prev => [
         ...prev,
-        { type: 'system', content: 'DwenLite AI is typing...' },
+        { type: 'system  system', content: 'DwenLite AI is typing...' },
       ]);
 
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -507,7 +510,7 @@ function Notes() {
         },
         {
           headers: {
-            'Authorization': `Bearer ${apiKey}`,
+            Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
           },
         }
