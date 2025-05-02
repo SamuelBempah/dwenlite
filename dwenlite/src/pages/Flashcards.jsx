@@ -715,7 +715,9 @@ function Flashcards() {
         {`
           @keyframes slideInFromRight {
             0% { transform: translateX(100%); opacity: 0; }
-            100% { transform: translateX(0); opacity: 1; }
+            
+
+100% { transform: translateX(0); opacity: 1; }
           }
           @keyframes slideInFromLeft {
             0% { transform: translateX(-100%); opacity: 0; }
@@ -734,6 +736,14 @@ function Flashcards() {
             0% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0.4); }
             70% { box-shadow: 0 0 0 10px rgba(147, 51, 234, 0); }
             100% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0); }
+          }
+          @keyframes flipCard {
+            0% { transform: rotateY(0deg); }
+            100% { transform: rotateY(180deg); }
+          }
+          @keyframes flipCardBack {
+            0% { transform: rotateY(180deg); }
+            100% { transform: rotateY(0deg); }
           }
           .animate-slide-in-right {
             animation: slideInFromRight 0.3s ease-out forwards;
@@ -759,6 +769,45 @@ function Flashcards() {
           .hover-scale:hover {
             transform: scale(1.05);
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+          }
+          .flashcard-container {
+            perspective: 1000px;
+            width: 100%;
+            max-width: 600px;
+            height: 300px;
+            margin: 0 auto;
+          }
+          .flashcard {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            transition: transform 0.6s;
+            transform-style: preserve-3d;
+          }
+          .flashcard.flipped {
+            transform: rotateY(180deg);
+          }
+          .flashcard-front, .flashcard-back {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            text-align: center;
+          }
+          .flashcard-front {
+            background-color: #4B5563;
+            color: white;
+          }
+          .flashcard-back {
+            background-color: #6B7280;
+            color: white;
+            transform: rotateY(180deg);
           }
         `}
       </style>
@@ -824,20 +873,29 @@ function Flashcards() {
         ) : currentFlashcardIndex >= selectedFlashcardGroup.flashcards.length ? (
           <p className="text-gray-400 text-sm md:text-base">You've completed this flashcard group! Select another to continue.</p>
         ) : currentFlashcard ? (
-          <div className="bg-gray-800 p-3 md:p-4 rounded-lg mb-3 md:mb-4">
-            <h3 className="text-base md:text-lg font-semibold mb-2">
+          <div className="mb-3 md:mb-4">
+            <h3 className="text-base md:text-lg font-semibold mb-4 text-center">
               Flashcard {currentFlashcardIndex + 1} of {selectedFlashcardGroup.flashcards.length}
             </h3>
-            <p className="text-gray-300 text-sm md:text-base mb-4">
-              {showAnswer ? currentFlashcard.answer : currentFlashcard.question}
-            </p>
-            <button
-              onClick={handleToggleAnswer}
-              className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 mr-2"
-            >
-              {showAnswer ? 'Show Question' : 'Show Answer'}
-            </button>
-            <div className="mt-4 flex justify-between">
+            <div className="flashcard-container">
+              <div className={`flashcard ${showAnswer ? 'flipped' : ''}`}>
+                <div className="flashcard-front">
+                  <p className="text-gray-300 text-sm md:text-base">{currentFlashcard.question}</p>
+                </div>
+                <div className="flashcard-back">
+                  <p className="text-gray-300 text-sm md:text-base">{currentFlashcard.answer}</p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 flex justify-center max-w-600 mx-auto">
+              <button
+                onClick={handleToggleAnswer}
+                className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700"
+              >
+                {showAnswer ? 'Show Question' : 'Show Answer'}
+              </button>
+            </div>
+            <div className="mt-4 flex justify-between max-w-600 mx-auto">
               <button
                 onClick={handlePreviousFlashcard}
                 disabled={currentFlashcardIndex === 0}
