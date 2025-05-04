@@ -47,11 +47,11 @@ function Welcome() {
         <h1 className="text-4xl sm:text-5xl font-extrabold text-white mb-4 drop-shadow-[0_0_10px_rgba(147,51,234,0.5)]">
           DwenLite{' '}
           <span className="text-purple-400 bg-purple-950/50 px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm align-middle">
-            Beta
+            AI
           </span>
         </h1>
         <p className="text-lg sm:text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
-          Transform your study materials into notes, quizzes, and flashcards with AI. We're in beta—join us to shape the future of learning!
+          Transform your study materials into notes, quizzes, and flashcards with AI. Join us to shape the future of learning!
         </p>
         <div className="flex flex-col sm:flex-row justify-center space-y-4 sm:space-y-0 sm:space-x-4 mb-12">
           <Link
