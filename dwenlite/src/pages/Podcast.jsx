@@ -124,7 +124,7 @@ function Podcast() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [podcast, setPodcast] = useState(null);
-  const [coverImage, setCoverImage] = useState('/src/podcast-cover.png');
+  const [coverImage, setCoverImage] = useState('https://firebasestorage.googleapis.com/v0/b/leumas-decipher-softwares.appspot.com/o/cover_images%2Fdefault_cover.png.png?alt=media&token=e6bf2793-5d33-4667-98a1-5da023eab2b6');
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
   const generateButtonRef = useRef(null);
@@ -192,9 +192,6 @@ function Podcast() {
       folderData.podcast = folderData.podcast || null;
       setFolder(folderData);
       setPodcast(folderData.podcast);
-      if (folderData.podcast) {
-        setCoverImage('/src/podcast-cover.png');
-      }
       setLoading(false);
     } catch (err) {
       console.error('Fetch folder error:', err);
@@ -367,9 +364,6 @@ function Podcast() {
       await uploadBytes(podcastRef, podcastBlob);
       const downloadURL = await getDownloadURL(podcastRef);
 
-      // Set cover image
-      setCoverImage('/src/podcast-cover.png');
-
       // Save podcast metadata
       const podcastData = {
         id: Date.now().toString(),
@@ -402,7 +396,6 @@ function Podcast() {
 
       setFolder(prev => ({ ...prev, podcast: null }));
       setPodcast(null);
-      setCoverImage('/src/podcast-cover.png');
       toast.success('Podcast deleted successfully!');
     } catch (err) {
       console.error('Delete podcast error:', err);
@@ -563,6 +556,10 @@ function Podcast() {
               src={`${coverImage}?t=${Date.now()}`}
               alt="Podcast Cover"
               className="w-full max-w-[200px] mx-auto mb-3 rounded-lg shadow-md hover:shadow-xl transition-shadow aspect-square object-cover"
+              onError={(e) => {
+                console.warn('Failed to load cover image');
+                e.target.src = coverImage; // Retry the same URL
+              }}
             />
             <div className="text-center mb-3">
               <h3 className="text-base md:text-lg font-semibold text-white">{podcast.name}</h3>
