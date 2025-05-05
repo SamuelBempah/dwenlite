@@ -14,6 +14,7 @@ import ResetPassword from './pages/ResetPassword';
 import ErrorBoundary from './ErrorBoundary';
 import { Toaster } from 'react-hot-toast';
 import Support from './pages/Support';
+import Podcast from './pages/Podcast';
 
 function App() {
   return (
@@ -30,6 +31,7 @@ function App() {
           <Route path="/folder/:folderId/notes" element={<Notes />} />
           <Route path="/folder/:folderId/quizzes" element={<Quizzes />} />
           <Route path="/folder/:folderId/flashcards" element={<Flashcards />} />
+          <Route path="/folder/:folderId/podcast" element={<Podcast />} />
           <Route path="/support-me" element={<SupportMe />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/reset-password" element={<ResetPassword />} />

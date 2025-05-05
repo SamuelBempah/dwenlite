@@ -51,7 +51,7 @@ function ViewFolder() {
     },
     {
       title: "Study Materials",
-      description: "Access notes, quizzes, and flashcards for this folder from these links.",
+      description: "Access notes, quizzes, flashcards, and podcasts for this folder from these links.",
       highlightRef: studyMaterialsRef,
     },
     {
@@ -557,6 +557,13 @@ function ViewFolder() {
             className="bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base"
           >
             <span>Flashcards</span>
+            <span>➔</span>
+          </Link>
+          <Link
+            to={`/folder/${folderId}/podcast`}
+            className="bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base"
+          >
+            <span>Podcast</span>
             <span>➔</span>
           </Link>
         </div>
