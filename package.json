@@ -26,5 +26,8 @@
     "url": "https://github.com/SamuelBempah/dwenlite/issues"
   },
   "homepage": "https://github.com/SamuelBempah/dwenlite#readme",
-  "description": ""
+  "description": "",
+  "devDependencies": {
+    "@flydotio/dockerfile": "^0.7.10"
+  }
 }
