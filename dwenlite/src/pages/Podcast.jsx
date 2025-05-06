@@ -501,10 +501,14 @@ function Podcast() {
         </div>
       </div>
 
+      <div className="bg-yellow-900/50 border border-yellow-700 text-yellow-200 p-4 rounded-lg mb-6">
+        <p className="text-sm md:text-base">⚠️ Podcast Generation Is Unavailable To The Public At This Time</p>
+      </div>
+
       <div className="mb-6 md:mb-8">
         <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Generate Podcast</h2>
         <p className="text-gray-400 text-sm md:text-base mb-3 md:mb-4">
-          Generate a podcast from your latest document with background music. Generation may take a few seconds.
+          Generate a podcast from your latest document with background music. Generation may take upto 5 minutes.
         </p>
         <button
           ref={generateButtonRef}
