@@ -495,8 +495,8 @@ function Dashboard() {
           </div>
         </div>
 
-        <div className="bg-yellow-900/50 border border-yellow-700 text-yellow-200 p-4 rounded-lg mb-6">
-          <p className="text-sm md:text-base">⚠️ DwenLite AI has reached its bandwidth limit. Services will be back by midnight. We apologize for any inconvenience</p>
+        <div className="bg-green-900/50 border border-green-700 text-yellow-200 p-4 rounded-lg mb-6">
+          <p className="text-sm md:text-base">✅ All Services Are Back Online!</p>
         </div>
 
         <div ref={uploadSectionRef} className={`mb-6 md:mb-8 ${tutorialStep === 2 ? 'ring-4 ring-purple-500' : ''}`}>

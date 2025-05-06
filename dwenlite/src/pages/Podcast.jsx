@@ -347,7 +347,7 @@ function Podcast() {
       // Generate podcast audio using gTTS via backend
       console.log('Generating podcast audio...');
       const ttsResponse = await axios.post(
-        'http://localhost:3001/generate-tts',
+        'https://podcast-backend-tqw8.onrender.com/generate-tts',
         { text: content },
         { responseType: 'arraybuffer' }
       );
