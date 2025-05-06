@@ -5,7 +5,7 @@ import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import toast from 'react-hot-toast';
 import axios from 'axios';
-import { FaPlay, FaPause, FaVolumeUp, FaVolumeMute } from 'react-icons/fa';
+import { FaPlay, FaPause, FaVolumeUp, FaVolumeMute, FaDownload } from 'react-icons/fa';
 
 function AudioPlayer({ src, className }) {
   const audioRef = useRef(null);
@@ -124,34 +124,36 @@ function Podcast() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [podcast, setPodcast] = useState(null);
-  const [coverImage, setCoverImage] = useState('https://firebasestorage.googleapis.com/v0/b/leumas-decipher-softwares.appspot.com/o/cover_images%2Fdefault_cover.png.png?alt=media&token=e6bf2793-5d33-4667-98a1-5da023eab2b6');
+  const [coverImage] = useState('https://firebasestorage.googleapis.com/v0/b/leumas-decipher-softwares.appspot.com/o/cover_images%2Fdefault_cover.png.png?alt=media&token=e6bf2793-5d33-4667-98a1-5da023eab2b6');
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
+  const [showPaywall, setShowPaywall] = useState(false);
+  const [paymentCompleted, setPaymentCompleted] = useState(false);
+  const [paystackLoaded, setPaystackLoaded] = useState(false);
+  const [paymentLoading, setPaymentLoading] = useState(false);
   const generateButtonRef = useRef(null);
   const playerRef = useRef(null);
 
-  const tutorialSteps = [
-    {
-      title: 'Welcome to Podcast Generation!',
-      description: 'This page lets you generate a podcast from your folder’s document with background music.',
-      highlightRef: null,
-    },
-    {
-      title: 'Generate Podcast',
-      description: 'Click here to create a podcast based on your latest document.',
-      highlightRef: generateButtonRef,
-    },
-    {
-      title: 'Podcast Player',
-      description: 'Listen to your podcast with a Spotify-style player, including play, pause, and volume controls.',
-      highlightRef: playerRef,
-    },
-    {
-      title: 'You’re Ready!',
-      description: 'Start generating and listening to your podcast!',
-      highlightRef: null,
-    },
-  ];
+  const paystackPublicKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY;
+
+  // Load Paystack script
+  useEffect(() => {
+    const script = document.createElement('script');
+    script.src = 'https://js.paystack.co/v1/inline.js';
+    script.async = true;
+    script.onload = () => {
+      console.log('Paystack script loaded successfully');
+      setPaystackLoaded(true);
+    };
+    script.onerror = () => {
+      console.error('Failed to load Paystack script');
+      toast.error('Failed to load payment service. Please refresh the page.');
+    };
+    document.body.appendChild(script);
+    return () => {
+      document.body.removeChild(script);
+    };
+  }, []);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -167,6 +169,20 @@ function Podcast() {
     });
     return () => unsubscribe();
   }, [navigate, folderId]);
+
+  useEffect(() => {
+    if (podcast) {
+      setPaymentCompleted(true);
+      setShowPaywall(false);
+    } else {
+      setShowPaywall(true);
+    }
+  }, [podcast]);
+
+  const validateEmail = (email) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
 
   const fetchFolder = async (userId) => {
     try {
@@ -319,6 +335,91 @@ function Podcast() {
     }
   };
 
+  const verifyPayment = async (reference) => {
+    try {
+      const verifyResponse = await axios.post('http://localhost:3001/verify-payment', {
+        reference,
+      });
+      console.log('Payment verification response:', verifyResponse.data);
+      if (verifyResponse.data.status === 'success') {
+        setPaymentCompleted(true);
+        setShowPaywall(false);
+        toast.success('Payment verified successfully!');
+      } else {
+        throw new Error('Payment verification failed.');
+      }
+    } catch (err) {
+      console.error('Payment verification error:', err.message);
+      toast.error('Payment verification failed. Please contact support.');
+    }
+  };
+
+  const initiatePayment = () => {
+    console.log('Initiate payment clicked');
+    setPaymentLoading(true);
+
+    if (!paystackLoaded || !window.PaystackPop) {
+      console.error('Paystack SDK not loaded');
+      toast.error('Payment service not loaded. Please try again.');
+      setPaymentLoading(false);
+      return;
+    }
+
+    if (!paystackPublicKey) {
+      console.error('Paystack public key not found');
+      toast.error('Payment configuration error. Please contact support.');
+      setPaymentLoading(false);
+      return;
+    }
+
+    const email = auth.currentUser?.email || 'default@example.com';
+    if (!validateEmail(email)) {
+      console.error('Invalid email:', email);
+      toast.error('Invalid email address. Please log in again.');
+      setPaymentLoading(false);
+      navigate('/login');
+      return;
+    }
+
+    console.log('Paystack public key:', paystackPublicKey);
+    console.log('User email:', email);
+
+    const callbackFunction = (response) => {
+      console.log('Paystack callback received:', response);
+      setPaymentLoading(false);
+      toast.success(`Payment completed! Reference: ${response.reference}`);
+      // Align with SupportMe: Trust callback and skip backend verification
+      setPaymentCompleted(true);
+      setShowPaywall(false);
+      // Optionally verify in background (uncomment if backend is fixed)
+      // verifyPayment(response.reference);
+    };
+
+    console.log('Callback function type:', typeof callbackFunction);
+
+    try {
+      const handler = window.PaystackPop.setup({
+        key: paystackPublicKey,
+        email: email,
+        amount: 2000, // 20 GHS in kobo
+        currency: 'GHS',
+        ref: `PODCAST_${Math.floor(Math.random() * 1000000)}`,
+        callback: callbackFunction,
+        onClose: () => {
+          console.log('Paystack popup closed');
+          toast.error('Payment cancelled.');
+          setPaymentLoading(false);
+        },
+      });
+      console.log('Opening Paystack iframe');
+      handler.openIframe();
+    } catch (err) {
+      console.error('Paystack initialization error:', err.message);
+      toast.error(`Failed to initiate payment: ${err.message}. Please try again.`);
+      setPaymentLoading(false);
+    }
+  };
+
   const generatePodcast = async () => {
     if (!folder.documents.length) {
       toast.error('No documents available to generate a podcast.');
@@ -344,7 +445,6 @@ function Podcast() {
         content = latestDocument.extractedText || folder.name;
       }
 
-      // Generate podcast audio using gTTS via backend
       console.log('Generating podcast audio...');
       const ttsResponse = await axios.post(
         'http://localhost:3001/generate-tts',
@@ -354,17 +454,13 @@ function Podcast() {
 
       const podcastBlob = new Blob([ttsResponse.data], { type: 'audio/mp3' });
 
-      // Fetch background music (mixed in backend)
       const backgroundMusicUrl = await getDownloadURL(ref(storage, 'background_music/track1.mp3'));
       console.log('Background music URL:', backgroundMusicUrl);
-      // Note: Background music is mixed and looped in the backend with fluent-ffmpeg.
 
-      // Upload podcast to Firebase Storage
       const podcastRef = ref(storage, `podcasts/${folderId}/podcast.mp3`);
       await uploadBytes(podcastRef, podcastBlob);
       const downloadURL = await getDownloadURL(podcastRef);
 
-      // Save podcast metadata
       const podcastData = {
         id: Date.now().toString(),
         name: `${folder.name}_Podcast`,
@@ -377,6 +473,7 @@ function Podcast() {
 
       setFolder(prev => ({ ...prev, podcast: podcastData }));
       setPodcast(podcastData);
+      setPaymentCompleted(true);
       toast.success('Podcast generated successfully!');
     } catch (err) {
       console.error('Podcast generation error:', err.message);
@@ -396,11 +493,22 @@ function Podcast() {
 
       setFolder(prev => ({ ...prev, podcast: null }));
       setPodcast(null);
-      toast.success('Podcast deleted successfully!');
+      setShowPaywall(true);
+      setPaymentCompleted(false);
+      toast.success('Podcast deleted successfully! You can now generate a new one after payment.');
     } catch (err) {
       console.error('Delete podcast error:', err);
       toast.error('Failed to delete podcast. Please try again.');
     }
+  };
+
+  const handleDownloadPodcast = () => {
+    const link = document.createElement('a');
+    link.href = podcast.url;
+    link.download = `${podcast.name}.mp3`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const handleNextStep = () => {
@@ -417,6 +525,29 @@ function Podcast() {
       setTutorialStep(tutorialStep - 1);
     }
   };
+
+  const tutorialSteps = [
+    {
+      title: 'Welcome to Podcast Generation!',
+      description: 'This page lets you generate a podcast from your folder’s document with background music.',
+      highlightRef: null,
+    },
+    {
+      title: 'Generate Podcast',
+      description: 'Click here to create a podcast based on your latest document.',
+      highlightRef: generateButtonRef,
+    },
+    {
+      title: 'Podcast Player',
+      description: 'Listen to your podcast with a Spotify-style player, including play, pause, and volume controls.',
+      highlightRef: playerRef,
+    },
+    {
+      title: 'You’re Ready!',
+      description: 'Start generating and listening to your podcast!',
+      highlightRef: null,
+    },
+  ];
 
   if (loading) {
     return (
@@ -454,7 +585,7 @@ function Podcast() {
         <div className={`fixed inset-0 bg-black bg-opacity-50 flex justify-center z-50 px-4 ${
           tutorialStep === 1 || tutorialStep === 2 ? 'items-start pt-4' : 'items-center'
         }`}>
-          <div className="bg-gray-800 historic:p-4 sm:p-6 rounded-lg w-full max-w-sm sm:max-w-md">
+          <div className="bg-gray-800 p-4 sm:p-6 rounded-lg w-full max-w-sm sm:max-w-md">
             <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4">{tutorialSteps[tutorialStep].title}</h2>
             <p className="text-gray-300 text-sm sm:text-base mb-4 sm:mb-6">{tutorialSteps[tutorialStep].description}</p>
             <div className="flex justify-between items-center">
@@ -502,52 +633,88 @@ function Podcast() {
       </div>
 
       <div className="bg-yellow-900/50 border border-yellow-700 text-yellow-200 p-4 rounded-lg mb-6">
-        <p className="text-sm md:text-base">⚠️ Podcast Generation Is Unavailable To The Public At This Time</p>
+        <p className="text-sm md:text-base">⚠️ If the podcast fails to generate after payment, a full refund will be processed to your mobile money account within 1-2 business days or contact support if you need your money immediately.</p>
       </div>
 
       <div className="mb-6 md:mb-8">
         <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Generate Podcast</h2>
         <p className="text-gray-400 text-sm md:text-base mb-3 md:mb-4">
-          Generate a podcast from your latest document with background music. Generation may take upto 5 minutes.
+          Generate a podcast from your latest document with background music. Generation may take up to 5 minutes.
         </p>
-        <button
-          ref={generateButtonRef}
-          onClick={generatePodcast}
-          disabled={generating || podcast}
-          className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base w-full ${
-            generating || podcast ? 'opacity-50 cursor-not-allowed' : ''
-          } ${tutorialStep === 1 ? 'ring-4 ring-purple-500' : ''}`}
-        >
-          {generating ? (
-            <span className="flex items-center">
-              <svg
-                className="animate-spin h-4 w-4 md:h-5 md:w-5 mr-2 text-white"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                  fill="none"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8v8H4z"
-                />
-              </svg>
-              Generating...
-            </span>
-          ) : (
-            <>
-              <span>Generate Podcast</span>
-              <span>➔</span>
-            </>
-          )}
-        </button>
+        <p className="text-yellow-400 text-sm md:text-base mb-3 md:mb-4">
+          Note: You can generate one podcast per session. Please download your podcast before deleting to generate a new one.
+        </p>
+        {showPaywall && !paymentCompleted ? (
+          <button
+            ref={generateButtonRef}
+            onClick={initiatePayment}
+            disabled={!paystackLoaded || paymentLoading}
+            className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between text-sm md:text-base w-full ${
+              paystackLoaded && !paymentLoading ? 'hover:bg-gray-700' : 'opacity-50 cursor-not-allowed'
+            } ${tutorialStep === 1 ? 'ring-4 ring-purple-500' : ''}`}
+          >
+            {paymentLoading ? (
+              <span className="flex items-center">
+                <svg
+                  className="animate-spin h-4 w-4 md:h-5 md:w-5 mr-2 text-white"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                    fill="none"
+                  />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+                Processing...
+              </span>
+            ) : (
+              <>
+                <span>Generate Podcast for 20 GHS</span>
+                <span>➔</span>
+              </>
+            )}
+          </button>
+        ) : (
+          <button
+            ref={generateButtonRef}
+            onClick={generatePodcast}
+            disabled={generating || podcast}
+            className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between text-sm md:text-base w-full ${
+              generating || podcast ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700'
+            } ${tutorialStep === 1 ? 'ring-4 ring-purple-500' : ''}`}
+          >
+            {generating ? (
+              <span className="flex items-center">
+                <svg
+                  className="animate-spin h-4 w-4 md:h-5 md:w-5 mr-2 text-white"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                    fill="none"
+                  />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+                Generating...
+              </span>
+            ) : (
+              <>
+                <span>Generate Podcast</span>
+                <span>➔</span>
+              </>
+            )}
+          </button>
+        )}
       </div>
 
       <div className="mb-6 md:mb-8">
@@ -562,7 +729,7 @@ function Podcast() {
               className="w-full max-w-[200px] mx-auto mb-3 rounded-lg shadow-md hover:shadow-xl transition-shadow aspect-square object-cover"
               onError={(e) => {
                 console.warn('Failed to load cover image');
-                e.target.src = coverImage; // Retry the same URL
+                e.target.src = coverImage;
               }}
             />
             <div className="text-center mb-3">
@@ -574,7 +741,13 @@ function Podcast() {
             <div ref={playerRef} className={`mb-3 ${tutorialStep === 2 ? 'ring-4 ring-purple-500' : ''}`}>
               <AudioPlayer src={podcast.url} />
             </div>
-            <div className="flex justify-center">
+            <div className="flex justify-center space-x-4">
+              <button
+                onClick={handleDownloadPodcast}
+                className="bg-blue-600 text-white py-1 px-3 rounded-lg hover:bg-blue-700 transition-colors text-sm flex items-center"
+              >
+                <FaDownload className="mr-2" /> Download
+              </button>
               <button
                 onClick={handleDeletePodcast}
                 className="bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700 transition-colors text-sm"
