@@ -559,13 +559,6 @@ function ViewFolder() {
             <span>Flashcards</span>
             <span>➔</span>
           </Link>
-          <Link
-            to={`/folder/${folderId}/podcast`}
-            className="bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base"
-          >
-            <span>Podcast</span>
-            <span>➔</span>
-          </Link>
         </div>
       </div>
     </div>

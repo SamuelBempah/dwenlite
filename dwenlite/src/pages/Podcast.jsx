@@ -6,6 +6,7 @@ import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import { FaPlay, FaPause, FaVolumeUp, FaVolumeMute } from 'react-icons/fa';
+import lamejs from 'lamejs';
 
 function AudioPlayer({ src, className }) {
   const audioRef = useRef(null);
@@ -319,6 +320,144 @@ function Podcast() {
     }
   };
 
+  const mixAudio = async (ttsUrl, backgroundMusicUrl) => {
+    try {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const ttsResponse = await fetch(ttsUrl);
+      const ttsArrayBuffer = await ttsResponse.arrayBuffer();
+      const ttsBuffer = await audioContext.decodeAudioData(ttsArrayBuffer);
+
+      const musicResponse = await fetch(backgroundMusicUrl);
+      const musicArrayBuffer = await musicResponse.arrayBuffer();
+      const musicBuffer = await audioContext.decodeAudioData(musicArrayBuffer);
+
+      // Create offline context for rendering mixed audio
+      const outputDuration = ttsBuffer.duration;
+      const offlineContext = new OfflineAudioContext(
+        2, // Stereo
+        outputDuration * 44100,
+        44100
+      );
+
+      // TTS source
+      const ttsSource = offlineContext.createBufferSource();
+      ttsSource.buffer = ttsBuffer;
+
+      // Music source with looping
+      const musicSource = offlineContext.createBufferSource();
+      musicSource.buffer = musicBuffer;
+      musicSource.loop = true;
+
+      // Adjust music volume (40%)
+      const musicGain = offlineContext.createGain();
+      musicGain.gain.setValueAtTime(0.4, 0);
+
+      // Connect nodes
+      ttsSource.connect(offlineContext.destination);
+      musicSource.connect(musicGain);
+      musicGain.connect(offlineContext.destination);
+
+      // Start sources
+      ttsSource.start(0);
+      musicSource.start(0);
+
+      // Render mixed audio
+      const renderedBuffer = await offlineContext.startRendering();
+      return new Promise((resolve) => {
+        offlineContext.oncomplete = async (event) => {
+          const mixedBuffer = event.renderedBuffer;
+          const wavBlob = bufferToWave(mixedBuffer, mixedBuffer.length);
+          resolve(wavBlob);
+        };
+      });
+    } catch (err) {
+      throw new Error(`Audio mixing failed: ${err.message}`);
+    }
+  };
+
+  // Convert AudioBuffer to WAV Blob
+  const bufferToWave = (abuffer, len) => {
+    const numOfChan = abuffer.numberOfChannels;
+    const length = len * numOfChan * 2 + 44;
+    const buffer = new ArrayBuffer(length);
+    const view = new DataView(buffer);
+    const channels = [];
+    let offset = 0;
+    let pos = 0;
+
+    // Write WAV header
+    setUint32(0x46464952); // "RIFF"
+    setUint32(length - 8); // File length - 8
+    setUint32(0x45564157); // "WAVE"
+    setUint32(0x20746d66); // "fmt " chunk
+    setUint32(16); // Length = 16
+    setUint16(1); // PCM format
+    setUint16(numOfChan);
+    setUint32(44100); // Sample rate
+    setUint32(44100 * numOfChan * 2); // Byte rate
+    setUint16(numOfChan * 2); // Block align
+    setUint16(16); // Bits per sample
+    setUint32(0x61746164); // "data" chunk
+    setUint32(length - pos - 4); // Data length
+
+    // Write interleaved data
+    for (let i = 0; i < abuffer.numberOfChannels; i++) {
+      channels.push(abuffer.getChannelData(i));
+    }
+    for (let i = 0; i < len; i++) {
+      for (let channel = 0; channel < numOfChan; channel++) {
+        let sample = Math.max(-1, Math.min(1, channels[channel][i]));
+        sample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+        view.setInt16(offset, sample, true);
+        offset += 2;
+      }
+    }
+
+    return new Blob([buffer], { type: 'audio/wav' });
+
+    function setUint16(data) {
+      view.setUint16(pos, data, true);
+      pos += 2;
+    }
+    function setUint32(data) {
+      view.setUint32(pos, data, true);
+      pos += 4;
+    }
+  };
+
+  // Convert WAV to MP3 using lamejs
+  const wavToMp3 = async (wavBlob) => {
+    try {
+      const arrayBuffer = await wavBlob.arrayBuffer();
+      const audioContext = new AudioContext();
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+      const mp3Encoder = new lamejs.Mp3Encoder(2, 44100, 128); // Stereo, 44.1kHz, 128kbps
+      const samplesLeft = audioBuffer.getChannelData(0).map(x => x * 32767);
+      const samplesRight = audioBuffer.getChannelData(1).map(x => x * 32767);
+      const mp3Data = [];
+
+      const sampleBlockSize = 1152;
+      for (let i = 0; i < samplesLeft.length; i += sampleBlockSize) {
+        const leftChunk = samplesLeft.slice(i, i + sampleBlockSize);
+        const rightChunk = samplesRight.slice(i, i + sampleBlockSize);
+        const mp3buf = mp3Encoder.encodeBuffer(leftChunk, rightChunk);
+        if (mp3buf.length > 0) {
+          mp3Data.push(new Uint8Array(mp3buf));
+        }
+      }
+      const mp3buf = mp3Encoder.flush();
+      if (mp3buf.length > 0) {
+        mp3Data.push(new Uint8Array(mp3buf));
+      }
+
+      const mp3Blob = new Blob(mp3Data, { type: 'audio/mp3' });
+      return mp3Blob;
+    } catch (err) {
+      throw new Error(`MP3 conversion failed: ${err.message}`);
+    }
+  };
+
   const generatePodcast = async () => {
     if (!folder.documents.length) {
       toast.error('No documents available to generate a podcast.');
@@ -344,24 +483,84 @@ function Podcast() {
         content = latestDocument.extractedText || folder.name;
       }
 
-      // Generate podcast audio using gTTS via backend
-      console.log('Generating podcast audio...');
+      // Validate and truncate content
+      content = (content || 'Default podcast content').slice(0, 1000).replace(/[\n\r\t]/g, ' ');
+      console.log('Generating podcast with content:', content);
+
+      // Generate TTS using Camb.AI
+      console.log('Generating podcast audio with Camb.AI...');
+      const cambApiKey = import.meta.env.VITE_CAMB_AI_API_KEY;
+      if (!cambApiKey) {
+        throw new Error('Camb.AI API key not found.');
+      }
+
       const ttsResponse = await axios.post(
-        'https://podcast-backend-tqw8.onrender.com/generate-tts',
-        { text: content },
-        { responseType: 'arraybuffer' }
-      );
+        'https://client.camb.ai/apis/tts',
+        {
+          text: content,
+          voice_id: 123, // Replace with valid ID from /list-voices
+          language: 1, // English
+          gender: 1, // Male (default)
+          age: 2 // Example value
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': cambApiKey,
+            'Accept': 'application/json'
+          }
+        }
+      ).catch(err => {
+        console.error('Camb.AI error response:', err.response?.data);
+        throw new Error(`Camb.AI request failed: ${err.response?.data?.message || err.message}`);
+      });
 
-      const podcastBlob = new Blob([ttsResponse.data], { type: 'audio/mp3' });
+      const taskId = ttsResponse.data.task_id;
+      let status = 'queued';
+      let audioUrl = '';
+      const maxAttempts = 30;
+      let attempts = 0;
 
-      // Fetch background music (mixed in backend)
+      while (status !== 'SUCCESS' && status !== 'FAILED' && attempts < maxAttempts) {
+        const statusResponse = await axios.get(
+          `https://client.camb.ai/apis/tts/${taskId}`,
+          { headers: { 'x-api-key': cambApiKey, 'Accept': 'application/json' } }
+        );
+        status = statusResponse.data.status;
+        if (status === 'SUCCESS') {
+          audioUrl = statusResponse.data.url;
+        } else if (status === 'FAILED') {
+          throw new Error(`Camb.AI TTS generation failed: ${statusResponse.data.error || 'Unknown error'}`);
+        }
+        attempts++;
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+
+      if (attempts >= maxAttempts) {
+        throw new Error('Camb.AI TTS generation timed out.');
+      }
+      if (!audioUrl) {
+        throw new Error('Camb.AI TTS returned no audio URL.');
+      }
+      console.log('Camb.AI audio URL:', audioUrl);
+
+      // Fetch background music
+      console.log('Fetching background music...');
       const backgroundMusicUrl = await getDownloadURL(ref(storage, 'background_music/track1.mp3'));
       console.log('Background music URL:', backgroundMusicUrl);
-      // Note: Background music is mixed and looped in the backend with fluent-ffmpeg.
+
+      // Mix TTS and background music
+      console.log('Mixing audio...');
+      const mixedWavBlob = await mixAudio(audioUrl, backgroundMusicUrl);
+
+      // Convert WAV to MP3
+      console.log('Converting to MP3...');
+      const mp3Blob = await wavToMp3(mixedWavBlob);
 
       // Upload podcast to Firebase Storage
+      console.log('Uploading podcast to Firebase...');
       const podcastRef = ref(storage, `podcasts/${folderId}/podcast.mp3`);
-      await uploadBytes(podcastRef, podcastBlob);
+      await uploadBytes(podcastRef, mp3Blob);
       const downloadURL = await getDownloadURL(podcastRef);
 
       // Save podcast metadata
