@@ -127,33 +127,8 @@ function Podcast() {
   const [coverImage] = useState('https://firebasestorage.googleapis.com/v0/b/leumas-decipher-softwares.appspot.com/o/cover_images%2Fdefault_cover.png.png?alt=media&token=e6bf2793-5d33-4667-98a1-5da023eab2b6');
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
-  const [showPaywall, setShowPaywall] = useState(false);
-  const [paymentCompleted, setPaymentCompleted] = useState(false);
-  const [paystackLoaded, setPaystackLoaded] = useState(false);
-  const [paymentLoading, setPaymentLoading] = useState(false);
   const generateButtonRef = useRef(null);
   const playerRef = useRef(null);
-
-  const paystackPublicKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY;
-
-  // Load Paystack script
-  useEffect(() => {
-    const script = document.createElement('script');
-    script.src = 'https://js.paystack.co/v1/inline.js';
-    script.async = true;
-    script.onload = () => {
-      console.log('Paystack script loaded successfully');
-      setPaystackLoaded(true);
-    };
-    script.onerror = () => {
-      console.error('Failed to load Paystack script');
-      toast.error('Failed to load payment service. Please refresh the page.');
-    };
-    document.body.appendChild(script);
-    return () => {
-      document.body.removeChild(script);
-    };
-  }, []);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -169,20 +144,6 @@ function Podcast() {
     });
     return () => unsubscribe();
   }, [navigate, folderId]);
-
-  useEffect(() => {
-    if (podcast) {
-      setPaymentCompleted(true);
-      setShowPaywall(false);
-    } else {
-      setShowPaywall(true);
-    }
-  }, [podcast]);
-
-  const validateEmail = (email) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  };
 
   const fetchFolder = async (userId) => {
     try {
@@ -335,98 +296,9 @@ function Podcast() {
     }
   };
 
-  const verifyPayment = async (reference) => {
-    try {
-      const verifyResponse = await axios.post('http://localhost:3001/verify-payment', {
-        reference,
-      });
-      console.log('Payment verification response:', verifyResponse.data);
-      if (verifyResponse.data.status === 'success') {
-        setPaymentCompleted(true);
-        setShowPaywall(false);
-        toast.success('Payment verified successfully!');
-      } else {
-        throw new Error('Payment verification failed.');
-      }
-    } catch (err) {
-      console.error('Payment verification error:', err.message);
-      toast.error('Payment verification failed. Please contact support.');
-    }
-  };
-
-  const initiatePayment = () => {
-    console.log('Initiate payment clicked');
-    setPaymentLoading(true);
-
-    if (!paystackLoaded || !window.PaystackPop) {
-      console.error('Paystack SDK not loaded');
-      toast.error('Payment service not loaded. Please try again.');
-      setPaymentLoading(false);
-      return;
-    }
-
-    if (!paystackPublicKey) {
-      console.error('Paystack public key not found');
-      toast.error('Payment configuration error. Please contact support.');
-      setPaymentLoading(false);
-      return;
-    }
-
-    const email = auth.currentUser?.email || 'default@example.com';
-    if (!validateEmail(email)) {
-      console.error('Invalid email:', email);
-      toast.error('Invalid email address. Please log in again.');
-      setPaymentLoading(false);
-      navigate('/login');
-      return;
-    }
-
-    console.log('Paystack public key:', paystackPublicKey);
-    console.log('User email:', email);
-
-    const callbackFunction = (response) => {
-      console.log('Paystack callback received:', response);
-      setPaymentLoading(false);
-      toast.success(`Payment completed! Reference: ${response.reference}`);
-      // Align with SupportMe: Trust callback and skip backend verification
-      setPaymentCompleted(true);
-      setShowPaywall(false);
-      // Optionally verify in background (uncomment if backend is fixed)
-      // verifyPayment(response.reference);
-    };
-
-    console.log('Callback function type:', typeof callbackFunction);
-
-    try {
-      const handler = window.PaystackPop.setup({
-        key: paystackPublicKey,
-        email: email,
-        amount: 2000, // 20 GHS in kobo
-        currency: 'GHS',
-        ref: `PODCAST_${Math.floor(Math.random() * 1000000)}`,
-        callback: callbackFunction,
-        onClose: () => {
-          console.log('Paystack popup closed');
-          toast.error('Payment cancelled.');
-          setPaymentLoading(false);
-        },
-      });
-      console.log('Opening Paystack iframe');
-      handler.openIframe();
-    } catch (err) {
-      console.error('Paystack initialization error:', err.message);
-      toast.error(`Failed to initiate payment: ${err.message}. Please try again.`);
-      setPaymentLoading(false);
-    }
-  };
-
   const generatePodcast = async () => {
     if (!folder.documents.length) {
       toast.error('No documents available to generate a podcast.');
-      return;
-    }
-    if (podcast) {
-      toast.error('A podcast already exists. Delete it to generate a new one.');
       return;
     }
 
@@ -457,13 +329,13 @@ function Podcast() {
       const backgroundMusicUrl = await getDownloadURL(ref(storage, 'background_music/track1.mp3'));
       console.log('Background music URL:', backgroundMusicUrl);
 
-      const podcastRef = ref(storage, `podcasts/${folderId}/podcast.mp3`);
+      const podcastRef = ref(storage, `podcasts/${folderId}/podcast_${Date.now()}.mp3`);
       await uploadBytes(podcastRef, podcastBlob);
       const downloadURL = await getDownloadURL(podcastRef);
 
       const podcastData = {
         id: Date.now().toString(),
-        name: `${folder.name}_Podcast`,
+        name: `${folder.name}_Podcast_${Date.now()}`,
         url: downloadURL,
         createdAt: new Date().toISOString(),
       };
@@ -473,7 +345,6 @@ function Podcast() {
 
       setFolder(prev => ({ ...prev, podcast: podcastData }));
       setPodcast(podcastData);
-      setPaymentCompleted(true);
       toast.success('Podcast generated successfully!');
     } catch (err) {
       console.error('Podcast generation error:', err.message);
@@ -485,7 +356,7 @@ function Podcast() {
 
   const handleDeletePodcast = async () => {
     try {
-      const storageRef = ref(storage, `podcasts/${folderId}/podcast.mp3`);
+      const storageRef = ref(storage, `podcasts/${folderId}/podcast_${podcast.id}.mp3`);
       await deleteObject(storageRef);
 
       const folderRef = doc(db, 'folders', folderId);
@@ -493,9 +364,7 @@ function Podcast() {
 
       setFolder(prev => ({ ...prev, podcast: null }));
       setPodcast(null);
-      setShowPaywall(true);
-      setPaymentCompleted(false);
-      toast.success('Podcast deleted successfully! You can now generate a new one after payment.');
+      toast.success('Podcast deleted successfully! You can now generate a new one.');
     } catch (err) {
       console.error('Delete podcast error:', err);
       toast.error('Failed to delete podcast. Please try again.');
@@ -632,89 +501,45 @@ function Podcast() {
         </div>
       </div>
 
-      <div className="bg-yellow-900/50 border border-yellow-700 text-yellow-200 p-4 rounded-lg mb-6">
-        <p className="text-sm md:text-base">⚠️ If the podcast fails to generate after payment, a full refund will be processed to your mobile money account within 1-2 business days or contact support if you need your money immediately.</p>
-      </div>
-
       <div className="mb-6 md:mb-8">
         <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Generate Podcast</h2>
         <p className="text-gray-400 text-sm md:text-base mb-3 md:mb-4">
           Generate a podcast from your latest document with background music. Generation may take up to 5 minutes.
         </p>
-        <p className="text-yellow-400 text-sm md:text-base mb-3 md:mb-4">
-          Note: You can generate one podcast per session. Please download your podcast before deleting to generate a new one.
-        </p>
-        {showPaywall && !paymentCompleted ? (
-          <button
-            ref={generateButtonRef}
-            onClick={initiatePayment}
-            disabled={!paystackLoaded || paymentLoading}
-            className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between text-sm md:text-base w-full ${
-              paystackLoaded && !paymentLoading ? 'hover:bg-gray-700' : 'opacity-50 cursor-not-allowed'
-            } ${tutorialStep === 1 ? 'ring-4 ring-purple-500' : ''}`}
-          >
-            {paymentLoading ? (
-              <span className="flex items-center">
-                <svg
-                  className="animate-spin h-4 w-4 md:h-5 md:w-5 mr-2 text-white"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                    fill="none"
-                  />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                </svg>
-                Processing...
-              </span>
-            ) : (
-              <>
-                <span>Generate Podcast for 20 GHS</span>
-                <span>➔</span>
-              </>
-            )}
-          </button>
-        ) : (
-          <button
-            ref={generateButtonRef}
-            onClick={generatePodcast}
-            disabled={generating || podcast}
-            className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between text-sm md:text-base w-full ${
-              generating || podcast ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700'
-            } ${tutorialStep === 1 ? 'ring-4 ring-purple-500' : ''}`}
-          >
-            {generating ? (
-              <span className="flex items-center">
-                <svg
-                  className="animate-spin h-4 w-4 md:h-5 md:w-5 mr-2 text-white"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                    fill="none"
-                  />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                </svg>
-                Generating...
-              </span>
-            ) : (
-              <>
-                <span>Generate Podcast</span>
-                <span>➔</span>
-              </>
-            )}
-          </button>
-        )}
+        <button
+          ref={generateButtonRef}
+          onClick={generatePodcast}
+          disabled={generating}
+          className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between text-sm md:text-base w-full ${
+            generating ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700'
+          } ${tutorialStep === 1 ? 'ring-4 ring-purple-500' : ''}`}
+        >
+          {generating ? (
+            <span className="flex items-center">
+              <svg
+                className="animate-spin h-4 w-4 md:h-5 md:w-5 mr-2 text-white"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                  fill="none"
+                />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
+              Generating...
+            </span>
+          ) : (
+            <>
+              <span>Generate Podcast</span>
+              <span>➔</span>
+            </>
+          )}
+        </button>
       </div>
 
       <div className="mb-6 md:mb-8">
