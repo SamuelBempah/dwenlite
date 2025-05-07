@@ -17,7 +17,7 @@ ffmpeg.setFfprobePath(ffprobeStatic.path);
 // Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyCcRES5X4RSjWcRGm5crwuSl6qUKx6aG6Y",
-  authDomain: "leumas  decipher-softwares.firebaseapp.com",
+  authDomain: "leumas-decipher-softwares.firebaseapp.com",
   databaseURL: "https://leumas-decipher-softwares-default-rtdb.firebaseio.com",
   projectId: "leumas-decipher-softwares",
   storageBucket: "leumas-decipher-softwares.appspot.com",
@@ -33,16 +33,6 @@ const storage = getStorage(app);
 const server = express();
 server.use(cors());
 server.use(express.json());
-
-// Generate a random string for short, unique filenames
-const randomString = (length) => {
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  let result = '';
-  for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-};
 
 // Get audio duration using ffprobe
 const getAudioDuration = (file) => {
@@ -60,20 +50,6 @@ const getAudioDuration = (file) => {
   });
 };
 
-// Clean up temporary files
-const cleanupFiles = (files) => {
-  files.forEach(file => {
-    if (fs.existsSync(file)) {
-      try {
-        fs.unlinkSync(file);
-        console.log(`Deleted: ${file}`);
-      } catch (err) {
-        console.error(`Failed to delete: ${file}`, err);
-      }
-    }
-  });
-};
-
 server.post('/generate-tts', async (req, res) => {
   const { text } = req.body;
   if (!text) {
@@ -81,21 +57,9 @@ server.post('/generate-tts', async (req, res) => {
     return res.status(400).json({ error: 'Text is required' });
   }
 
-  // Generate short, unique filenames
-  const fileSuffix = randomString(8);
-  const ttsFile = path.join(__dirname, `tts_${fileSuffix}.mp3`);
-  const musicFile = path.join(__dirname, `music_${fileSuffix}.mp3`);
-  const mixedFile = path.join(__dirname, `mixed_${fileSuffix}.mp3`);
-
-  // Validate path lengths
-  const maxPathLength = 255;
-  const filesToCheck = [ttsFile, musicFile, mixedFile];
-  for (const file of filesToCheck) {
-    if (file.length > maxPathLength) {
-      console.error(`File path too long: ${file}`);
-      return res.status(500).json({ error: `File path too long: ${path.basename(file)}` });
-    }
-  }
+  const ttsFile = path.join(__dirname, `tts_${Date.now()}.mp3`);
+  const musicFile = path.join(__dirname, `music_${Date.now()}.mp3`);
+  const mixedFile = path.join(__dirname, `mixed_${Date.now()}.mp3`);
 
   try {
     // Generate TTS audio
@@ -109,11 +73,7 @@ server.post('/generate-tts', async (req, res) => {
       pythonProcess.on('close', (code) => {
         if (code !== 0) {
           console.error('Python script failed:', errorOutput);
-          if (errorOutput.includes('ENAMETOOLONG')) {
-            reject(new Error('Filename too long for the operating system'));
-          } else {
-            reject(new Error(`Python script failed: ${errorOutput}`));
-          }
+          reject(new Error(`Python script failed: ${errorOutput}`));
         } else {
           console.log('TTS audio generated:', ttsFile);
           resolve();
@@ -144,7 +104,7 @@ server.post('/generate-tts', async (req, res) => {
       res.set('Content-Type', 'audio/mp3');
       res.send(outputAudio);
       console.log('TTS audio sent to client:', ttsFile);
-      cleanupFiles([ttsFile]);
+      fs.unlinkSync(ttsFile);
       return;
     }
     const musicResponse = await axios.get(musicUrl, { responseType: 'arraybuffer' });
@@ -197,11 +157,17 @@ server.post('/generate-tts', async (req, res) => {
     console.log('Audio sent to client:', outputFile);
 
     // Clean up
-    cleanupFiles([ttsFile, musicFile, mixedFile]);
+    [ttsFile, musicFile, mixedFile].forEach(file => {
+      if (fs.existsSync(file)) {
+        fs.unlink(file, (err) => {
+          if (err) console.error('Failed to delete:', file, err);
+        });
+      }
+    });
+    console.log('Temporary files cleaned up');
   } catch (err) {
     console.error('Error in /generate-tts:', err.message);
     res.status(500).json({ error: err.message });
-    cleanupFiles([ttsFile, musicFile, mixedFile]);
   }
 });
 
