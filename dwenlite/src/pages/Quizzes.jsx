@@ -255,7 +255,7 @@ function Quizzes() {
     try {
       const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
       if (!apiKey) {
-        throw new Error('DeepSeek API key not found. Please set VITE_DEEPSEEK_API_KEY in your .env file.');
+        throw new Error('DwenLite API key not found. Please set VITE_DWENLITE_API_KEY in your .env file.');
       }
 
       const latestDocument = folder.documents.length > 0
@@ -299,20 +299,20 @@ function Quizzes() {
           },
         }
       ).catch(err => {
-        console.error('DeepSeek API error:', {
+        console.error('DwenLite API error:', {
           status: err.response?.status,
           statusText: err.response?.statusText,
           data: err.response?.data,
           message: err.message,
         });
         if (err.response?.status === 401) {
-          throw new Error('Invalid DeepSeek API key. Please check your API key in the .env file.');
+          throw new Error('Invalid DwenLite API key. Please check your API key in the .env file.');
         } else if (err.response?.status === 429) {
           throw new Error('Rate limit exceeded. Please wait a few minutes and try again.');
         } else if (err.response?.status === 404) {
-          throw new Error('DeepSeek API endpoint not found. The endpoint may have changed.');
+          throw new Error('DwenLite API endpoint not found. The endpoint may have changed.');
         } else {
-          throw new Error(`DeepSeek API request failed: ${err.message}`);
+          throw new Error(`DwenLite API request failed: ${err.message}`);
         }
       });
 
@@ -322,7 +322,7 @@ function Quizzes() {
       } else if (response.data.choices?.[0]?.text) {
         generatedText = response.data.choices[0].text.trim();
       } else {
-        throw new Error('Invalid DeepSeek API response: No generated content found.');
+        throw new Error('Invalid DwenLite API response: No generated content found.');
       }
 
       generatedText = generatedText
@@ -541,7 +541,7 @@ function Quizzes() {
 
       const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
       if (!apiKey) {
-        throw new Error('DeepSeek API key not found. Please set VITE_DEEPSEEK_API_KEY in your .env file.');
+        throw new Error('DwenLite API key not found. Please set VITE_DWENLITE_API_KEY in your .env file.');
       }
 
       const prompt = `You are DwenLite AI, an assistant that answers questions based on provided quiz group content. Here is the content of the quiz group:\n\n${quizContent}\n\nQuestion: ${question}\n\nProvide a clear, concise, and accurate answer based on the quiz group content. If the question cannot be answered from the quiz group, state so and provide a brief explanation. Format the answer as plain text suitable for rendering in a React component.`;
@@ -571,20 +571,20 @@ function Quizzes() {
           },
         }
       ).catch(err => {
-        console.error('DeepSeek API error:', {
+        console.error('DwenLite API error:', {
           status: err.response?.status,
           statusText: err.response?.statusText,
           data: err.response?.data,
           message: err.message,
         });
         if (err.response?.status === 401) {
-          throw new Error('Invalid DeepSeek API key. Please check your API key in the .env file.');
+          throw new Error('Invalid DwenLite API key. Please check your API key in the .env file.');
         } else if (err.response?.status === 429) {
           throw new Error('Rate limit exceeded. Please wait a few minutes and try again.');
         } else if (err.response?.status === 404) {
-          throw new Error('DeepSeek API endpoint not found. The endpoint may have changed.');
+          throw new Error('DwenLite API endpoint not found. The endpoint may have changed.');
         } else {
-          throw new Error(`DeepSeek API request failed: ${err.message}`);
+          throw new Error(`DwenLite API request failed: ${err.message}`);
         }
       });
 
@@ -594,7 +594,7 @@ function Quizzes() {
       } else if (response.data.choices?.[0]?.text) {
         answer = response.data.choices[0].text.trim();
       } else {
-        throw new Error('Invalid DeepSeek API response: No answer found.');
+        throw new Error('Invalid DwenLite API response: No answer found.');
       }
 
       setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...').concat({
