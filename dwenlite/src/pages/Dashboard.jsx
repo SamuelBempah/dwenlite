@@ -494,11 +494,6 @@ function Dashboard() {
             </button>
           </div>
         </div>
-
-        <div className="bg-green-900/50 border border-green-700 text-yellow-200 p-4 rounded-lg mb-6">
-          <p className="text-sm md:text-base">✅ All Services Are Back Online!</p>
-        </div>
-
         <div ref={uploadSectionRef} className={`mb-6 md:mb-8 ${tutorialStep === 2 ? 'ring-4 ring-purple-500' : ''}`}>
           <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Try Now For Free!</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
