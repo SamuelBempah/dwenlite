@@ -105,7 +105,7 @@ function Welcome() {
         </div>
       </div>
       <footer className="relative text-center py-4 text-gray-400 text-sm sm:text-base z-20">
-        <p>Made With ❤️ By Samuel Bempah • DwenLite © 2025</p>
+        <p>Developed And Published By <Link to="https://sbmindtechnologies.com" className='hover:text-purple-400 transition-colors'>SBMind Technologies</Link> • DwenLite © 2025</p>
       </footer>
     </div>
   );
