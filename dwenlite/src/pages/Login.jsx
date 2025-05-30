@@ -1,10 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { auth, googleProvider } from '../firebase';
-import { signInWithEmailAndPassword, signInWithPopup } from 'firebase/auth';
+import { signInWithEmailAndPassword, signInWithPopup, onAuthStateChanged } from 'firebase/auth';
 import toast from 'react-hot-toast';
 
 function Login() {
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        navigate('/dashboard');
+      }
+    });
+
+    return () => unsubscribe();
+  }, []);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [signInLoading, setSignInLoading] = useState(false);
