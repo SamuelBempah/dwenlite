@@ -67,6 +67,9 @@ function Login() {
     <div className="min-h-screen bg-gradient-to-b from-purple-50 to-blue-50 flex items-center justify-center px-4">
       <div className="bg-white p-6 sm:p-8 rounded-lg shadow-lg w-full max-w-md">
         <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-6 text-center">Sign In</h2>
+        <div className="text-amber-600 text-sm text-center mb-4">
+          Note: Google Sign-in is temporarily unavailable on the desktop app. We're working to fix this issue.
+        </div>
         <button
           onClick={handleGoogleLogin}
           disabled={googleLoading}
