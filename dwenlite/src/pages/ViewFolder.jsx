@@ -441,11 +441,6 @@ function ViewFolder() {
           </Link>
         </div>
       </div>
-
-      <div className="mb-6">
-        <p className="text-gray-400 text-sm md:text-base">Created on {new Date(folder.createdAt).toLocaleDateString()}</p>
-      </div>
-
       <div className={`mb-6 md:mb-8 ${tutorialStep === 1 || tutorialStep === 2 ? 'ring-4 ring-purple-500' : ''}`}>
         <h2 className="text-lg md:text-xl font-semibold mb-2 md:mb-3">Upload Document, Audio, or Video</h2>
         <p className="text-purple-400 text-sm md:text-base mb-3 animate-pulse-glow">

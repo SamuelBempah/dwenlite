@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { auth } from '../firebase';
 import axios from 'axios';
 import toast from 'react-hot-toast';
@@ -269,12 +269,12 @@ function Support() {
             <span className="ml-3 text-lg font-semibold">{currentUser.displayName || 'User'}</span>
           </div>
           <nav>
-            <a href="/dashboard" className="flex items-center mb-4 text-purple-400 text-base">
+            <Link to="/dashboard" className="flex items-center mb-4 text-purple-400 text-base">
               <span className="mr-2">🏠</span> Dashboard
-            </a>
-            <a href="/support" className="flex items-center mb-4 text-white bg-gray-700 p-2 rounded-lg">
+            </Link>
+            <Link to="/support" className="flex items-center mb-4 text-white bg-gray-700 p-2 rounded-lg">
               <span className="mr-2">💬</span> Support
-            </a>
+            </Link>
           </nav>
         </div>
         <button

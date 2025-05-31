@@ -23,6 +23,7 @@ function Dashboard() {
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
+  const [foldersLoading, setFoldersLoading] = useState(true);
 
   const folderInputRef = useRef(null);
   const createButtonRef = useRef(null);
@@ -83,8 +84,8 @@ function Dashboard() {
     });
     return unsubscribe;
   }, [navigate]);
-
   const fetchFolders = async (userId) => {
+    setFoldersLoading(true);
     try {
       const q = query(collection(db, 'folders'), where('user_id', '==', userId));
       const querySnapshot = await getDocs(q);
@@ -94,6 +95,10 @@ function Dashboard() {
     } catch (err) {
       toast.error('Failed to fetch folders. Please try again.');
       console.error('Fetch folders error:', err);
+    } finally {
+      setTimeout(() => {
+        setFoldersLoading(false);
+      }, 1500);
     }
   };
 
@@ -642,7 +647,17 @@ function Dashboard() {
               )}
             </button>
           </div>
-          {folders.length === 0 ? (
+          {foldersLoading ? (
+            <div className="min-h-[200px] flex items-center justify-center">
+              <div className="flex items-center">
+                <svg className="animate-spin h-5 w-5 mr-3 text-white" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+                Fetching Your Folders...
+              </div>
+            </div>
+          ) : folders.length === 0 ? (
             <p className="text-gray-400 text-sm md:text-base">
               No folders yet. Create one to start!
             </p>
