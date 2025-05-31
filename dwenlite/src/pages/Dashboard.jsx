@@ -635,7 +635,7 @@ function Dashboard() {
                     />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                   </svg>
-                  Loading...
+                  Creating Folder...
                 </span>
               ) : (
                 'Create Folder'

@@ -855,7 +855,7 @@ function Flashcards() {
                   d="M4 12a8 8 0 018-8v8H4z"
                 />
               </svg>
-              Loading...
+              Generating Flashcards...
             </span>
           ) : (
             <>
