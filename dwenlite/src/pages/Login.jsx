@@ -76,42 +76,6 @@ function Login() {
     <div className="min-h-screen bg-gradient-to-b from-purple-50 to-blue-50 flex items-center justify-center px-4">
       <div className="bg-white p-6 sm:p-8 rounded-lg shadow-lg w-full max-w-md">
         <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-6 text-center">Sign In</h2>
-        <div className="text-amber-600 text-sm text-center mb-4">
-          Note: Google Sign-in is temporarily unavailable on the desktop app. We're working to fix this issue.
-        </div>
-        <button
-          onClick={handleGoogleLogin}
-          disabled={googleLoading}
-          className={`w-full bg-white border border-gray-300 text-gray-800 py-3 rounded-lg mb-4 flex items-center justify-center hover:bg-gray-50 text-sm sm:text-base ${
-            googleLoading ? 'opacity-50 cursor-not-allowed' : ''
-          }`}
-        >
-          {googleLoading ? (
-            <span className="flex items-center">
-              <svg
-                className="animate-spin h-5 w-5 mr-2 text-gray-800"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                  fill="none"
-                />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-              </svg>
-              Loading...
-            </span>
-          ) : (
-            <>
-              <span className="mr-2">G</span> Sign in with Google
-            </>
-          )}
-        </button>
-        <div className="text-center text-gray-500 mb-6 text-sm sm:text-base">or sign in with your email</div>
         <form onSubmit={handleLogin}>
           <div className="mb-4">
             <input

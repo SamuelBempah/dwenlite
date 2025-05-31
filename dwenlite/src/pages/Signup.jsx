@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { auth, googleProvider } from '../firebase';
-import { createUserWithEmailAndPassword, signInWithPopup, updateProfile, sendEmailVerification } from 'firebase/auth';
+import { auth } from '../firebase';
+import { createUserWithEmailAndPassword, updateProfile, sendEmailVerification } from 'firebase/auth';
 import toast from 'react-hot-toast';
 import Confetti from 'react-confetti';
 
@@ -12,7 +12,6 @@ function Signup() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [signupLoading, setSignupLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
   const [showConfetti, setShowConfetti] = useState(false);
   const navigate = useNavigate();
 
@@ -83,23 +82,6 @@ function Signup() {
       });
   };
 
-  const handleGoogleSignup = () => {
-    setGoogleLoading(true);
-    signInWithPopup(auth, googleProvider)
-      .then(() => {
-        setTimeout(() => {
-          toast.success('Successfully signed up with Google!');
-          triggerConfetti();
-          navigate('/dashboard');
-          setGoogleLoading(false);
-        }, 3000); // 3-second delay
-      })
-      .catch((err) => {
-        toast.error(getFriendlyErrorMessage(err.code));
-        setGoogleLoading(false);
-      });
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-b from-purple-50 to-blue-50 flex items-center justify-center px-4">
       {showConfetti && (
@@ -113,26 +95,6 @@ function Signup() {
       )}
       <div className="bg-white p-6 sm:p-8 rounded-lg shadow-lg w-full max-w-md">
         <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-6 text-center">Sign Up</h2>
-        <button
-          onClick={handleGoogleSignup}
-          disabled={googleLoading}
-          className={`w-full bg-white border border-gray-300 text-gray-800 py-3 rounded-lg mb-4 flex items-center justify-center hover:bg-gray-50 text-sm sm:text-base ${googleLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-        >
-          {googleLoading ? (
-            <span className="flex items-center">
-              <svg className="animate-spin h-5 w-5 mr-2 text-gray-800" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-              </svg>
-              Loading...
-            </span>
-          ) : (
-            <>
-              <span className="mr-2">G</span> Continue with Google
-            </>
-          )}
-        </button>
-        <div className="text-center text-gray-500 mb-6 text-sm sm:text-base">or create manually</div>
         <form onSubmit={handleSignup}>
           <div className="mb-4">
             <input
