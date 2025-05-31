@@ -16,11 +16,18 @@ function ViewFolder() {
   const [uploading, setUploading] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const [isRecordingScreen, setIsRecordingScreen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   const fileInputRef = useRef(null);
   const uploadButtonRef = useRef(null);
   const documentsSectionRef = useRef(null);
   const studyMaterialsRef = useRef(null);
+  const audioRecorderRef = useRef(null);
+  const screenRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const screenChunksRef = useRef([]);
 
   const acceptedFormats = [
     'pdf', 'docx', 'txt', 'pptx',
@@ -45,8 +52,13 @@ function ViewFolder() {
       highlightRef: uploadButtonRef,
     },
     {
+      title: "Record Audio or Screen",
+      description: "Record live audio or screen captures as alternative ways to add content. Note: Screen recording is only available on desktop devices.",
+      highlightRef: uploadButtonRef,
+    },
+    {
       title: "View Documents",
-      description: "Your uploaded documents appear here. Click to view or delete them.",
+      description: "Your uploaded documents and recordings appear here. Click to view or delete them.",
       highlightRef: documentsSectionRef,
     },
     {
@@ -56,12 +68,17 @@ function ViewFolder() {
     },
     {
       title: "You're Ready!",
-      description: "You now know how to use this folder. Start uploading and studying!",
+      description: "You now know how to use this folder. Start uploading, recording, and studying!",
       highlightRef: null,
     },
   ];
 
   useEffect(() => {
+    // Detect mobile devices
+    const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+    const isMobileDevice = /android|iphone|ipad|ipod|webos|blackberry|windows phone/i.test(userAgent);
+    setIsMobile(isMobileDevice);
+
     const unsubscribe = auth.onAuthStateChanged(user => {
       if (!user) {
         toast.error('Please log in to view this folder.');
@@ -177,18 +194,18 @@ function ViewFolder() {
   const sendToDeepSeek = async (text) => {
     try {
       const response = await axios.post(
-        'https://api.deepseek.com/v1/process', // Replace with actual DeepSeek endpoint
+        'https://api.deepseek.com/v1/process',
         { text },
         {
           headers: {
-            'Authorization': 'Bearer YOUR_DEEPSEEK_API_KEY', // Replace with actual key
+            'Authorization': 'Bearer YOUR_DEEPSEEK_API_KEY',
             'Content-Type': 'application/json',
           },
         }
       );
       return response.data.results || 'No results from DeepSeek.';
     } catch (error) {
-      console.warn('DeepSeek API error:', error.message);
+      console.warn('DeepSeek API error:', err.message);
       return 'Failed to process text with DeepSeek: ' + error.message;
     }
   };
@@ -251,13 +268,11 @@ function ViewFolder() {
               extractedText = await extractPptxText(file);
               break;
           }
-          // Create and upload .txt file
           const txtBlob = new Blob([extractedText], { type: 'text/plain' });
           const txtFileName = `extracted_${file.name}.txt`;
           const txtStorageRef = ref(storage, `documents/${folderId}/${txtFileName}`);
           await uploadBytes(txtStorageRef, txtBlob);
           extractedTextUrl = await getDownloadURL(txtStorageRef);
-          // Send extracted text to DeepSeek
           deepSeekResults = await sendToDeepSeek(extractedText);
         } else if (['mp3', 'wav', 'm4a', 'ogg', 'flac'].includes(fileExtension)) {
           isAudio = true;
@@ -276,7 +291,6 @@ function ViewFolder() {
         }
       }
 
-      // Upload original file
       const storageRef = ref(storage, `documents/${folderId}/${file.name}`);
       await uploadBytes(storageRef, file);
       const downloadURL = await getDownloadURL(storageRef);
@@ -314,13 +328,140 @@ function ViewFolder() {
     }
   };
 
+  const startAudioRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+      audioRecorderRef.current = new MediaRecorder(stream, { mimeType });
+      audioChunksRef.current = [];
+
+      audioRecorderRef.current.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      audioRecorderRef.current.onstop = async () => {
+        const extension = mimeType === 'audio/webm' ? 'webm' : 'mp4';
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+        await uploadRecording(audioBlob, `audio_recording_${Date.now()}.${extension}`, false, true);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      audioRecorderRef.current.start();
+      setIsRecordingAudio(true);
+      toast.success('Audio recording started!');
+    } catch (err) {
+      console.error('Audio recording error:', err);
+      toast.error('Failed to start audio recording. Please check microphone permissions.');
+    }
+  };
+
+  const stopAudioRecording = () => {
+    if (audioRecorderRef.current) {
+      audioRecorderRef.current.stop();
+      setIsRecordingAudio(false);
+    }
+  };
+
+  const startScreenRecording = async () => {
+    if (isMobile) {
+      toast.error('Screen recording is only available on desktop devices. Please use your device\'s built-in screen recorder and upload the file.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { mediaSource: 'screen' },
+        audio: true,
+      });
+      const mimeType = MediaRecorder.isTypeSupported('video/webm') ? 'video/webm' : 'video/mp4';
+      screenRecorderRef.current = new MediaRecorder(stream, { mimeType });
+      screenChunksRef.current = [];
+
+      screenRecorderRef.current.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          screenChunksRef.current.push(event.data);
+        }
+      };
+
+      screenRecorderRef.current.onstop = async () => {
+        const extension = mimeType === 'video/webm' ? 'webm' : 'mp4';
+        const videoBlob = new Blob(screenChunksRef.current, { type: mimeType });
+        await uploadRecording(videoBlob, `screen_recording_${Date.now()}.${extension}`, true, false);
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      screenRecorderRef.current.start();
+      setIsRecordingScreen(true);
+      toast.success('Screen recording started!');
+    } catch (err) {
+      console.error('Screen recording error:', err);
+      toast.error('Failed to start screen recording. Please check screen sharing permissions.');
+    }
+  };
+
+  const stopScreenRecording = () => {
+    if (screenRecorderRef.current) {
+      screenRecorderRef.current.stop();
+      setIsRecordingScreen(false);
+    }
+  };
+
+  const uploadRecording = async (blob, fileName, isVideo, isAudio) => {
+    if (folder.documents.length >= 1) {
+      toast.error('This folder already has a document. Only one document is allowed per folder. Delete the existing document to upload a new one.');
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const storageRef = ref(storage, `documents/${folderId}/${fileName}`);
+      await uploadBytes(storageRef, blob);
+      const downloadURL = await getDownloadURL(storageRef);
+
+      const documentData = {
+        id: Date.now().toString(),
+        name: fileName,
+        url: downloadURL,
+        extractedText: '',
+        extractedTextUrl: '',
+        deepSeekResults: '',
+        uploadedAt: new Date().toISOString(),
+        isText: false,
+        isAudio,
+        isVideo,
+      };
+
+      const folderRef = doc(db, 'folders', folderId);
+      await updateDoc(folderRef, {
+        documents: [...(folder.documents || []), documentData],
+      });
+
+      setFolder(prev => ({
+        ...prev,
+        documents: [...prev.documents, documentData],
+      }));
+
+      toast.success(`${isAudio ? 'Audio' : 'Screen'} recording uploaded successfully!`);
+    } catch (err) {
+      console.error('Recording upload error:', err);
+      toast.error('Failed to upload recording. Please try again.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const handleDeleteDocument = async (docId, docName, isVideo, isAudio, extractedTextUrl) => {
     try {
-      // Delete original file
       const storageRef = ref(storage, `documents/${folderId}/${docName}`);
       await deleteObject(storageRef);
 
-      // Delete extracted .txt file if it exists
       if (extractedTextUrl) {
         const txtStorageRef = ref(storage, `documents/${folderId}/extracted_${docName}.txt`);
         await deleteObject(txtStorageRef);
@@ -441,13 +582,13 @@ function ViewFolder() {
           </Link>
         </div>
       </div>
-      <div className={`mb-6 md:mb-8 ${tutorialStep === 1 || tutorialStep === 2 ? 'ring-4 ring-purple-500' : ''}`}>
-        <h2 className="text-lg md:text-xl font-semibold mb-2 md:mb-3">Upload Document, Audio, or Video</h2>
+      <div className={`mb-6 md:mb-8 ${tutorialStep === 1 || tutorialStep === 2 || tutorialStep === 3 ? 'ring-4 ring-purple-500' : ''}`}>
+        <h2 className="text-lg md:text-xl font-semibold mb-2 md:mb-3">Upload Document, Audio, Video, or Record</h2>
         <p className="text-purple-400 text-sm md:text-base mb-3 animate-pulse-glow">
           Accepted formats: {acceptedFormats.map(fmt => `.${fmt}`).join(', ')}
         </p>
         <div className="bg-gray-800 p-3 md:p-4 rounded-lg">
-          <div>
+          <div className="mb-3">
             <input
               ref={fileInputRef}
               type="file"
@@ -456,48 +597,98 @@ function ViewFolder() {
               accept=".pdf,.docx,.txt,.pptx,audio/*,video/*"
             />
           </div>
-          <button
-            ref={uploadButtonRef}
-            onClick={handleUpload}
-            disabled={uploading || !file}
-            className={`w-full bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base flex items-center justify-center ${
-              uploading || !file ? 'opacity-50 cursor-not-allowed' : ''
-            } ${tutorialStep === 2 ? 'ring-4 ring-purple-500' : ''}`}
-          >
-            {uploading ? (
-              <span className="flex items-center">
-                <svg
-                  className="animate-spin h-4 w-4 mr-2 text-white"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                    fill="none"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8v8H4z"
-                  />
-                </svg>
-                Uploading...
-              </span>
-            ) : (
-              'Upload Document'
-            )}
-          </button>
+          <div className="flex flex-col sm:flex-row sm:space-x-3 space-y-3 sm:space-y-0">
+            <button
+              ref={uploadButtonRef}
+              onClick={handleUpload}
+              disabled={uploading || !file || isRecordingAudio || isRecordingScreen}
+              className={`flex-1 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base flex items-center justify-center ${
+                uploading || !file || isRecordingAudio || isRecordingScreen ? 'opacity-50 cursor-not-allowed' : ''
+              } ${tutorialStep === 2 ? 'ring-4 ring-purple-500' : ''}`}
+            >
+              {uploading ? (
+                <span className="flex items-center">
+                  <svg
+                    className="animate-spin h-4 w-4 mr-2 text-white"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      fill="none"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8v8H4z"
+                    />
+                  </svg>
+                  Uploading...
+                </span>
+              ) : (
+                'Upload Document'
+              )}
+            </button>
+            <button
+              onClick={isRecordingAudio ? stopAudioRecording : startAudioRecording}
+              disabled={uploading || isRecordingScreen}
+              className={`flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 text-sm md:text-base flex items-center justify-center ${
+                uploading || isRecordingScreen ? 'opacity-50 cursor-not-allowed' : ''
+              } ${tutorialStep === 3 ? 'ring-4 ring-purple-500' : ''}`}
+            >
+              {isRecordingAudio ? (
+                <span className="flex items-center">
+                  <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <rect x="6" y="6" width="12" height="12" rx="2" />
+                  </svg>
+                  Stop Audio
+                </span>
+              ) : (
+                <span className="flex items-center">
+                  <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="10" strokeWidth="2" />
+                    <circle cx="12" cy="12" r="3" fill="currentColor" />
+                  </svg>
+                  Record Audio
+                </span>
+              )}
+            </button>
+            <button
+              onClick={isRecordingScreen ? stopScreenRecording : startScreenRecording}
+              disabled={uploading || isRecordingAudio}
+              className={`flex-1 bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 text-sm md:text-base flex items-center justify-center ${
+                uploading || isRecordingAudio ? 'opacity-50 cursor-not-allowed' : ''
+              } ${tutorialStep === 3 ? 'ring-4 ring-purple-500' : ''}`}
+            >
+              {isRecordingScreen ? (
+                <span className="flex items-center">
+                  <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <rect x="6" y="6" width="12" height="12" rx="2" />
+                  </svg>
+                  Stop Screen
+                </span>
+              ) : (
+                <span className="flex items-center">
+                  <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <rect x="4" y="4" width="16" height="12" rx="2" strokeWidth="2" />
+                    <path d="M4 16l6 4h8l-6-4V4" strokeWidth="2" />
+                  </svg>
+                  Record Screen
+                </span>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
-      <div ref={documentsSectionRef} className={`mb-6 md:mb-8 ${tutorialStep === 3 ? 'ring-4 ring-purple-500' : ''}`}>
-        <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Uploaded Documents</h2>
+      <div ref={documentsSectionRef} className={`mb-6 md:mb-8 ${tutorialStep === 4 ? 'ring-4 ring-purple-500' : ''}`}>
+        <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Uploaded Documents and Recordings</h2>
         {folder.documents.length === 0 ? (
-          <p className="text-gray-400 text-sm md:text-base">No documents uploaded yet.</p>
+          <p className="text-gray-400 text-sm md:text-base">No documents or recordings uploaded yet.</p>
         ) : (
           folder.documents.map((doc) => (
             <div
@@ -530,7 +721,7 @@ function ViewFolder() {
         )}
       </div>
 
-      <div ref={studyMaterialsRef} className={`mb-6 md:mb-8 ${tutorialStep === 4 ? 'ring-4 ring-purple-500' : ''}`}>
+      <div ref={studyMaterialsRef} className={`mb-6 md:mb-8 ${tutorialStep === 5 ? 'ring-4 ring-purple-500' : ''}`}>
         <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Study Materials</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
           <Link
