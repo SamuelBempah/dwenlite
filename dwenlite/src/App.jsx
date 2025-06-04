@@ -16,6 +16,7 @@ import { Toaster } from 'react-hot-toast';
 import Support from './pages/Support';
 import Podcast from './pages/Podcast';
 import DeleteAccount from './pages/DeleteAccount';
+import DwenLiteDownload from './pages/dwlitedownload';
 
 function NotFound() {
   return (
@@ -52,6 +53,7 @@ function App() {
           <Route path="/folder/:folderId/podcast" element={<Podcast />} />
           <Route path="/delete-account" element={<DeleteAccount />} />
           <Route path="/support-me" element={<SupportMe />} />
+          <Route path="/dwenlite-download" element={<DwenLiteDownload />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/support" element={<Support />} />
