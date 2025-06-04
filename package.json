@@ -9,7 +9,8 @@
     "mammoth": "^1.9.0",
     "pdf-parse": "^1.1.1",
     "pdfjs-dist": "^5.1.91",
-    "pizzip": "^3.1.8"
+    "pizzip": "^3.1.8",
+    "react-confetti": "^6.4.0"
   },
   "name": "dwenlite",
   "version": "1.0.0",

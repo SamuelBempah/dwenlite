@@ -8,6 +8,7 @@ function DwenLiteDownload() {
   const [androidLoading, setAndroidLoading] = useState(false);
   const [desktopLoading, setDesktopLoading] = useState(false);
   const [videoError, setVideoError] = useState(false);
+  const [showThankYou, setShowThankYou] = useState(false);
 
   const handleAndroidClick = (e) => {
     e.preventDefault();
@@ -21,6 +22,7 @@ function DwenLiteDownload() {
   const handleDesktopClick = (e) => {
     e.preventDefault();
     setDesktopLoading(true);
+    setShowThankYou(true);
     // Create a temporary anchor element to trigger direct download
     const link = document.createElement('a');
     link.href = 'https://github.com/SamuelBempah/dwenlite/raw/refs/heads/master/desktop-releases/DwenLite_Setup.exe'; // Replace with actual GitHub URL
@@ -30,6 +32,10 @@ function DwenLiteDownload() {
       link.click();
       document.body.removeChild(link);
       setDesktopLoading(false);
+      // Hide thank you message after 5 seconds
+      setTimeout(() => {
+        setShowThankYou(false);
+      }, 5000);
     }, 1000);
   };
 
@@ -190,6 +196,16 @@ function DwenLiteDownload() {
           >
             Download Now, It's Completely FREE!!
           </motion.h3>
+          {showThankYou && (
+            <motion.p
+              className="text-lg sm:text-xl text-white mb-4 drop-shadow-[0_0_10px_rgba(147,51,234,0.5)]"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5 }}
+            >
+              Thank you for downloading DwenLite! Your download should start shortly.
+            </motion.p>
+          )}
           <div className="flex flex-col sm:flex-row justify-center space-y-4 sm:space-y-0 sm:space-x-4">
             <motion.a
               href="https://play.google.com/store/apps/details?id=com.dwenlite.app"
