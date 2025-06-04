@@ -1,11 +1,10 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import welcomeVideo from '../videos/welcome.mp4'; // Adjust path if needed
 import logo from '../assets/react.png'; // Logo path
 
 function DwenLiteDownload() {
-  const navigate = useNavigate();
   const [androidLoading, setAndroidLoading] = useState(false);
   const [desktopLoading, setDesktopLoading] = useState(false);
   const [videoError, setVideoError] = useState(false);
@@ -22,9 +21,15 @@ function DwenLiteDownload() {
   const handleDesktopClick = (e) => {
     e.preventDefault();
     setDesktopLoading(true);
+    // Create a temporary anchor element to trigger direct download
+    const link = document.createElement('a');
+    link.href = 'https://github.com/SamuelBempah/dwenlite/raw/refs/heads/master/desktop-releases/DwenLite_Setup.exe'; // Replace with actual GitHub URL
+    link.download = 'DwenLite_Setup.exe'; // Suggests filename to the browser
+    document.body.appendChild(link);
     setTimeout(() => {
+      link.click();
+      document.body.removeChild(link);
       setDesktopLoading(false);
-      navigate('/desktop-download'); // Replace with actual route or URL
     }, 1000);
   };
 
