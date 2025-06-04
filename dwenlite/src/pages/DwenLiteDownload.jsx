@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import welcomeVideo from '../videos/welcome.mp4'; // Adjust path if needed
+import logo from '../assets/react.png'; // Logo path
 
 function DwenLiteDownload() {
   const navigate = useNavigate();
@@ -70,6 +71,11 @@ function DwenLiteDownload() {
         viewport={{ once: true, amount: 0.8 }}
       >
         <div className="container mx-auto px-4 sm:px-6">
+          <img
+            src={logo}
+            alt="DwenLite Logo"
+            className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4"
+          />
           <motion.h2
             className="text-4xl sm:text-5xl font-extrabold text-white mb-4 drop-shadow-[0_0_10px_rgba(147,51,234,0.5)]"
             initial={{ scale: 0.8 }}
@@ -84,7 +90,7 @@ function DwenLiteDownload() {
             whileInView={{ opacity: 1 }}
             transition={{ delay: 0.3, duration: 1 }}
           >
-            Your ultimate AI-powered study companion designed to revolutionize learning. Scoll Down To Continue
+            Your ultimate AI-powered study companion designed to revolutionize learning. Scroll Down To Continue
           </motion.p>
         </div>
       </motion.div>
@@ -166,6 +172,11 @@ function DwenLiteDownload() {
         viewport={{ once: true, amount: 0.8 }}
       >
         <div className="container mx-auto px-4 sm:px-6">
+          <img
+            src={logo}
+            alt="DwenLite Logo"
+            className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 rounded-2xl drop-shadow-[0_0_10px_rgba(147,51,234,0.7)]"
+          />
           <motion.h3
             className="text-3xl sm:text-4xl font-bold text-white mb-8 drop-shadow-[0_0_10px_rgba(147,51,234,0.5)]"
             initial={{ scale: 0.8 }}
