@@ -140,7 +140,7 @@ function DeleteAccount() {
         <div className="bg-gray-800 p-4 md:p-6 rounded-lg">
           <h2 className="text-lg md:text-xl font-semibold mb-4">Account Deletion</h2>
           <p className="text-gray-300 text-sm md:text-base mb-4">
-            To delete your account for Leumas Decipher Softwares, developed by [Your Developer Name], please fill out the form below. This will submit a request to permanently remove all associated data, including folders, notes, quizzes, and flashcards, from our servers.
+            To delete your account for DwenLite, developed by SBMind Technologies, please fill out the form below. This will submit a request to permanently remove all associated data, including folders, notes, quizzes, and flashcards, from our servers.
           </p>
           <div className="max-w-md">
             <div className="mb-4">
