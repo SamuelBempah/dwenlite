@@ -15,7 +15,24 @@ import ErrorBoundary from './ErrorBoundary';
 import { Toaster } from 'react-hot-toast';
 import Support from './pages/Support';
 import Podcast from './pages/Podcast';
+import DeleteAccount from './pages/DeleteAccount';
 
+function NotFound() {
+  return (
+    <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+      <div className="text-center">
+        <h1 className="text-4xl font-bold mb-4">404 - Page Not Found</h1>
+        <p className="text-gray-400 mb-6">The page you're looking for doesn't exist.</p>
+        <a
+          href="/dashboard"
+          className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700"
+        >
+          Go to Dashboard
+        </a>
+      </div>
+    </div>
+  );
+}
 
 function App() {
   return (
@@ -33,11 +50,12 @@ function App() {
           <Route path="/folder/:folderId/quizzes" element={<Quizzes />} />
           <Route path="/folder/:folderId/flashcards" element={<Flashcards />} />
           <Route path="/folder/:folderId/podcast" element={<Podcast />} />
+          <Route path="/delete-account" element={<DeleteAccount />} />
           <Route path="/support-me" element={<SupportMe />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/support" element={<Support />} />
-          <Route path="*" element={<Navigate to="/404.html" replace />} />
+          <Route path="*" element={<NotFound />} />
         </Routes>
       </Router>
     </ErrorBoundary>

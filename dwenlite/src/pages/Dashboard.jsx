@@ -422,6 +422,12 @@ function Dashboard() {
             >
               <span className="mr-2">💬</span> Support
             </Link>
+            <Link
+              to="/delete-account"
+              className="flex items-center mb-3 md:mb-4 text-red-400 text-sm md:text-base"
+            >
+              <span className="mr-2">🗑️</span> Delete Account
+            </Link>
           </nav>
         </div>
         <button
