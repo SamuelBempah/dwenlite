@@ -16,7 +16,7 @@ import { Toaster } from 'react-hot-toast';
 import Support from './pages/Support';
 import Podcast from './pages/Podcast';
 import DeleteAccount from './pages/DeleteAccount';
-import DwenLiteDownload from './pages/dwlitedownload';
+import DwenLiteDownload from './pages/DwenLiteDownload';
 
 function NotFound() {
   return (
