@@ -227,7 +227,7 @@ function DwenLiteDownload() {
                   <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M3 20.5v-17c0-.83.67-1.5 1.5-1.5h1.67l6 6 6-6h1.83c.83 0 1.5.67 1.5 1.5v17c0 .83-.67 1.5-1.5 1.5h-15c-.83 0-1.5-.67-1.5-1.5zM12 14l-6-6h12l-6 6z"/>
                   </svg>
-                  <span>Google Play Store</span>
+                  <span>Download For Android</span>
                 </>
               )}
             </motion.a>
@@ -247,7 +247,7 @@ function DwenLiteDownload() {
                   Loading...
                 </span>
               ) : (
-                'Download for Desktop'
+                'Download for Windows'
               )}
             </motion.a>
           </div>
