@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { db, auth } from '../firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, addDoc, collection } from 'firebase/firestore';
 import { arrayUnion } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
@@ -20,6 +20,9 @@ function Notes() {
   const [chatHistory, setChatHistory] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [showNotePrompt, setShowNotePrompt] = useState(false);
+  const [showReportForm, setShowReportForm] = useState(null);
+  const [reportReason, setReportReason] = useState('');
+  const [reportLoading, setReportLoading] = useState(false);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -412,6 +415,42 @@ function Notes() {
     }
   };
 
+  const handleReportContent = async (messageIndex, reason) => {
+    setReportLoading(true);
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        toast.error('You must be logged in to report content.');
+        return;
+      }
+
+      const message = chatHistory[messageIndex];
+      const reportData = {
+        userId: user.uid,
+        folderId,
+        contentType: 'chat_message',
+        contentId: `message_${messageIndex}`,
+        content: message.content,
+        reason,
+        createdAt: new Date().toISOString(),
+      };
+
+      await addDoc(collection(db, 'reports'), reportData);
+      toast.success('Content reported successfully. Thank you for your feedback.');
+      setShowReportForm(null);
+      setReportReason('');
+    } catch (err) {
+      console.error('Error reporting content:', {
+        message: err.message,
+        code: err.code,
+        details: err.details,
+      });
+      toast.error(`Failed to report content: ${err.message}. Please try again.`);
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
   const handleChatSubmit = async (e) => {
     e.preventDefault();
     if (!chatInput.trim()) return;
@@ -492,7 +531,7 @@ function Notes() {
 
       setChatHistory(prev => [
         ...prev,
-        { type: 'system  system', content: 'DwenLite AI is typing...' },
+        { type: 'system', content: 'DwenLite AI is typing...' },
       ]);
 
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -652,7 +691,7 @@ function Notes() {
       <div className="mb-6 md:mb-8">
         <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Generate Notes</h2>
         <p className="text-gray-400 text-sm md:text-base mb-3 md:mb-4">
-          Note generation typically takes 1-5 Minutes. Processing time may vary based on server load and document size.
+          Note generation typically takes 1-5 minutes. Processing time may vary based on server load and document size.
         </p>
         <button
           onClick={handleGenerateNotes}
@@ -716,7 +755,7 @@ function Notes() {
                         onClick={() => handleToggleGroup(note.id)}
                         className="text-left flex-1 text-base md:text-lg font-semibold hover:text-purple-400"
                       >
-                        Notes {index + 1} (Created: {new Date(note.createdAt).toLocaleDateString()})
+                        Note {index + 1} (Created: {new Date(note.createdAt).toLocaleDateString()})
                       </button>
                       <div className="flex items-center space-x-2">
                         <button
@@ -762,7 +801,7 @@ function Notes() {
             {chatHistory.map((message, index) => (
               <div
                 key={index}
-                className={`mb-2 ${message.type === 'user' ? 'text-right' : 'text-left'} ${
+                className={`mb-2 relative ${message.type === 'user' ? 'text-right' : 'text-left'} ${
                   message.type === 'user' ? 'animate-slide-in-right' : 'animate-slide-in-left'
                 }`}
               >
@@ -775,9 +814,9 @@ function Notes() {
                       : 'text-gray-400 italic typing-dots'
                   }`}
                 >
-                  {message.content.includes('DwenLite AI is typing...') ? (
+                  {message.content.includes('DwenLite AI is typing...') || message.content.includes('DwenLite AI is reading Note...') ? (
                     <>
-                      DwenLite AI is typing
+                      {message.content.replace('...', '')}
                       <span>.</span>
                       <span>.</span>
                       <span>.</span>
@@ -786,6 +825,59 @@ function Notes() {
                     message.content
                   )}
                 </span>
+                {message.type === 'ai' && !message.content.includes('DwenLite AI is typing...') && (
+                  <button
+                    onClick={() => setShowReportForm(showReportForm === index ? null : index)}
+                    className="absolute top-0 right-0 text-red-500 hover:text-red-400 text-xs p-1"
+                  >
+                    {showReportForm === index ? 'Cancel' : 'Report'}
+                  </button>
+                )}
+                {showReportForm === index && (
+                  <div className="mt-2 p-2 bg-gray-700 rounded-lg animate-fade-in">
+                    <textarea
+                      value={reportReason}
+                      onChange={(e) => setReportReason(e.target.value)}
+                      placeholder="Why is this content offensive or inappropriate?"
+                      className="w-full p-2 bg-gray-600 text-white rounded-lg focus:outline-none"
+                      rows="3"
+                    />
+                    <button
+                      onClick={() => handleReportContent(index, reportReason)}
+                      disabled={reportLoading || !reportReason.trim()}
+                      className={`mt-2 bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700 ${
+                        reportLoading || !reportReason.trim() ? 'opacity-50 cursor-not-allowed' : ''
+                      }`}
+                    >
+                      {reportLoading ? (
+                        <span className="flex items-center">
+                          <svg
+                            className="animate-spin h-4 w-4 mr-2 text-white"
+                            viewBox="0 0 24 24"
+                          >
+                            <circle
+                              className="opacity-25"
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                              fill="none"
+                            />
+                            <path
+                              className="opacity-75"
+                              fill="currentColor"
+                              d="M4 12a8 8 0 018-8v8H4z"
+                            />
+                          </svg>
+                          Reporting...
+                        </span>
+                      ) : (
+                        'Submit Report'
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>

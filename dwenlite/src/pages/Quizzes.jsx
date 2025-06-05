@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { db, auth } from '../firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, addDoc, collection } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 
@@ -22,6 +22,9 @@ function Quizzes() {
   const [chatHistory, setChatHistory] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [showQuizGroupPrompt, setShowQuizGroupPrompt] = useState(false);
+  const [showReportForm, setShowReportForm] = useState(null);
+  const [reportReason, setReportReason] = useState('');
+  const [reportLoading, setReportLoading] = useState(false);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -160,7 +163,7 @@ function Quizzes() {
         throw new Error('AssemblyAI API key not found. Please set VITE_ASSEMBLYAI_API_KEY in your .env file.');
       }
 
-      console.log('Transcribing video URL:', videoUrl);
+      console.log('Transcribing URL:', videoUrl);
 
       const response = await axios.post(
         'https://api.assemblyai.com/v2/transcript',
@@ -258,8 +261,8 @@ function Quizzes() {
         throw new Error('DwenLite API key not found. Please set VITE_DWENLITE_API_KEY in your .env file.');
       }
 
-      const latestDocument = folder.documents.length > 0
-        ? folder.documents.reduce((latest, doc) => {
+      const latestDocument = folder.documents.length > 0 ?
+        folder.documents.reduce((latest, doc) => {
             return new Date(doc.uploadedAt) > new Date(latest.uploadedAt) ? doc : latest;
           }, folder.documents[0])
         : null;
@@ -275,10 +278,10 @@ function Quizzes() {
         }
       }
 
-      let prompt = `Generate 40 multiple-choice quiz questions based on the following content: "${context}". For each question, provide the question, four options (labeled a, b, c, d), and the correct answer. Format as a JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }, ...]. Return only the JSON array string, without any markdown, code block markers (like \`\`\`json), or additional text. Ensure the output is valid JSON.`;
+      let prompt = `Generate 40 multiple-choice quiz questions based on the following content: "${context}". For each question, provide the question, four options (labeled a, b, c, d), and the correct answer. Format as a JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }], ...]. Return only the JSON array string, without any markdown, code block markers (like \`\`\`json), or additional text. Ensure the output is valid JSON.`;
 
       if (retry) {
-        prompt = `You previously failed to return valid JSON. Generate 40 multiple-choice quiz questions based on the following content: "${context}". For each question, provide the question, four options (labeled a, b, c, d), and the correct answer. Format as a JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }, ...]. Return ONLY the JSON array string. Do NOT include markdown, code block markers (like \`\`\`json), or any additional text before or after the JSON. The output MUST be valid JSON, parsable by JSON.parse().`;
+        prompt = `You previously failed to return valid JSON. Generate 40 multiple-choice quiz questions based on the following content: "${context}". For each question, provide the question, four options (labeled a, b), c), d), ...], and the correct answer. Format as a JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }, ...]. Return ONLY the JSON array string. Do NOT include markdown, code block markers (like \`\`\`json), or any additional text before or after the JSON. The output MUST be valid JSON, parsable by JSON.parse().`;
       }
 
       const response = await axios.post(
@@ -300,7 +303,7 @@ function Quizzes() {
         }
       ).catch(err => {
         console.error('DwenLite API error:', {
-          status: err.response?.status,
+          error: err.response?.status,
           statusText: err.response?.statusText,
           data: err.response?.data,
           message: err.message,
@@ -308,7 +311,7 @@ function Quizzes() {
         if (err.response?.status === 401) {
           throw new Error('Invalid DwenLite API key. Please check your API key in the .env file.');
         } else if (err.response?.status === 429) {
-          throw new Error('Rate limit exceeded. Please wait a few minutes and try again.');
+          throw new Error('Rate limit exceeded. Please try again later.');
         } else if (err.response?.status === 404) {
           throw new Error('DwenLite API endpoint not found. The endpoint may have changed.');
         } else {
@@ -370,7 +373,7 @@ function Quizzes() {
       }));
     } catch (err) {
       console.error('Error generating quizzes:', err);
-      throw new Error(err.message);
+      throw new Error(err.message || 'Failed to generate quizzes.');
     }
   };
 
@@ -462,6 +465,42 @@ function Quizzes() {
     setSelectedAnswer(null);
     setIsCorrect(null);
     setCurrentQuizIndex(prev => prev + 1);
+  };
+
+  const handleReportContent = async (messageIndex, reason) => {
+    setReportLoading(true);
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        toast.error('You must be logged in to report content.');
+        return;
+      }
+
+      const message = chatHistory[messageIndex];
+      const reportData = {
+        userId: user.uid,
+        folderId,
+        contentType: 'chat_message',
+        contentId: `message_${messageIndex}`,
+        content: message.content,
+        reason,
+        createdAt: new Date().toISOString(),
+      };
+
+      await addDoc(collection(db, 'reports'), reportData);
+      toast.success('Content reported successfully. Thank you for your feedback.');
+      setShowReportForm(null);
+      setReportReason('');
+    } catch (err) {
+      console.error('Error reporting content:', {
+        message: err.message,
+        code: err.code,
+        details: err.details,
+      });
+      toast.error(`Failed to report content: ${err.message}. Please try again.`);
+    } finally {
+      setReportLoading(false);
+    }
   };
 
   const handleChatSubmit = async (e) => {
@@ -580,7 +619,7 @@ function Quizzes() {
         if (err.response?.status === 401) {
           throw new Error('Invalid DwenLite API key. Please check your API key in the .env file.');
         } else if (err.response?.status === 429) {
-          throw new Error('Rate limit exceeded. Please wait a few minutes and try again.');
+          throw new Error('Rate limit exceeded. Please try again later.');
         } else if (err.response?.status === 404) {
           throw new Error('DwenLite API endpoint not found. The endpoint may have changed.');
         } else {
@@ -879,12 +918,12 @@ function Quizzes() {
             {chatHistory.map((message, index) => (
               <div
                 key={index}
-                className={`mb-2 ${message.type === 'user' ? 'text-right' : 'text-left'} ${
+                className={`mb-2 relative ${message.type === 'user' ? 'text-right' : 'text-left'} ${
                   message.type === 'user' ? 'animate-slide-in-right' : 'animate-slide-in-left'
                 }`}
               >
                 <span
-                  className={`inline-block p-2 rounded-lg ${
+                  className={`inline-block p-2 rounded-lg text-sm md:text-base ${
                     message.type === 'user'
                       ? 'bg-purple-600'
                       : message.type === 'ai'
@@ -892,9 +931,9 @@ function Quizzes() {
                       : 'text-gray-400 italic typing-dots'
                   }`}
                 >
-                  {message.content.includes('DwenLite AI is typing...') ? (
+                  {message.content.includes('DwenLite AI is typing...') || message.content.includes('DwenLite AI is reading Quiz Group...') ? (
                     <>
-                      DwenLite AI is typing
+                      {message.content.replace('...', '')}
                       <span>.</span>
                       <span>.</span>
                       <span>.</span>
@@ -903,6 +942,59 @@ function Quizzes() {
                     message.content
                   )}
                 </span>
+                {message.type === 'ai' && !message.content.includes('DwenLite AI is typing...') && (
+                  <button
+                    onClick={() => setShowReportForm(showReportForm === index ? null : index)}
+                    className="absolute top-0 right-0 text-red-500 hover:text-red-400 text-xs p-1"
+                  >
+                    {showReportForm === index ? 'Cancel' : 'Report'}
+                  </button>
+                )}
+                {showReportForm === index && (
+                  <div className="mt-2 p-2 bg-gray-700 rounded-lg animate-fade-in">
+                    <textarea
+                      value={reportReason}
+                      onChange={(e) => setReportReason(e.target.value)}
+                      placeholder="Why is this content offensive or inappropriate?"
+                      className="w-full p-2 bg-gray-600 text-white rounded-lg focus:outline-none text-sm"
+                      rows="3"
+                    />
+                    <button
+                      onClick={() => handleReportContent(index, reportReason)}
+                      disabled={reportLoading || !reportReason.trim()}
+                      className={`mt-2 bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700 text-sm ${
+                        reportLoading || !reportReason.trim() ? 'opacity-50 cursor-not-allowed' : ''
+                      }`}
+                    >
+                      {reportLoading ? (
+                        <span className="flex items-center">
+                          <svg
+                            className="animate-spin h-4 w-4 mr-2 text-white"
+                            viewBox="0 0 24 24"
+                          >
+                            <circle
+                              className="opacity-25"
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                              fill="none"
+                            />
+                            <path
+                              className="opacity-75"
+                              fill="currentColor"
+                              d="M4 12a8 8 0 018-8v8H4z"
+                            />
+                          </svg>
+                          Reporting...
+                        </span>
+                      ) : (
+                        'Submit Report'
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -911,7 +1003,7 @@ function Quizzes() {
               <select
                 value={selectedQuizGroupId}
                 onChange={(e) => setSelectedQuizGroupId(e.target.value)}
-                className="w-full p-2 bg-gray-700 text-white rounded-lg"
+                className="w-full p-2 bg-gray-700 text-white rounded-lg text-sm"
               >
                 <option value="">Select a quiz group</option>
                 {folder.quizGroups.map((group, index) => (
@@ -922,7 +1014,7 @@ function Quizzes() {
               </select>
               <button
                 onClick={handleQuizGroupSelection}
-                className="mt-2 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 w-full hover-scale"
+                className="mt-2 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 w-full hover-scale text-sm"
               >
                 Submit
               </button>
@@ -935,13 +1027,13 @@ function Quizzes() {
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 placeholder="Ask DwenLite AI a question..."
-                className="flex-1 p-2 bg-gray-700 text-white rounded-l-lg focus:outline-none"
+                className="flex-1 p-2 bg-gray-700 text-white rounded-l-lg focus:outline-none text-sm"
                 disabled={chatLoading}
               />
               <button
                 type="submit"
                 disabled={chatLoading}
-                className={`bg-purple-600 text-white py-2 px-4 rounded-r-lg hover:bg-purple-700 hover-scale ${
+                className={`bg-purple-600 text-white py-2 px-4 rounded-r-lg hover:bg-purple-700 hover-scale text-sm ${
                   chatLoading ? 'opacity-50 cursor-not-allowed' : ''
                 }`}
               >

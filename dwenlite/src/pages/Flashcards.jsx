@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { db, auth } from '../firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, addDoc, collection } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 
@@ -21,6 +21,9 @@ function Flashcards() {
   const [chatHistory, setChatHistory] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [showFlashcardGroupPrompt, setShowFlashcardGroupPrompt] = useState(false);
+  const [showReportForm, setShowReportForm] = useState(null);
+  const [reportReason, setReportReason] = useState('');
+  const [reportLoading, setReportLoading] = useState(false);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -289,7 +292,7 @@ function Flashcards() {
         },
         {
           headers: {
-            'Authorization': `Bearer ${apiKey}`,
+            Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
           },
         }
@@ -433,6 +436,42 @@ function Flashcards() {
   const handlePreviousFlashcard = () => {
     setShowAnswer(false);
     setCurrentFlashcardIndex(prev => Math.max(0, prev - 1));
+  };
+
+  const handleReportContent = async (messageIndex, reason) => {
+    setReportLoading(true);
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        toast.error('You must be logged in to report content.');
+        return;
+      }
+
+      const message = chatHistory[messageIndex];
+      const reportData = {
+        userId: user.uid,
+        folderId,
+        contentType: 'chat_message',
+        contentId: `message_${messageIndex}`,
+        content: message.content,
+        reason,
+        createdAt: new Date().toISOString(),
+      };
+
+      await addDoc(collection(db, 'reports'), reportData);
+      toast.success('Content reported successfully. Thank you for your feedback.');
+      setShowReportForm(null);
+      setReportReason('');
+    } catch (err) {
+      console.error('Error reporting content:', {
+        message: err.message,
+        code: err.code,
+        details: err.details,
+      });
+      toast.error(`Failed to report content: ${err.message}. Please try again.`);
+    } finally {
+      setReportLoading(false);
+    }
   };
 
   const handleChatSubmit = async (e) => {
@@ -583,7 +622,7 @@ function Flashcards() {
         },
         {
           headers: {
-            'Authorization': `Bearer ${apiKey}`,
+            Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
           },
         }
@@ -640,7 +679,7 @@ function Flashcards() {
           },
           {
             headers: {
-              'Authorization': `Bearer ${apiKey}`,
+              Authorization: `Bearer ${apiKey}`,
               'Content-Type': 'application/json',
             },
           }
@@ -715,9 +754,7 @@ function Flashcards() {
         {`
           @keyframes slideInFromRight {
             0% { transform: translateX(100%); opacity: 0; }
-            
-
-100% { transform: translateX(0); opacity: 1; }
+            100% { transform: translateX(0); opacity: 1; }
           }
           @keyframes slideInFromLeft {
             0% { transform: translateX(-100%); opacity: 0; }
@@ -887,7 +924,7 @@ function Flashcards() {
                 </div>
               </div>
             </div>
-            <div className="mt-4 flex justify-center max-w-600 mx-auto">
+            <div className="mt-4 flex justify-center max-w-[600px] mx-auto">
               <button
                 onClick={handleToggleAnswer}
                 className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700"
@@ -895,7 +932,7 @@ function Flashcards() {
                 {showAnswer ? 'Show Question' : 'Show Answer'}
               </button>
             </div>
-            <div className="mt-4 flex justify-between max-w-600 mx-auto">
+            <div className="mt-4 flex justify-between max-w-[600px] mx-auto">
               <button
                 onClick={handlePreviousFlashcard}
                 disabled={currentFlashcardIndex === 0}
@@ -995,7 +1032,7 @@ function Flashcards() {
             {chatHistory.map((message, index) => (
               <div
                 key={index}
-                className={`mb-2 ${message.type === 'user' ? 'text-right' : 'text-left'} ${
+                className={`mb-2 relative ${message.type === 'user' ? 'text-right' : 'text-left'} ${
                   message.type === 'user' ? 'animate-slide-in-right' : 'animate-slide-in-left'
                 }`}
               >
@@ -1019,6 +1056,59 @@ function Flashcards() {
                     message.content
                   )}
                 </span>
+                {message.type === 'ai' && !message.content.includes('DwenLite AI is typing...') && !message.content.includes('DwenLite AI is searching the web...') && (
+                  <button
+                    onClick={() => setShowReportForm(showReportForm === index ? null : index)}
+                    className="absolute top-0 right-0 text-red-500 hover:text-red-400 text-xs p-1"
+                  >
+                    {showReportForm === index ? 'Cancel' : 'Report'}
+                  </button>
+                )}
+                {showReportForm === index && (
+                  <div className="mt-2 p-2 bg-gray-700 rounded-lg animate-fade-in">
+                    <textarea
+                      value={reportReason}
+                      onChange={(e) => setReportReason(e.target.value)}
+                      placeholder="Why is this content offensive or inappropriate?"
+                      className="w-full p-2 bg-gray-600 text-white rounded-lg focus:outline-none"
+                      rows="3"
+                    />
+                    <button
+                      onClick={() => handleReportContent(index, reportReason)}
+                      disabled={reportLoading || !reportReason.trim()}
+                      className={`mt-2 bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700 ${
+                        reportLoading || !reportReason.trim() ? 'opacity-50 cursor-not-allowed' : ''
+                      }`}
+                    >
+                      {reportLoading ? (
+                        <span className="flex items-center">
+                          <svg
+                            className="animate-spin h-4 w-4 mr-2 text-white"
+                            viewBox="0 0 24 24"
+                          >
+                            <circle
+                              className="opacity-25"
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                              fill="none"
+                            />
+                            <path
+                              className="opacity-75"
+                              fill="currentColor"
+                              d="M4 12a8 8 0 018-8v8H4z"
+                            />
+                          </svg>
+                          Reporting...
+                        </span>
+                      ) : (
+                        'Submit Report'
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
