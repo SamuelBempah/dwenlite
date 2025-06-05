@@ -15,7 +15,7 @@ function DwenLiteDownload() {
     setAndroidLoading(true);
     setTimeout(() => {
       setAndroidLoading(false);
-      window.location.href = 'https://play.google.com/store/apps/details?id=com.dwenlite.app'; // Replace with actual link
+      window.location.href = 'https://play.google.com/store/apps/details?id=co.median.android.pkmzbk'; // Replace with actual link
     }, 1000);
   };
 
