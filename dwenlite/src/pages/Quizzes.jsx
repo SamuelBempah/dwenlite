@@ -783,7 +783,7 @@ function Quizzes() {
             </span>
           ) : (
             <>
-              <span>Regenerate Quizzes</span>
+              <span>Generate Quizzes</span>
               <span>➔</span>
             </>
           )}
