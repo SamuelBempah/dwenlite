@@ -1,31 +1,36 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
   <head>
-    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3824212015216683"
-     crossorigin="anonymous"></script>
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=AW-16618305484"></script>
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-      gtag('config', 'AW-16618305484');
-    </script>
+    <!-- Defining character encoding and viewport for responsiveness -->
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="src/assets/react.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>DwenLite – AI Study Companion | Generate Notes, Quizzes & Flashcards from your Lecture Slides, Class Notes, Video Lectures & Audio Notes</title>
-    <!-- Google tag (gtag.js) - Repeated in original, keeping as-is -->
+    
+    <!-- Improved metadata for SEO and AdSense approval -->
+    <title>DwenLite – AI Study Companion</title>
+    <meta name="description" content="DwenLite is your AI-powered study companion for generating notes, quizzes, and flashcards from lecture slides, class notes, video lectures, and audio notes. Organize your study materials efficiently." />
+    <meta name="keywords" content="AI study tool, note generator, quiz maker, flashcards, lecture notes, study companion" />
+    <meta name="author" content="DwenLite" />
+    <meta name="robots" content="index, follow" />
+    
+    <!-- Favicon for branding -->
+    <link rel="icon" type="image/svg+xml" href="src/assets/react.png" />
+    
+    <!-- Google AdSense script (loaded once, with proper client ID) -->
+    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3824212015216683" crossorigin="anonymous"></script>
+    
+    <!-- Google Analytics for tracking (single instance) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=AW-16618305484"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
+      function gtag() { dataLayer.push(arguments); }
       gtag('js', new Date());
       gtag('config', 'AW-16618305484');
     </script>
-    <!-- Add pdf.js and mammoth.js for text extraction -->
+    
+    <!-- External libraries for text extraction -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+    
     <!-- Custom styles for glowing animation -->
     <style>
       @keyframes pulse-glow {
@@ -44,14 +49,20 @@
     </style>
   </head>
   <body>
+    <!-- Root element for React application -->
     <div id="root"></div>
+    
+    <!-- Main application script -->
     <script type="module" src="/src/main.jsx"></script>
+    
     <!-- Configure pdf.js worker -->
     <script>
       if (window.pdfjsLib) {
         window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
       }
     </script>
+    
+    <!-- Paystack for payment processing -->
     <script src="https://js.paystack.co/v1/inline.js"></script>
   </body>
 </html>

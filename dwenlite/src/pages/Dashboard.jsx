@@ -24,12 +24,15 @@ function Dashboard() {
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
   const [foldersLoading, setFoldersLoading] = useState(true);
+  const [adError, setAdError] = useState(false);
 
   const folderInputRef = useRef(null);
   const createButtonRef = useRef(null);
   const sidebarRef = useRef(null);
   const uploadSectionRef = useRef(null);
   const foldersSectionRef = useRef(null);
+  const adRef = useRef(null);
+  const bottomAdRef = useRef(null);
 
   const tutorialSteps = [
     {
@@ -84,6 +87,32 @@ function Dashboard() {
     });
     return unsubscribe;
   }, [navigate]);
+
+  // Load AdSense script and push ads
+  useEffect(() => {
+    const loadAdSense = () => {
+      if (window.adsbygoogle) {
+        try {
+          // Push all ads on the page
+          (window.adsbygoogle = window.adsbygoogle || []).push({});
+        } catch (err) {
+          console.error('AdSense push error:', err);
+          setAdError(true);
+        }
+      } else {
+        console.warn('AdSense script not loaded');
+        setAdError(true);
+      }
+    };
+
+    // Load ads after component mounts
+    loadAdSense();
+
+    // Re-push ads when adError changes to retry loading
+    const timer = setTimeout(loadAdSense, 1000);
+    return () => clearTimeout(timer);
+  }, []);
+
   const fetchFolders = async (userId) => {
     setFoldersLoading(true);
     try {
@@ -604,6 +633,26 @@ function Dashboard() {
           </div>
         </div>
 
+        {/* AdSense Ad Section (Middle) */}
+        <div ref={adRef} className="mb-6 md:mb-8 p-4">
+          <div className="bg-gray-800 p-4 rounded-lg flex justify-center items-center">
+            {adError ? (
+              <div className="text-gray-300 text-sm md:text-base font-medium">
+                Unable to load ad. Please try again later.
+              </div>
+            ) : (
+              <ins
+                className="adsbygoogle"
+                style={{ display: 'block' }}
+                data-ad-client="ca-pub-3824212015216683"
+                data-ad-slot="6543683427"
+                data-ad-format="auto"
+                data-full-width-responsive="true"
+              ></ins>
+            )}
+          </div>
+        </div>
+
         <div ref={foldersSectionRef} className={tutorialStep === 5 ? 'ring-4 ring-purple-500' : ''}>
           <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">All Folders</h2>
           <div className={`flex flex-col sm:flex-row items-center mb-4 gap-3 ${tutorialStep === 3 || tutorialStep === 4 ? 'ring-4 ring-purple-500' : ''}`}>
@@ -775,6 +824,26 @@ function Dashboard() {
               </div>
             ))
           )}
+        </div>
+
+        {/* AdSense Ad Section (Bottom) */}
+        <div ref={bottomAdRef} className="mt-6 md:mt-8 p-4">
+          <div className="bg-gray-800 p-4 rounded-lg flex justify-center items-center">
+            {adError ? (
+              <div className="text-gray-300 text-sm md:text-base font-medium">
+                Unable to load ad. Please try again later.
+              </div>
+            ) : (
+              <ins
+                className="adsbygoogle"
+                style={{ display: 'block' }}
+                data-ad-client="ca-pub-3824212015216683"
+                data-ad-slot="2229050777"
+                data-ad-format="auto"
+                data-full-width-responsive="true"
+              ></ins>
+            )}
+          </div>
         </div>
       </div>
     </div>
