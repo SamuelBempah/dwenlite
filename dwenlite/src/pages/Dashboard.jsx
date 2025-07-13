@@ -25,6 +25,7 @@ function Dashboard() {
   const [tutorialStep, setTutorialStep] = useState(0);
   const [foldersLoading, setFoldersLoading] = useState(true);
   const [adError, setAdError] = useState(false);
+  const [countdown, setCountdown] = useState('');
 
   const folderInputRef = useRef(null);
   const createButtonRef = useRef(null);
@@ -33,6 +34,7 @@ function Dashboard() {
   const foldersSectionRef = useRef(null);
   const adRef = useRef(null);
   const bottomAdRef = useRef(null);
+  const examEventRef = useRef(null);
 
   const tutorialSteps = [
     {
@@ -59,6 +61,11 @@ function Dashboard() {
       title: "Confirm Folder Creation",
       description: "Click this button to create your folder. It will appear in the list below.",
       highlightRef: createButtonRef,
+    },
+    {
+      title: "Exam Preparation Event",
+      description: "Join our limited-time exam preparation event to get ready for your exams with custom quizzes and reviews!",
+      highlightRef: examEventRef,
     },
     {
       title: "Manage Folders",
@@ -88,12 +95,32 @@ function Dashboard() {
     return unsubscribe;
   }, [navigate]);
 
+  // Countdown timer for exam season (set to end on July 31, 2025)
+  useEffect(() => {
+    const endDate = new Date('2025-07-31T23:59:59Z');
+    const updateCountdown = () => {
+      const now = new Date();
+      const timeLeft = endDate - now;
+      if (timeLeft <= 0) {
+        setCountdown('Event Ended');
+        return;
+      }
+      const days = Math.floor(timeLeft / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((timeLeft % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((timeLeft % (1000 * 60)) / 1000);
+      setCountdown(`${days}d ${hours}h ${minutes}m ${seconds}s`);
+    };
+    updateCountdown();
+    const timer = setInterval(updateCountdown, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
   // Load AdSense script and push ads
   useEffect(() => {
     const loadAdSense = () => {
       if (window.adsbygoogle) {
         try {
-          // Push all ads on the page
           (window.adsbygoogle = window.adsbygoogle || []).push({});
         } catch (err) {
           console.error('AdSense push error:', err);
@@ -104,11 +131,7 @@ function Dashboard() {
         setAdError(true);
       }
     };
-
-    // Load ads after component mounts
     loadAdSense();
-
-    // Re-push ads when adError changes to retry loading
     const timer = setTimeout(loadAdSense, 1000);
     return () => clearTimeout(timer);
   }, []);
@@ -149,7 +172,6 @@ function Dashboard() {
       toast.error('Folder name is required');
       return;
     }
-
     setCreateFolderLoading(true);
     try {
       const newFolder = {
@@ -163,18 +185,16 @@ function Dashboard() {
         notes: [],
         quizzes: [],
         flashcards: [],
+        documents: [], // Added to support ExamsPreparation
       };
       console.log('Creating folder with data:', newFolder);
-
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error('deadline-exceeded')), 10000);
       });
-
       await Promise.race([
         addDoc(collection(db, 'folders'), newFolder),
         timeoutPromise,
       ]);
-
       setTimeout(() => {
         toast.success('Folder created successfully!');
         setNewFolderName('');
@@ -195,26 +215,21 @@ function Dashboard() {
       navigate('/login');
       return;
     }
-
     if (!editFolderName) {
       toast.error('Folder name cannot be empty');
       return;
     }
-
     console.log('Editing folder with ID:', folderId, 'User UID:', currentUser.uid);
-
     setEditLoading(true);
     try {
       const folderRef = doc(db, 'folders', folderId);
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error('deadline-exceeded')), 10000);
       });
-
       await Promise.race([
         updateDoc(folderRef, { name: editFolderName }),
         timeoutPromise,
       ]);
-
       setTimeout(() => {
         toast.success('Folder updated successfully!');
         setEditFolderId(null);
@@ -237,25 +252,20 @@ function Dashboard() {
       navigate('/login');
       return;
     }
-
     if (!window.confirm('Are you sure you want to delete this folder?')) {
       return;
     }
-
     console.log('Deleting folder with ID:', folderId, 'User UID:', currentUser.uid);
-
     setDeleteLoading(true);
     try {
       const folderRef = doc(db, 'folders', folderId);
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error('deadline-exceeded')), 10000);
       });
-
       await Promise.race([
         deleteDoc(folderRef),
         timeoutPromise,
       ]);
-
       setTimeout(() => {
         toast.success('Folder deleted successfully!');
         setDeleteLoading(false);
@@ -347,6 +357,25 @@ function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col md:flex-row">
+      <style>
+        {`
+          @keyframes pulseGlow {
+            0% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(147, 51, 234, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0); }
+          }
+          .pulse-glow {
+            animation: pulseGlow 2s infinite;
+          }
+          .hover-scale {
+            transition: transform 0.2s ease;
+          }
+          .hover-scale:hover {
+            transform: scale(1.05);
+          }
+        `}
+      </style>
+
       {/* Mobile Sidebar Toggle Button */}
       <button
         onClick={toggleSidebar}
@@ -372,7 +401,7 @@ function Dashboard() {
       {/* Tutorial Modal */}
       {showTutorial && (
         <div className={`fixed inset-0 bg-black bg-opacity-50 flex justify-center z-50 px-4 ${
-          tutorialStep === 3 || tutorialStep === 4 || tutorialStep === 5 ? 'items-start pt-4' : 'items-center'
+          tutorialStep === 3 || tutorialStep === 4 || tutorialStep === 5 || tutorialStep === 6 ? 'items-start pt-4' : 'items-center'
         }`}>
           <div className="bg-gray-800 p-4 sm:p-6 rounded-lg w-full max-w-sm sm:max-w-md">
             <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4">{tutorialSteps[tutorialStep].title}</h2>
@@ -633,6 +662,31 @@ function Dashboard() {
           </div>
         </div>
 
+        {/* Examination Preparation Event */}
+        <div ref={examEventRef} className={`mb-6 md:mb-8 pulse-glow ${tutorialStep === 5 ? 'ring-4 ring-purple-500' : ''}`}>
+          <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4 text-purple-400">🏆 Limited-Time Exam Season Event!</h2>
+          <div className="bg-gray-800 p-4 md:p-6 rounded-lg">
+            <p className="text-gray-300 text-sm md:text-base mb-3">
+              It's examination season! Prepare for your exams with our new Exam Preparation feature. Upload your notes and tackle custom quizzes, reviews, and practice questions to ace your tests!
+            </p>
+            <p className="text-yellow-400 text-sm md:text-base font-semibold mb-3">
+              Time Left: {countdown}
+            </p>
+            {folders.length > 0 ? (
+              <Link
+                to="/exams-preparation"
+                className="inline-block bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 hover-scale text-sm md:text-base"
+              >
+                Start Exam Preparation
+              </Link>
+            ) : (
+              <p className="text-gray-400 text-sm md:text-base">
+                Create a folder to start your exam preparation!
+              </p>
+            )}
+          </div>
+        </div>
+
         {/* AdSense Ad Section (Middle) */}
         <div ref={adRef} className="mb-6 md:mb-8 p-4">
           <div className="bg-gray-800 p-4 rounded-lg flex justify-center items-center">
@@ -653,7 +707,7 @@ function Dashboard() {
           </div>
         </div>
 
-        <div ref={foldersSectionRef} className={tutorialStep === 5 ? 'ring-4 ring-purple-500' : ''}>
+        <div ref={foldersSectionRef} className={tutorialStep === 6 ? 'ring-4 ring-purple-500' : ''}>
           <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">All Folders</h2>
           <div className={`flex flex-col sm:flex-row items-center mb-4 gap-3 ${tutorialStep === 3 || tutorialStep === 4 ? 'ring-4 ring-purple-500' : ''}`}>
             <input

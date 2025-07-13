@@ -28,7 +28,7 @@ const Maintenance = () => {
         </div>
         <h1 className="text-4xl md:text-5xl font-bold mb-4">System Maintenance</h1>
         <p className="text-gray-400 text-lg md:text-xl mb-6">
-          We're performing scheduled maintenance. Services will resume at 5pm.
+          We're performing a special system upgrade. Services will resume at Midnight.
         </p>
       </div>
       <style>
