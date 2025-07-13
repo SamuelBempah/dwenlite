@@ -17,6 +17,18 @@ import Support from './pages/Support';
 import Podcast from './pages/Podcast';
 import DeleteAccount from './pages/DeleteAccount';
 import DwenLiteDownload from './pages/DwenLiteDownload';
+import Maintenance from './pages/Maintenance';
+
+const isMaintenanceWindow = () => {
+  const now = new Date();
+  const hour = now.getHours();
+  // Maintenance window: 3pm (15) to 5pm (17, exclusive)
+  return hour >= 15 && hour < 17;
+};
+
+const MaintenanceRoute = ({ component: Component, ...rest }) => {
+  return isMaintenanceWindow() ? <Maintenance /> : <Component {...rest} />;
+};
 
 function NotFound() {
   return (
@@ -41,23 +53,29 @@ function App() {
       <Router>
         <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
         <Routes>
-          <Route path="/" element={<Welcome />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/signup" element={<Signup />} />
-          <Route path="/verify-email" element={<VerifyEmail />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/folder/:folderId" element={<ViewFolder />} />
-          <Route path="/folder/:folderId/notes" element={<Notes />} />
-          <Route path="/folder/:folderId/quizzes" element={<Quizzes />} />
-          <Route path="/folder/:folderId/flashcards" element={<Flashcards />} />
-          <Route path="/folder/:folderId/podcast" element={<Podcast />} />
-          <Route path="/delete-account" element={<DeleteAccount />} />
-          <Route path="/support-me" element={<SupportMe />} />
-          <Route path="/dwenlite-download" element={<DwenLiteDownload />} />
-          <Route path="/terms" element={<Terms />} />
-          <Route path="/reset-password" element={<ResetPassword />} />
-          <Route path="/support" element={<Support />} />
-          <Route path="*" element={<NotFound />} />
+          <Route path="/" element={<MaintenanceRoute component={Welcome} />} />
+          <Route path="/login" element={<MaintenanceRoute component={Login} />} />
+          <Route path="/signup" element={<MaintenanceRoute component={Signup} />} />
+          <Route path="/verify-email" element={<MaintenanceRoute component={VerifyEmail} />} />
+          <Route path="/dashboard" element={<MaintenanceRoute component={Dashboard} />} />
+          <Route path="/folder/:folderId" element={<MaintenanceRoute component={ViewFolder} />} />
+          <Route path="/folder/:folderId/notes" element={<MaintenanceRoute component={Notes} />} />
+          <Route path="/folder/:folderId/quizzes" element={<MaintenanceRoute component={Quizzes} />} />
+          <Route path="/folder/:folderId/flashcards" element={<MaintenanceRoute component={Flashcards} />} />
+          <Route path="/folder/:folderId/podcast" element={<MaintenanceRoute component={Podcast} />} />
+          <Route path="/delete-account" element={<MaintenanceRoute component={DeleteAccount} />} />
+          <Route path="/support-me" element={<MaintenanceRoute component={SupportMe} />} />
+          <Route path="/dwenlite-download" element={<MaintenanceRoute component={DwenLiteDownload} />} />
+          <Route path="/terms" element={<MaintenanceRoute component={Terms} />} />
+          <Route path="/reset-password" element={<MaintenanceRoute component={ResetPassword} />} />
+          <Route path="/support" element={<MaintenanceRoute component={Support} />} />
+          <Route path="/maintenance" element={<Maintenance />} />
+          <Route
+            path="*"
+            element={
+              isMaintenanceWindow() ? <Maintenance /> : <NotFound />
+            }
+          />
         </Routes>
       </Router>
     </ErrorBoundary>
