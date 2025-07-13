@@ -22,8 +22,8 @@ import Maintenance from './pages/Maintenance';
 const isMaintenanceWindow = () => {
   const now = new Date();
   const hour = now.getHours();
-  // Maintenance window: 3pm (15) to 5pm (17, exclusive)
-  return hour >= 15 && hour < 17;
+  // Maintenance window: 3:00pm (15:00) to 6:00pm (18:00), exclusive of 6:00pm
+  return hour >= 15 && hour < 18;
 };
 
 const MaintenanceRoute = ({ component: Component, ...rest }) => {
