@@ -22,13 +22,13 @@ import ExamsPreparation from './pages/ExamsPreparation';
 
 const isMaintenanceWindow = () => {
   // Set to true to enable maintenance mode, false to disable
-  return true; // Change to true to enable maintenance mode for all users
+  // return false; // Change to true to enable maintenance mode for all users
 
-  // // Or use the time-based logic below:
-  // const now = new Date();
-  // const hour = now.getHours();
-  // // Maintenance window: 3:00pm (15:00) to 6:00pm (18:00), exclusive of 6:00pm
-  // return hour >= 15 && hour < 18;
+  // Or use the time-based logic below:
+  const now = new Date();
+  const hour = now.getHours();
+  // Maintenance window: 10:00pm (22:00) to 12:00am (00:00), exclusive of 12:00am
+  return hour >= 22 || hour < 0;
 };
 
 const MaintenanceRoute = ({ component: Component, ...rest }) => {

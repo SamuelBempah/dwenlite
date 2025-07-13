@@ -13,7 +13,7 @@ function ExamsPreparation() {
   const [files, setFiles] = useState([]);
   const [uploadedNotes, setUploadedNotes] = useState([]);
   const [uploadLoading, setUploadLoading] = useState(false);
-  const [examStage, setExamStage] = useState('upload'); // 'upload', 'review', 'mcq', 'fill-in', 'results'
+  const [examStage, setExamStage] = useState('upload'); // 'upload', 'review', 'mcq', 'fill-in', 'marking', 'results'
   const [reviewContent, setReviewContent] = useState('');
   const [mcqQuestions, setMcqQuestions] = useState([]);
   const [fillInQuestions, setFillInQuestions] = useState([]);
@@ -26,7 +26,12 @@ function ExamsPreparation() {
   const [chatHistory, setChatHistory] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [showReportForm, setShowReportForm] = useState(null);
+  const [reportReason, setReportReason] = useState('');
   const [reportLoading, setReportLoading] = useState(false);
+  const [mcqResults, setMcqResults] = useState([]);
+  const [fillInResults, setFillInResults] = useState([]);
+  const [markingProgress, setMarkingProgress] = useState({ mcq: 0, fillIn: 0 });
+  const [submitLoading, setSubmitLoading] = useState(false);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -40,6 +45,26 @@ function ExamsPreparation() {
     });
     return () => unsubscribe();
   }, [navigate]);
+
+  const extractPdfText = async (file) => {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let fullText = '';
+      const numPages = pdf.numPages;
+
+      for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map(item => item.str).join(' ');
+        fullText += pageText + ' ';
+      }
+
+      return fullText.trim() || 'No text found in the PDF.';
+    } catch (error) {
+      throw new Error('PDF text extraction failed: ' + error.message);
+    }
+  };
 
   const transcribeAudio = async (audioUrl) => {
     try {
@@ -180,12 +205,13 @@ function ExamsPreparation() {
 
     try {
       const fileType = selectedFile.type;
-      const isAudio = fileType.startsWith('audio/');
-      const isVideo = fileType.startsWith('video/');
-      const isText = fileType === 'text/plain' || fileType === 'application/pdf';
+      const fileExtension = selectedFile.name.split('.').pop().toLowerCase();
+      const isAudio = fileType.startsWith('audio/') || ['mp3', 'wav', 'm4a', 'ogg', 'flac'].includes(fileExtension);
+      const isVideo = fileType.startsWith('video/') || ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(fileExtension);
+      const isText = fileType === 'text/plain' || fileType === 'application/pdf' || ['txt', 'pdf'].includes(fileExtension);
 
       if (!isAudio && !isVideo && !isText) {
-        toast.error('Unsupported file type. Please upload audio, video, or text/PDF files.');
+        toast.error('Unsupported file type. Please upload audio, video, text, or PDF files.');
         setFiles(prev => prev.filter(f => f !== selectedFile));
         setUploadLoading(false);
         return;
@@ -201,10 +227,10 @@ function ExamsPreparation() {
       } else if (isVideo) {
         extractedText = await transcribeVideo(downloadURL);
       } else if (isText) {
-        if (fileType === 'text/plain') {
+        if (fileType === 'text/plain' || fileExtension === 'txt') {
           extractedText = await selectedFile.text();
-        } else {
-          extractedText = 'PDF content extraction not implemented. Using file name as context.';
+        } else if (fileType === 'application/pdf' || fileExtension === 'pdf') {
+          extractedText = await extractPdfText(selectedFile);
         }
       }
 
@@ -229,6 +255,10 @@ function ExamsPreparation() {
     }
   };
 
+  const handleFillInChange = (id, value) => {
+    setFillInAnswers(prev => ({ ...prev, [id]: value }));
+  };
+
   const generateExamContent = async () => {
     try {
       const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
@@ -241,7 +271,7 @@ function ExamsPreparation() {
         : 'No notes uploaded. Generate generic exam content.';
 
       // Generate Review Content
-      const reviewPrompt = `Based on the following content: "${context}", provide a concise summary of key points to review before an exam. Format as plain text, suitable for rendering in a React component, with clear headings and bullet points for main topics.`;
+      const reviewPrompt = `Generate comprehensive and well-organized study notes based on the provided content: "${context}" for an exam review. Structure the notes with clear headings and bullet points for main topics, concisely summarizing key concepts, definitions, and examples to aid revision. Exclude introductory or concluding statements like "Here are the notes" or "Let me know if you need modifications." Format as plain text suitable for rendering in a React component, using plain text indentation for lists instead of asterisks (*)`;
       const reviewResponse = await axios.post(
         'https://api.deepseek.com/v1/chat/completions',
         {
@@ -354,10 +384,16 @@ function ExamsPreparation() {
     const currentQuiz = mcqQuestions[currentMcqIndex];
     const isAnswerCorrect = answer === currentQuiz.correctAnswer;
     setIsCorrect(isAnswerCorrect);
-    setScores(prev => ({
+    setMcqResults(prev => [
       ...prev,
-      mcq: prev.mcq + (isAnswerCorrect ? 1 : 0),
-    }));
+      {
+        id: currentQuiz.id,
+        question: currentQuiz.question,
+        selectedAnswer: answer,
+        correctAnswer: currentQuiz.correctAnswer,
+        isCorrect: isAnswerCorrect,
+      },
+    ]);
   };
 
   const handleNextMcq = () => {
@@ -371,14 +407,8 @@ function ExamsPreparation() {
     }
   };
 
-  const handleFillInChange = (questionId, value) => {
-    setFillInAnswers(prev => ({
-      ...prev,
-      [questionId]: value,
-    }));
-  };
-
   const scoreFillInAnswers = async () => {
+    setSubmitLoading(true);
     try {
       const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
       if (!apiKey) {
@@ -386,46 +416,129 @@ function ExamsPreparation() {
       }
 
       let fillInScore = 0;
+      const results = [];
+
       for (const question of fillInQuestions) {
-        const userAnswer = fillInAnswers[question.id] || '';
+        const userAnswer = fillInAnswers[question.id]?.trim() || '';
+        if (!userAnswer) {
+          results.push({ id: question.id, isCorrect: false, explanation: 'No answer provided.' });
+          continue;
+        }
+
         const prompt = `Compare the user-provided answer "${userAnswer}" to the expected answer "${question.expectedAnswer}" for the question "${question.question}". Determine if the user answer is sufficiently similar to the expected answer to be considered correct. Return a JSON object: { "isCorrect": boolean, "explanation": "..." }.`;
 
-        const response = await axios.post(
-          'https://api.deepseek.com/v1/chat/completions',
-          {
-            model: 'deepseek-chat',
-            messages: [
-              { role: 'system', content: 'You are an assistant that evaluates answer similarity.' },
-              { role: 'user', content: prompt },
-            ],
-            max_tokens: 500,
-            temperature: 0.7,
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              'Content-Type': 'application/json',
+        try {
+          const response = await axios.post(
+            'https://api.deepseek.com/v1/chat/completions',
+            {
+              model: 'deepseek-chat',
+              messages: [
+                { role: 'system', content: 'You are an assistant that evaluates answer similarity.' },
+                { role: 'user', content: prompt },
+              ],
+              max_tokens: 500,
+              temperature: 0.7,
             },
-          }
-        );
+            {
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                'Content-Type': 'application/json',
+              },
+            }
+          );
 
-        const result = JSON.parse(response.data.choices[0].message.content);
-        if (result.isCorrect) {
-          fillInScore += 1;
+          const resultText = response.data.choices?.[0]?.message?.content?.trim();
+          if (!resultText) {
+            console.warn(`No response content for question ID ${question.id}`);
+            results.push({
+              id: question.id,
+              isCorrect: false,
+              explanation: 'No response received from DeepSeek API.',
+            });
+            continue;
+          }
+
+          let result;
+          try {
+            const cleanedText = resultText.replace(/```json/g, '').replace(/```/g, '').trim();
+            result = JSON.parse(cleanedText);
+            if (typeof result.isCorrect !== 'boolean' || typeof result.explanation !== 'string') {
+              throw new Error('Invalid JSON structure: missing isCorrect or explanation');
+            }
+          } catch (parseErr) {
+            console.error(`Error parsing DeepSeek response for question ID ${question.id}:`, parseErr, { resultText });
+            results.push({
+              id: question.id,
+              isCorrect: false,
+              explanation: `Failed to parse API response: ${parseErr.message}`,
+            });
+            continue;
+          }
+
+          if (result.isCorrect) {
+            fillInScore += 2;
+          }
+          results.push({ id: question.id, ...result, question: question.question, userAnswer, expectedAnswer: question.expectedAnswer });
+        } catch (apiErr) {
+          console.error(`API error for question ID ${question.id}:`, apiErr);
+          results.push({
+            id: question.id,
+            isCorrect: false,
+            explanation: `API error: ${apiErr.message}`,
+            question: question.question,
+            userAnswer,
+            expectedAnswer: question.expectedAnswer,
+          });
         }
       }
 
+      setFillInResults(results);
       setScores(prev => ({
         ...prev,
         fillIn: fillInScore,
         total: prev.mcq + fillInScore,
       }));
-      setExamStage('results');
+      setExamStage('marking');
+      return results;
     } catch (err) {
       console.error('Error scoring fill-in answers:', err);
       toast.error(`Failed to score fill-in answers: ${err.message}`);
+      setExamStage('results');
+      return [];
+    } finally {
+      setSubmitLoading(false);
     }
   };
+
+  const simulateMarking = async () => {
+    let mcqScore = 0;
+    let fillInScore = scores.fillIn;
+
+    // Simulate MCQ marking
+    for (let i = 0; i < mcqResults.length; i++) {
+      setMarkingProgress(prev => ({ ...prev, mcq: ((i + 1) / mcqResults.length) * 100 }));
+      if (mcqResults[i].isCorrect) {
+        mcqScore += 2;
+        setScores(prev => ({ ...prev, mcq: prev.mcq + 2 }));
+      }
+      await new Promise(resolve => setTimeout(resolve, Math.random() * 200 + 300)); // Random delay 300-500ms
+    }
+
+    // Simulate fill-in marking
+    for (let i = 0; i < fillInResults.length; i++) {
+      setMarkingProgress(prev => ({ ...prev, fillIn: ((i + 1) / fillInResults.length) * 100 }));
+      await new Promise(resolve => setTimeout(resolve, Math.random() * 200 + 300)); // Random delay 300-500ms
+    }
+
+    setScores(prev => ({ ...prev, mcq: mcqScore, total: mcqScore + fillInScore }));
+    setExamStage('results');
+  };
+
+  useEffect(() => {
+    if (examStage === 'marking') {
+      simulateMarking();
+    }
+  }, [examStage]);
 
   const handleChatSubmit = async (e) => {
     e.preventDefault();
@@ -503,7 +616,6 @@ function ExamsPreparation() {
         createdAt: new Date().toISOString(),
       };
 
-      // Note: Since we're not using folders, store reports in a generic 'reports' collection
       const { addDoc, collection } = await import('firebase/firestore');
       await addDoc(collection(db, 'reports'), reportData);
       toast.success('Content reported successfully.');
@@ -557,6 +669,11 @@ function ExamsPreparation() {
             70% { box-shadow: 0 0 0 10px rgba(147, 51, 234, 0); }
             100% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0); }
           }
+          @keyframes markPulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.7; }
+            100% { transform: scale(1); opacity: 1; }
+          }
           .animate-slide-in-right {
             animation: slideInFromRight 0.3s ease-out forwards;
           }
@@ -565,6 +682,9 @@ function ExamsPreparation() {
           }
           .animate-fade-in {
             animation: fadeIn 0.5s ease-in forwards;
+          }
+          .animate-mark-pulse {
+            animation: markPulse 0.5s ease-in-out;
           }
           .typing-dots span {
             display: inline-block;
@@ -581,6 +701,9 @@ function ExamsPreparation() {
           .hover-scale:hover {
             transform: scale(1.05);
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+          }
+          .progress-bar {
+            transition: width 0.3s ease;
           }
         `}
       </style>
@@ -599,7 +722,7 @@ function ExamsPreparation() {
         <div className="mb-6 md:mb-8">
           <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Upload Notes</h2>
           <p className="text-gray-400 text-sm md:text-base mb-3 md:mb-4">
-            Upload as many notes as you want (text, audio, or video). The AI will process all notes to create your exam.
+            Upload as many notes as you want (text, PDF, audio, or video). The AI will process all notes to create your exam. Submission and grading may take up to 5 minutes. Please be patient.
           </p>
           <input
             type="file"
@@ -681,11 +804,7 @@ function ExamsPreparation() {
                     <button
                       onClick={() => handleAnswerSelect(option)}
                       className={`w-full text-left p-2 rounded-lg ${
-                        selectedAnswer === option
-                          ? isCorrect
-                            ? 'bg-green-600'
-                            : 'bg-red-600'
-                          : 'bg-gray-700 hover:bg-gray-600'
+                        selectedAnswer === option ? 'bg-purple-600' : 'bg-gray-700 hover:bg-gray-600'
                       }`}
                       disabled={selectedAnswer !== null}
                     >
@@ -694,11 +813,6 @@ function ExamsPreparation() {
                   </li>
                 ))}
               </ul>
-              {selectedAnswer && (
-                <p className={`mt-2 ${isCorrect ? 'text-green-400' : 'text-red-400'}`}>
-                  {isCorrect ? 'Correct!' : `Incorrect. Correct answer: ${mcqQuestions[currentMcqIndex].correctAnswer}`}
-                </p>
-              )}
               {selectedAnswer && (
                 <button
                   onClick={handleNextMcq}
@@ -729,15 +843,95 @@ function ExamsPreparation() {
                   onChange={(e) => handleFillInChange(question.id, e.target.value)}
                   placeholder="Enter your answer"
                   className="w-full p-2 bg-gray-700 text-white rounded-lg focus:outline-none text-sm"
+                  disabled={submitLoading}
                 />
               </div>
             ))}
             <button
               onClick={scoreFillInAnswers}
-              className="mt-4 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700"
+              disabled={submitLoading}
+              className={`mt-4 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 flex items-center justify-center ${
+                submitLoading ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
             >
-              Submit Answers
+              {submitLoading ? (
+                <span className="flex items-center">
+                  <svg className="animate-spin h-4 w-4 mr-2 text-white" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
+                  Submitting answers for grading, please wait...
+                </span>
+              ) : (
+                'Submit Answers'
+              )}
             </button>
+          </div>
+        </div>
+      )}
+
+      {examStage === 'marking' && (
+        <div className="mb-6 md:mb-8">
+          <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Marking Your Exam...</h2>
+          <div className="bg-gray-800 p-3 md:p-4 rounded-lg text-sm md:text-base pulse-container">
+            <div className="mb-4">
+              <h3 className="font-semibold mb-2">Multiple Choice Questions</h3>
+              <div className="w-full bg-gray-700 rounded-full h-4">
+                <div
+                  className="bg-purple-600 h-4 rounded-full progress-bar"
+                  style={{ width: `${markingProgress.mcq}%` }}
+                ></div>
+              </div>
+              <p className="mt-2 text-gray-400">
+                Marking {Math.round(markingProgress.mcq * mcqQuestions.length / 100)} of {mcqQuestions.length} questions...
+              </p>
+              <div className="mt-2 grid grid-cols-5 gap-2">
+                {mcqResults.map((result, index) => (
+                  <div
+                    key={result.id}
+                    className={`flex items-center justify-center w-8 h-8 rounded-full ${
+                      index < Math.round(markingProgress.mcq * mcqQuestions.length / 100)
+                        ? result.isCorrect
+                          ? 'bg-green-600 animate-mark-pulse'
+                          : 'bg-red-600 animate-mark-pulse'
+                        : 'bg-gray-600'
+                    }`}
+                  >
+                    {index < Math.round(markingProgress.mcq * mcqQuestions.length / 100) &&
+                      (result.isCorrect ? '✔' : '✘')}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <h3 className="font-semibold mb-2">Fill-in-the-Blank Questions</h3>
+              <div className="w-full bg-gray-700 rounded-full h-4">
+                <div
+                  className="bg-purple-600 h-4 rounded-full progress-bar"
+                  style={{ width: `${markingProgress.fillIn}%` }}
+                ></div>
+              </div>
+              <p className="mt-2 text-gray-400">
+                Marking {Math.round(markingProgress.fillIn * fillInQuestions.length / 100)} of {fillInQuestions.length} questions...
+              </p>
+              <div className="mt-2 grid grid-cols-5 gap-2">
+                {fillInResults.map((result, index) => (
+                  <div
+                    key={result.id}
+                    className={`flex items-center justify-center w-8 h-8 rounded-full ${
+                      index < Math.round(markingProgress.fillIn * fillInQuestions.length / 100)
+                        ? result.isCorrect
+                          ? 'bg-green-600 animate-mark-pulse'
+                          : 'bg-red-600 animate-mark-pulse'
+                        : 'bg-gray-600'
+                    }`}
+                  >
+                    {index < Math.round(markingProgress.fillIn * fillInQuestions.length / 100) &&
+                      (result.isCorrect ? '✔' : '✘')}
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -746,12 +940,35 @@ function ExamsPreparation() {
         <div className="mb-6 md:mb-8">
           <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Exam Results</h2>
           <div className="bg-gray-800 p-3 md:p-4 rounded-lg text-sm md:text-base">
-            <p><strong>MCQ Score:</strong> {scores.mcq} / {mcqQuestions.length}</p>
-            <p><strong>Fill-in-the-Blank Score:</strong> {scores.fillIn} / {fillInQuestions.length}</p>
-            <p><strong>Total Score:</strong> {scores.total} / {mcqQuestions.length + fillInQuestions.length}</p>
+            <p><strong>MCQ Score:</strong> {scores.mcq} / 80 (40 questions × 2 points)</p>
+            <p><strong>Fill-in-the-Blank Score:</strong> {scores.fillIn} / 20 (10 questions × 2 points)</p>
+            <p><strong>Total Score:</strong> {scores.total} / 100</p>
             <p className="mt-2">
-              <strong>Percentage:</strong> {((scores.total / (mcqQuestions.length + fillInQuestions.length)) * 100).toFixed(2)}%
+              <strong>Percentage:</strong> {((scores.total / 100) * 100).toFixed(2)}%
             </p>
+            <div className="mt-4">
+              <h3 className="font-semibold mb-2">MCQ Results</h3>
+              {mcqResults.map((result, index) => (
+                <div key={result.id} className="mb-2">
+                  <p className="font-medium">Question {index + 1}: {result.question}</p>
+                  <p className={result.isCorrect ? 'text-green-400' : 'text-red-400'}>
+                    Your answer: {result.selectedAnswer} {result.isCorrect ? '(Correct)' : `(Incorrect, Correct: ${result.correctAnswer})`}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4">
+              <h3 className="font-semibold mb-2">Fill-in-the-Blank Results</h3>
+              {fillInResults.map((result, index) => (
+                <div key={result.id} className="mb-2">
+                  <p className="font-medium">Question {index + 1}: {result.question}</p>
+                  <p className={result.isCorrect ? 'text-green-400' : 'text-red-400'}>
+                    Your answer: {result.userAnswer} {result.isCorrect ? '(Correct)' : `(Incorrect, Correct: ${result.expectedAnswer})`}
+                  </p>
+                  <p className="text-gray-400">{result.explanation}</p>
+                </div>
+              ))}
+            </div>
             <button
               onClick={() => {
                 setExamStage('upload');
@@ -762,6 +979,9 @@ function ExamsPreparation() {
                 setFillInAnswers({});
                 setUploadedNotes([]);
                 setFiles([]);
+                setMcqResults([]);
+                setFillInResults([]);
+                setMarkingProgress({ mcq: 0, fillIn: 0 });
               }}
               className="mt-4 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700"
             >
@@ -781,18 +1001,10 @@ function ExamsPreparation() {
             {chatHistory.map((message, index) => (
               <div
                 key={index}
-                className={`mb-2 relative ${message.type === 'user' ? 'text-right' : 'text-left'} ${
-                  message.type === 'user' ? 'animate-slide-in-right' : 'animate-slide-in-left'
-                }`}
+                className={`mb-2 relative ${message.type === 'user' ? 'text-right' : 'text-left'} ${message.type === 'user' ? 'animate-slide-in-right' : 'animate-slide-in-left'}`}
               >
                 <span
-                  className={`inline-block p-2 rounded-lg text-sm md:text-base ${
-                    message.type === 'user'
-                      ? 'bg-purple-600'
-                      : message.type === 'ai'
-                      ? 'bg-gray-700'
-                      : 'text-gray-400 italic typing-dots'
-                  }`}
+                  className={`inline-block p-2 rounded-lg text-sm md:text-base ${message.type === 'user' ? 'bg-purple-600' : message.type === 'ai' ? 'bg-gray-700' : 'text-gray-400 italic typing-dots'}`}
                 >
                   {message.content.includes('DwenLite AI is typing...') ? (
                     <>
@@ -825,9 +1037,7 @@ function ExamsPreparation() {
                     <button
                       onClick={() => handleReportContent(index, reportReason)}
                       disabled={reportLoading || !reportReason.trim()}
-                      className={`mt-2 bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700 text-sm ${
-                        reportLoading || !reportReason.trim() ? 'opacity-50 cursor-not-allowed' : ''
-                      }`}
+                      className={`mt-2 bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700 text-sm ${reportLoading || !reportReason.trim() ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
                       {reportLoading ? (
                         <span className="flex items-center">
@@ -858,9 +1068,7 @@ function ExamsPreparation() {
             <button
               type="submit"
               disabled={chatLoading}
-              className={`bg-purple-600 text-white py-2 px-4 rounded-r-lg hover:bg-purple-700 hover-scale text-sm ${
-                chatLoading ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
+              className={`bg-purple-600 text-white py-2 px-4 rounded-r-lg hover:bg-purple-700 hover-scale text-sm ${chatLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               Send
             </button>

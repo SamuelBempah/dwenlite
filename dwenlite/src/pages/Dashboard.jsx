@@ -670,7 +670,7 @@ function Dashboard() {
               It's examination season! Prepare for your exams with our new Exam Preparation feature. Upload your notes and tackle custom quizzes, reviews, and practice questions to ace your tests!
             </p>
             <p className="text-yellow-400 text-sm md:text-base font-semibold mb-3">
-              Time Left: {countdown}
+              Event Expires In: {countdown}
             </p>
             {folders.length > 0 ? (
               <Link
