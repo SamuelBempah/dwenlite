@@ -487,10 +487,6 @@ function Dashboard() {
 
       {/* Main Content */}
       <div className="flex-1 p-4 md:p-8">
-        {/* Bandwidth Limit Notice */}
-        <div className="bg-yellow-900/50 border border-yellow-700 text-yellow-200 p-4 rounded-lg mb-6">
-          <p className="text-sm md:text-base">⚠️ Upcoming system upgrade: DwenLite will be undergoing maintenance from 3pm to 6pm. All services will be unavailable during this time.</p>
-        </div>
         <div className="flex justify-between items-center mb-6 md:mb-8">
           <h1 className="text-2xl md:text-3xl font-bold">Dashboard</h1>
           <div className="flex items-center space-x-4">
