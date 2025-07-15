@@ -178,7 +178,6 @@ function Signup() {
           <Link to="/terms" className="text-purple-600 hover:underline">
             Privacy Policy
           </Link>
-          . They're all the same either way 😂
         </div>
         <div className="text-center mt-2">
           <span className="text-gray-500 text-sm sm:text-base">Already have an account? </span>
