@@ -259,7 +259,7 @@ function ExamsPreparation() {
     setFillInAnswers(prev => ({ ...prev, [id]: value }));
   };
 
-  const generateExamContent = async () => {
+  const generateExamContent = async (retry = false) => {
     try {
       const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
       if (!apiKey) {
@@ -294,7 +294,7 @@ function ExamsPreparation() {
       const reviewText = reviewResponse.data.choices?.[0]?.message?.content?.trim() || 'No review content generated.';
 
       // Generate MCQs
-      const mcqPrompt = `Generate 40 multiple-choice quiz questions based on the following content: "${context}". For each question, provide the question, four options (labeled a, b, c, d), and the correct answer. Format as a JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }, ...]. Return only the JSON array string.`;
+      const mcqPrompt = `Generate 40 multiple-choice quiz questions based on the following content: "${context}". For each question, provide the question, four options (labeled a, b, c, d), and the correct answer. Format as a JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }, ...]. Ensure that the "correctAnswer" is the exact string from the "options" array (e.g., if the correct option is "a. Paris", then "correctAnswer" must be "a. Paris", not "Paris"). Return only the JSON array string. ${retry ? 'You previously failed to return valid JSON. Ensure the output is valid JSON, parsable by JSON.parse(), with no markdown or code block markers (like ```json). Do not include any additional text before or after the JSON.' : ''}`;
       const mcqResponse = await axios.post(
         'https://api.deepseek.com/v1/chat/completions',
         {
@@ -316,11 +316,35 @@ function ExamsPreparation() {
 
       let mcqText = mcqResponse.data.choices?.[0]?.message?.content?.trim() || '[]';
       mcqText = mcqText.replace(/```json/g, '').replace(/```/g, '').trim();
-      let mcqs = JSON.parse(mcqText);
-      mcqs = mcqs.map(quiz => ({
-        id: Date.now().toString() + Math.random().toString(36).substring(2),
-        ...quiz,
-      }));
+      let mcqs;
+      try {
+        mcqs = JSON.parse(mcqText);
+      } catch (parseErr) {
+        console.error('MCQ JSON parse error:', parseErr, 'Response:', mcqText);
+        if (!retry) {
+          console.log('Retrying MCQ generation...');
+          return await generateExamContent(true);
+        }
+        console.warn('Falling back to default quiz due to repeated parsing failure.');
+        mcqs = [
+          {
+            question: 'What is the capital of France?',
+            options: ['a. Paris', 'b. London', 'c. Berlin', 'd. Madrid'],
+            correctAnswer: 'a. Paris',
+          },
+        ];
+      }
+
+      mcqs = mcqs.map(quiz => {
+        const validCorrectAnswer = quiz.options.includes(quiz.correctAnswer)
+          ? quiz.correctAnswer
+          : quiz.options[0]; // Fallback to first option if invalid
+        return {
+          id: Date.now().toString() + Math.random().toString(36).substring(2),
+          ...quiz,
+          correctAnswer: validCorrectAnswer,
+        };
+      });
 
       // Generate Fill-in-the-Blank Questions
       const fillInPrompt = `Generate 10 fill-in-the-blank questions based on the following content: "${context}". For each question, provide the question with a blank (_____) and the expected answer. Format as a JSON array: [{ "question": "...", "expectedAnswer": "..." }, ...]. Return only the JSON array string.`;
@@ -382,7 +406,21 @@ function ExamsPreparation() {
     if (selectedAnswer) return;
     setSelectedAnswer(answer);
     const currentQuiz = mcqQuestions[currentMcqIndex];
-    const isAnswerCorrect = answer === currentQuiz.correctAnswer;
+    console.log('Selected Answer:', answer);
+    console.log('Correct Answer:', currentQuiz.correctAnswer);
+    console.log('Options:', currentQuiz.options);
+    // Normalize answers: trim whitespace and convert to lowercase
+    const normalizedAnswer = answer.trim().toLowerCase();
+    const normalizedCorrectAnswer = currentQuiz.correctAnswer.trim().toLowerCase();
+    // Handle cases where correctAnswer might not include the option prefix
+    const correctAnswerText = normalizedCorrectAnswer.startsWith('a.') ||
+                             normalizedCorrectAnswer.startsWith('b.') ||
+                             normalizedCorrectAnswer.startsWith('c.') ||
+                             normalizedCorrectAnswer.startsWith('d.')
+      ? normalizedCorrectAnswer
+      : currentQuiz.options.find(opt => opt.toLowerCase().includes(normalizedCorrectAnswer)) || normalizedCorrectAnswer;
+    const isAnswerCorrect = normalizedAnswer === correctAnswerText;
+    console.log('Is Correct:', isAnswerCorrect);
     setIsCorrect(isAnswerCorrect);
     setMcqResults(prev => [
       ...prev,
@@ -514,23 +552,20 @@ function ExamsPreparation() {
     let mcqScore = 0;
     let fillInScore = scores.fillIn;
 
-    // Simulate MCQ marking
     for (let i = 0; i < mcqResults.length; i++) {
       setMarkingProgress(prev => ({ ...prev, mcq: ((i + 1) / mcqResults.length) * 100 }));
       if (mcqResults[i].isCorrect) {
         mcqScore += 2;
-        setScores(prev => ({ ...prev, mcq: prev.mcq + 2 }));
       }
-      await new Promise(resolve => setTimeout(resolve, Math.random() * 200 + 300)); // Random delay 300-500ms
+      await new Promise(resolve => setTimeout(resolve, Math.random() * 200 + 300));
     }
 
-    // Simulate fill-in marking
     for (let i = 0; i < fillInResults.length; i++) {
       setMarkingProgress(prev => ({ ...prev, fillIn: ((i + 1) / fillInResults.length) * 100 }));
-      await new Promise(resolve => setTimeout(resolve, Math.random() * 200 + 300)); // Random delay 300-500ms
+      await new Promise(resolve => setTimeout(resolve, Math.random() * 200 + 300));
     }
 
-    setScores(prev => ({ ...prev, mcq: mcqScore, total: mcqScore + fillInScore }));
+    setScores({ mcq: mcqScore, fillIn: fillInScore, total: mcqScore + fillInScore });
     setExamStage('results');
   };
 
