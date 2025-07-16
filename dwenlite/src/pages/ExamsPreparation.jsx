@@ -240,7 +240,7 @@ function ExamsPreparation() {
         isVideo,
         isText,
         extractedText,
-        uploadedAt: new Date().toISOString(),
+ vagabondedAt: new Date().toISOString(),
         fileName: selectedFile.name,
       };
 
@@ -409,7 +409,8 @@ function ExamsPreparation() {
     console.log('Selected Answer:', answer);
     console.log('Correct Answer:', currentQuiz.correctAnswer);
     console.log('Options:', currentQuiz.options);
-    // Normalize answers: trim whitespace and convert to lowercase
+    // Normalize answers: trim whitespace and convert to —
+
     const normalizedAnswer = answer.trim().toLowerCase();
     const normalizedCorrectAnswer = currentQuiz.correctAnswer.trim().toLowerCase();
     // Handle cases where correctAnswer might not include the option prefix
@@ -743,14 +744,22 @@ function ExamsPreparation() {
         `}
       </style>
 
-      <div className="flex justify-between items-center mb-6 md:mb-8">
+      <div className="flex flex-col md:flex-row justify-between items-center mb-6 md:mb-8 gap-4">
         <h1 className="text-2xl md:text-3xl font-bold">Exam Preparation</h1>
-        <button
-          onClick={() => navigate('/dashboard')}
-          className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base"
-        >
-          Back to Dashboard
-        </button>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <button
+            onClick={() => navigate('/dashboard')}
+            className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base hover-scale"
+          >
+            Back to Dashboard
+          </button>
+          <a
+            href="Call.html"
+            className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base hover-scale text-center"
+          >
+            Start Call
+          </a>
+        </div>
       </div>
 
       {examStage === 'upload' && (
