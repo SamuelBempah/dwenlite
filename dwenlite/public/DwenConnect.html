@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DwenConnect - Video Conferencing</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background-color: #1f2937; /* bg-gray-900 from ExamsPreparation */
+            color: white;
+        }
+        #header {
+            background-color: #1f2937; /* bg-gray-900 */
+            color: white;
+            padding: 1rem;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+        #header h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+        #header p {
+            margin: 0.5rem 0 0;
+            font-size: 1rem;
+            opacity: 0.9;
+        }
+        #logo {
+            width: 40px;
+            height: 40px;
+            vertical-align: middle;
+            margin-right: 0.5rem;
+        }
+        #root {
+            width: 100vw;
+            height: calc(100vh - 100px); /* Adjust for header height */
+            border: 2px solid #9333ea; /* Purple border */
+        }
+        @keyframes slideInFromRight {
+            0% { transform: translateX(100%); opacity: 0; }
+            100% { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes slideInFromLeft {
+            0% { transform: translateX(-100%); opacity: 0; }
+            100% { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes fadeIn {
+            0% { opacity: 0; }
+            100% { opacity: 1; }
+        }
+        @keyframes pulseDots {
+            0% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+            100% { transform: translateY(0); }
+        }
+        @keyframes pulseContainer {
+            0% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0.4), 0 0 10px 2px rgba(147, 51, 234, 0.6); }
+            70% { box-shadow: 0 0 0 10px rgba(147, 51, 234, 0), 0 0 15px 4px rgba(147, 51, 234, 0.8); }
+            100% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0), 0 0 10px 2px rgba(147, 51, 234, 0.6); }
+        }
+        @keyframes blinkDot {
+            0% { opacity: 0; }
+            50% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+        .animate-slide-in-right {
+            animation: slideInFromRight 0.3s ease-out forwards;
+        }
+        .animate-slide-in-left {
+            animation: slideInFromLeft 0.3s ease-out forwards;
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.5s ease-in forwards;
+        }
+        .pulse-container {
+            animation: pulseContainer 2s infinite;
+        }
+        .hover-scale {
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        .hover-scale:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+        .live-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background-color: #22c55e; /* Green for live status */
+            border-radius: 50%;
+            margin-left: 0.5rem;
+            animation: blinkDot 1.5s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div id="header" class="flex flex-col items-center justify-center">
+        <div class="flex items-center">
+            <img id="logo" src="/public/react.png" alt="DwenConnect Logo" onerror="this.src='https://reactjs.org/logo-og.png';">
+            <h1 class="text-xl md:text-2xl font-bold">DwenConnect</h1>
+            <span class="live-dot"></span>
+        </div>
+        <p class="text-sm md:text-base">Join your video conference seamlessly with DwenConnect!</p>
+        <a
+            href="/exams-preparation"
+            class="mt-4 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base hover-scale text-center"
+        >
+            Go to Exam Preparation
+        </a>
+    </div>
+    <div id="root" class="pulse-container"></div>
+    <script src="https://unpkg.com/@zegocloud/zego-uikit-prebuilt/zego-uikit-prebuilt.js"></script>
+    <script>
+        window.onload = function () {
+            function getUrlParams(url) {
+                let urlStr = url.split('?')[1] || '';
+                const urlSearchParams = new URLSearchParams(urlStr);
+                return Object.fromEntries(urlSearchParams.entries());
+            }
+
+            const roomID = getUrlParams(window.location.href)['roomID'] || (Math.floor(Math.random() * 10000) + "");
+            const userID = Math.floor(Math.random() * 10000) + "";
+            const userName = "userName" + userID;
+            const appID = 637632009;
+            const serverSecret = "1f0431e5b62e5c11ad7c47ea5fc10f67";
+            const kitToken = ZegoUIKitPrebuilt.generateKitTokenForTest(appID, serverSecret, roomID, userID, userName);
+
+            const zp = ZegoUIKitPrebuilt.create(kitToken);
+            zp.joinRoom({
+                container: document.querySelector("#root"),
+                sharedLinks: [{
+                    name: 'Personal link',
+                    url: window.location.protocol + '//' + window.location.host + window.location.pathname + '?roomID=' + roomID,
+                }],
+                scenario: {
+                    mode: ZegoUIKitPrebuilt.VideoConference,
+                },
+                turnOnMicrophoneWhenJoining: true,
+                turnOnCameraWhenJoining: true,
+                showMyCameraToggleButton: true,
+                showMyMicrophoneToggleButton: true,
+                showAudioVideoSettingsButton: true,
+                showScreenSharingButton: true,
+                showTextChat: true,
+                showUserList: true,
+                maxUsers: 50,
+                layout: "Grid",
+                showLayoutButton: true,
+            });
+        }
+    </script>
+</body>
+</html>
