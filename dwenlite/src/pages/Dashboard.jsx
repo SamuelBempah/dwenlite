@@ -667,7 +667,7 @@ function Dashboard() {
           <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4 text-purple-400">🏆 Limited-Time Exam Season Event!</h2>
           <div className="bg-gray-800 p-4 md:p-6 rounded-lg">
             <p className="text-gray-300 text-sm md:text-base mb-3">
-              It's examination season! Prepare for your exams with our new Exam Preparation feature. Upload your notes and tackle custom quizzes, reviews, and practice questions to ace your tests!
+              It's examination season! Prepare for your exams with our new Exam Preparation feature. Upload your notes, tackle custom quizzes, reviews, and practice questions to excel in your tests. You can also set up meetings with your colleagues through <em><strong>DwenConnect</strong></em> to collaborate and discuss strategies for this exam season.
             </p>
             <p className="text-yellow-400 text-sm md:text-base font-semibold mb-3">
               Event Expires In: {countdown}

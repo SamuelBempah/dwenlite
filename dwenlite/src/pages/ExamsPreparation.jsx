@@ -757,7 +757,7 @@ function ExamsPreparation() {
             href="Call.html"
             className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base hover-scale text-center"
           >
-            Start Call
+          DwenConnect
           </a>
         </div>
       </div>
