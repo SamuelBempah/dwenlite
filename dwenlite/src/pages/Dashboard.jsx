@@ -24,16 +24,14 @@ function Dashboard() {
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
   const [foldersLoading, setFoldersLoading] = useState(true);
-  const [adError, setAdError] = useState(false);
   const [countdown, setCountdown] = useState('');
+  const [showAdNotice, setShowAdNotice] = useState(false);
 
   const folderInputRef = useRef(null);
   const createButtonRef = useRef(null);
   const sidebarRef = useRef(null);
   const uploadSectionRef = useRef(null);
   const foldersSectionRef = useRef(null);
-  const adRef = useRef(null);
-  const bottomAdRef = useRef(null);
   const examEventRef = useRef(null);
 
   const tutorialSteps = [
@@ -88,6 +86,10 @@ function Dashboard() {
         if (!localStorage.getItem('tutorialCompleted')) {
           setShowTutorial(true);
         }
+        if (!sessionStorage.getItem('adNoticeShown')) {
+          setShowAdNotice(true);
+          sessionStorage.setItem('adNoticeShown', 'true');
+        }
       } else {
         navigate('/login');
       }
@@ -114,26 +116,6 @@ function Dashboard() {
     updateCountdown();
     const timer = setInterval(updateCountdown, 1000);
     return () => clearInterval(timer);
-  }, []);
-
-  // Load AdSense script and push ads
-  useEffect(() => {
-    const loadAdSense = () => {
-      if (window.adsbygoogle) {
-        try {
-          (window.adsbygoogle = window.adsbygoogle || []).push({});
-        } catch (err) {
-          console.error('AdSense push error:', err);
-          setAdError(true);
-        }
-      } else {
-        console.warn('AdSense script not loaded');
-        setAdError(true);
-      }
-    };
-    loadAdSense();
-    const timer = setTimeout(loadAdSense, 1000);
-    return () => clearTimeout(timer);
   }, []);
 
   const fetchFolders = async (userId) => {
@@ -185,7 +167,7 @@ function Dashboard() {
         notes: [],
         quizzes: [],
         flashcards: [],
-        documents: [], // Added to support ExamsPreparation
+        documents: [],
       };
       console.log('Creating folder with data:', newFolder);
       const timeoutPromise = new Promise((_, reject) => {
@@ -353,6 +335,10 @@ function Dashboard() {
     }
   };
 
+  const handleCloseAdNotice = () => {
+    setShowAdNotice(false);
+  };
+
   if (!currentUser) return null;
 
   return (
@@ -373,8 +359,33 @@ function Dashboard() {
           .hover-scale:hover {
             transform: scale(1.05);
           }
+          @keyframes fadeInScale {
+            0% { opacity: 0; transform: scale(0.8); }
+            100% { opacity: 1; transform: scale(1); }
+          }
+          .ad-notice-enter {
+            animation: fadeInScale 0.3s ease-out forwards;
+          }
         `}
       </style>
+
+      {/* Ad Notice Pop-up */}
+      {showAdNotice && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 px-4">
+          <div className="bg-gray-800 p-6 rounded-lg w-full max-w-md ad-notice-enter">
+            <h3 className="text-lg md:text-xl font-semibold mb-3 text-purple-400">Supporting Free Access</h3>
+            <p className="text-gray-300 text-sm md:text-base mb-4">
+              To provide our services at no cost to all users, we rely on advertising revenue to cover expenses such as server maintenance, hosting, and development. As a result, advertisements are an integral part of our platform. We appreciate your understanding and support in keeping our services accessible to everyone.
+            </p>
+            <button
+              onClick={handleCloseAdNotice}
+              className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base w-full"
+            >
+              Understood
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Mobile Sidebar Toggle Button */}
       <button
@@ -687,26 +698,6 @@ function Dashboard() {
           </div>
         </div>
 
-        {/* AdSense Ad Section (Middle) */}
-        <div ref={adRef} className="mb-6 md:mb-8 p-4">
-          <div className="bg-gray-800 p-4 rounded-lg flex justify-center items-center">
-            {adError ? (
-              <div className="text-gray-300 text-sm md:text-base font-medium">
-                Unable to load ad. Please try again later.
-              </div>
-            ) : (
-              <ins
-                className="adsbygoogle"
-                style={{ display: 'block' }}
-                data-ad-client="ca-pub-3824212015216683"
-                data-ad-slot="6543683427"
-                data-ad-format="auto"
-                data-full-width-responsive="true"
-              ></ins>
-            )}
-          </div>
-        </div>
-
         <div ref={foldersSectionRef} className={tutorialStep === 6 ? 'ring-4 ring-purple-500' : ''}>
           <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">All Folders</h2>
           <div className={`flex flex-col sm:flex-row items-center mb-4 gap-3 ${tutorialStep === 3 || tutorialStep === 4 ? 'ring-4 ring-purple-500' : ''}`}>
@@ -878,26 +869,6 @@ function Dashboard() {
               </div>
             ))
           )}
-        </div>
-
-        {/* AdSense Ad Section (Bottom) */}
-        <div ref={bottomAdRef} className="mt-6 md:mt-8 p-4">
-          <div className="bg-gray-800 p-4 rounded-lg flex justify-center items-center">
-            {adError ? (
-              <div className="text-gray-300 text-sm md:text-base font-medium">
-                Unable to load ad. Please try again later.
-              </div>
-            ) : (
-              <ins
-                className="adsbygoogle"
-                style={{ display: 'block' }}
-                data-ad-client="ca-pub-3824212015216683"
-                data-ad-slot="2229050777"
-                data-ad-format="auto"
-                data-full-width-responsive="true"
-              ></ins>
-            )}
-          </div>
         </div>
       </div>
     </div>

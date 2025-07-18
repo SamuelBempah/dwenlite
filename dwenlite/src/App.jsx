@@ -1,4 +1,5 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { useState, useEffect } from 'react';
 import Welcome from './pages/Welcome';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
@@ -19,19 +20,18 @@ import DeleteAccount from './pages/DeleteAccount';
 import DwenLiteDownload from './pages/DwenLiteDownload';
 import Maintenance from './pages/Maintenance';
 import ExamsPreparation from './pages/ExamsPreparation';
+import AdBlockDetected from './pages/AdBlockDetected';
 
 const isMaintenanceWindow = () => {
-  // Set to true to enable maintenance mode, false to disable
-  // return false; // Change to true to enable maintenance mode for all users
-
-  // Or use the time-based logic below:
   const now = new Date();
   const hour = now.getHours();
-  // Maintenance window: 10:00pm (22:00) to 12:00am (00:00), exclusive of 12:00am
   return hour >= 22 || hour < 0;
 };
 
-const MaintenanceRoute = ({ component: Component, ...rest }) => {
+const MaintenanceRoute = ({ component: Component, isAdBlockDetected, ...rest }) => {
+  if (isAdBlockDetected) {
+    return <AdBlockDetected />;
+  }
   return isMaintenanceWindow() ? <Maintenance /> : <Component {...rest} />;
 };
 
@@ -53,39 +53,62 @@ function NotFound() {
 }
 
 function App() {
+  const [isAdBlockDetected, setIsAdBlockDetected] = useState(false);
+  const location = useLocation();
+
+  useEffect(() => {
+    const detectAdBlock = async () => {
+      try {
+        const response = await fetch('https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js', {
+          method: 'HEAD',
+          mode: 'no-cors',
+        });
+        setIsAdBlockDetected(false);
+      } catch (err) {
+        setIsAdBlockDetected(true);
+      }
+    };
+
+    detectAdBlock();
+  }, [location]); // Re-run ad block detection on every route change
+
   return (
     <ErrorBoundary>
-      <Router>
-        <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
-        <Routes>
-          <Route path="/" element={<MaintenanceRoute component={Welcome} />} />
-          <Route path="/login" element={<MaintenanceRoute component={Login} />} />
-          <Route path="/signup" element={<MaintenanceRoute component={Signup} />} />
-          <Route path="/verify-email" element={<MaintenanceRoute component={VerifyEmail} />} />
-          <Route path="/dashboard" element={<MaintenanceRoute component={Dashboard} />} />
-          <Route path="/folder/:folderId" element={<MaintenanceRoute component={ViewFolder} />} />
-          <Route path="/folder/:folderId/notes" element={<MaintenanceRoute component={Notes} />} />
-          <Route path="/folder/:folderId/quizzes" element={<MaintenanceRoute component={Quizzes} />} />
-          <Route path="/folder/:folderId/flashcards" element={<MaintenanceRoute component={Flashcards} />} />
-          <Route path="/folder/:folderId/podcast" element={<MaintenanceRoute component={Podcast} />} />
-          <Route path="/delete-account" element={<MaintenanceRoute component={DeleteAccount} />} />
-          <Route path="/support-me" element={<MaintenanceRoute component={SupportMe} />} />
-          <Route path="/dwenlite-download" element={<MaintenanceRoute component={DwenLiteDownload} />} />
-          <Route path="/terms" element={<MaintenanceRoute component={Terms} />} />
-          <Route path="/reset-password" element={<MaintenanceRoute component={ResetPassword} />} />
-          <Route path="/support" element={<MaintenanceRoute component={Support} />} />
-          <Route path="/exams-preparation" element={<MaintenanceRoute component={ExamsPreparation} />} />
-          <Route path="/maintenance" element={<Maintenance />} />
-          <Route
-            path="*"
-            element={
-              isMaintenanceWindow() ? <Maintenance /> : <NotFound />
-            }
-          />
-        </Routes>
-      </Router>
+      <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
+      <Routes>
+        <Route path="/" element={<MaintenanceRoute component={Welcome} isAdBlockDetected={isAdBlockDetected} />} />
+        <Route path="/login" element={<MaintenanceRoute component={Login} isAdBlockDetected={isAdBlockDetected} />} />
+        <Route path="/signup" element={<MaintenanceRoute component={Signup} isAdBlockDetected={isAdBlockDetected} />} />
+        <Route path="/verify-email" element={<MaintenanceRoute component={VerifyEmail} isAdBlockDetected={isAdBlockDetected} />} />
+        <Route path="/dashboard" element={<MaintenanceRoute component={Dashboard} isAdBlockDetected={isAdBlockDetected} />} />
+        <Route path="/folder/:folderId" element={<MaintenanceRoute component={ViewFolder} isAdBlockDetected={isAdBlockDetected} />} />
+        <Route path="/folder/:folderId/notes" element={<MaintenanceRoute component={Notes} isAdBlockDetected={isAdBlockDetected} />} />
+        <Route path="/folder/:folderId/quizzes" element={<MaintenanceRoute component={Quizzes} isAdBlockDetected={isAdBlockDetected} />} />
+        <Route path="/folder/:folderId/flashcards" element={<MaintenanceRoute component={Flashcards} isAdBlockDetected={isAdBlockDetected} />} />
+        <Route path="/folder/:folderId/podcast" element={<MaintenanceRoute component={Podcast} isAdBlockDetected={isAdBlockDetected} />} />
+        <Route path="/delete-account" element={<MaintenanceRoute component={DeleteAccount} isAdBlockDetected={isAdBlockDetected} />} />
+        <Route path="/support-me" element={<MaintenanceRoute component={SupportMe} isAdBlockDetected={isAdBlockDetected} />} />
+        <Route path="/dwenlite-download" element={<MaintenanceRoute component={DwenLiteDownload} isAdBlockDetected={isAdBlockDetected} />} />
+        <Route path="/terms" element={<MaintenanceRoute component={Terms} isAdBlockDetected={isAdBlockDetected} />} />
+        <Route path="/reset-password" element={<MaintenanceRoute component={ResetPassword} isAdBlockDetected={isAdBlockDetected} />} />
+        <Route path="/support" element={<MaintenanceRoute component={Support} isAdBlockDetected={isAdBlockDetected} />} />
+        <Route path="/exams-preparation" element={<MaintenanceRoute component={ExamsPreparation} isAdBlockDetected={isAdBlockDetected} />} />
+        <Route path="/maintenance" element={<Maintenance />} />
+        <Route
+          path="*"
+          element={
+            isAdBlockDetected ? <AdBlockDetected /> : isMaintenanceWindow() ? <Maintenance /> : <NotFound />
+          }
+        />
+      </Routes>
     </ErrorBoundary>
   );
 }
 
-export default App;
+export default function AppWrapper() {
+  return (
+    <Router>
+      <App />
+    </Router>
+  );
+}
