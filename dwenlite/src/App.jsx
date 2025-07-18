@@ -24,8 +24,9 @@ import AdBlockDetected from './pages/AdBlockDetected';
 
 const isMaintenanceWindow = () => {
   const now = new Date();
+  const day = now.getDay();
   const hour = now.getHours();
-  return hour >= 22 || hour < 0;
+  return day === 6 && hour >= 12 && hour < 15;
 };
 
 const MaintenanceRoute = ({ component: Component, isAdBlockDetected, ...rest }) => {

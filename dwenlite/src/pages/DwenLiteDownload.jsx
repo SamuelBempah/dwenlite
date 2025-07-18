@@ -25,7 +25,7 @@ function DwenLiteDownload() {
     setShowThankYou(true);
     // Create a temporary anchor element to trigger direct download
     const link = document.createElement('a');
-    link.href = 'https://github.com/SamuelBempah/dwenlite/raw/refs/heads/master/desktop-releases/DwenLite_Setup.exe'; // Replace with actual GitHub URL
+    link.href = 'https://github.com/SamuelBempah/DwenLite-PC-Releases/raw/refs/heads/main/DwenLite_Setup.exe'; // Replace with actual GitHub URL
     link.download = 'DwenLite_Setup.exe'; // Suggests filename to the browser
     document.body.appendChild(link);
     setTimeout(() => {
