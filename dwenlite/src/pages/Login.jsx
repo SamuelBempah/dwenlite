@@ -5,20 +5,30 @@ import { signInWithEmailAndPassword, signInWithPopup, onAuthStateChanged } from 
 import toast from 'react-hot-toast';
 
 function Login() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [signInLoading, setSignInLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(true);
+  const navigate = useNavigate();
+
   useEffect(() => {
+    // Show checking status for 5 seconds
+    const timer = setTimeout(() => {
+      setCheckingStatus(false);
+    }, 5000);
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         navigate('/dashboard');
       }
     });
 
-    return () => unsubscribe();
+    return () => {
+      clearTimeout(timer);
+      unsubscribe();
+    };
   }, []);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [signInLoading, setSignInLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
-  const navigate = useNavigate();
 
   const getFriendlyErrorMessage = (errorCode) => {
     switch (errorCode) {
@@ -71,6 +81,33 @@ function Login() {
         setGoogleLoading(false);
       });
   };
+
+  if (checkingStatus) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-purple-50 to-blue-50 flex items-center justify-center px-4">
+        <div className="bg-white p-6 sm:p-8 rounded-lg shadow-lg w-full max-w-md text-center">
+          <span className="flex items-center justify-center">
+            <svg
+              className="animate-spin h-5 w-5 mr-2 text-purple-600"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+                fill="none"
+              />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+            Checking login status...
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-purple-50 to-blue-50 flex items-center justify-center px-4">
