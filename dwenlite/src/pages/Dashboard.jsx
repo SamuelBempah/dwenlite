@@ -375,7 +375,7 @@ function Dashboard() {
           <div className="bg-gray-800 p-6 rounded-lg w-full max-w-md ad-notice-enter">
             <h3 className="text-lg md:text-xl font-semibold mb-3 text-purple-400">Supporting Free Access</h3>
             <p className="text-gray-300 text-sm md:text-base mb-4">
-              To provide our services at no cost to all users, we rely on advertising revenue to cover expenses such as server maintenance, hosting, and development. As a result, advertisements are an integral part of our platform. We appreciate your understanding and support in keeping our services accessible to everyone.
+              To provide our services at no cost to all users, we rely on advertising revenue to cover expenses such as server maintenance, hosting, and development. As a result, advertisements are an integral part of our platform. You can download our apps on desktop and mobile to enjoy an ad-free experience. We appreciate your understanding and support in keeping our services accessible to everyone.
             </p>
             <button
               onClick={handleCloseAdNotice}
