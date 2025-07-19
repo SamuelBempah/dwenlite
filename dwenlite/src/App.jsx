@@ -58,7 +58,7 @@ function AdNotice({ onClose }) {
     <div className="fixed top-0 left-0 right-0 bg-purple-600 text-white px-4 py-3 flex flex-col sm:flex-row justify-between items-center gap-2 sm:gap-4 animate-slide-in z-50">
       <div className="flex-1 text-center text-xs sm:text-sm">
         <p>
-          Are the ads annoying? We know that, but we need to make our money somehow. Prefer an ad-free experience? Download our Windows desktop version!
+          Are the ads annoying? We know that, but we need to make our money somehow. Prefer an ad-free experience? Download our Windows desktop version! If you're already using it, you can ignore this message.
         </p>
       </div>
       <div className="flex items-center justify-center gap-2 sm:gap-4">
@@ -84,14 +84,6 @@ function AdNotice({ onClose }) {
 function App() {
   const [isAdBlockDetected, setIsAdBlockDetected] = useState(false);
   const [showNotice, setShowNotice] = useState(true);
-  const [isNativefier, setIsNativefier] = useState(false);
-
-  useEffect(() => {
-    // Detect Nativefier by checking userAgent
-    const userAgent = navigator.userAgent.toLowerCase();
-    const isNative = userAgent.includes('nativefier');
-    setIsNativefier(isNative);
-  }, []);
 
   useEffect(() => {
     const detectAdBlock = async () => {
@@ -110,14 +102,14 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (isAdBlockDetected || isNativefier) return; // Don't show notice if ad blocker or Nativefier is detected
+    if (isAdBlockDetected) return; // Don't show notice if ad blocker is detected
 
     const showNoticeTimer = setInterval(() => {
       setShowNotice(true);
     }, 5 * 60 * 1000); // Show every 5 minutes
 
     return () => clearInterval(showNoticeTimer);
-  }, [isAdBlockDetected, isNativefier]);
+  }, [isAdBlockDetected]);
 
   const handleCloseNotice = () => {
     setShowNotice(false);
@@ -127,7 +119,7 @@ function App() {
     <ErrorBoundary>
       <Router>
         <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
-        {!isAdBlockDetected && !isNativefier && showNotice && <AdNotice onClose={handleCloseNotice} />}
+        {!isAdBlockDetected && showNotice && <AdNotice onClose={handleCloseNotice} />}
         <Routes>
           <Route path="/" element={<MaintenanceRoute component={Welcome} isAdBlockDetected={isAdBlockDetected} />} />
           <Route path="/login" element={<MaintenanceRoute component={Login} isAdBlockDetected={isAdBlockDetected} />} />
