@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import Welcome from './pages/Welcome';
 import Login from './pages/Login';
@@ -53,8 +53,37 @@ function NotFound() {
   );
 }
 
+function AdNotice({ onClose }) {
+  return (
+    <div className="fixed top-0 left-0 right-0 bg-purple-600 text-white px-4 py-3 flex flex-col sm:flex-row justify-between items-center gap-2 sm:gap-4 animate-slide-in z-50">
+      <div className="flex-1 text-center text-xs sm:text-sm">
+        <p>
+          Are the ads annoying? We know that, but we need to make our money somehow. Prefer an ad-free experience? Download our Windows desktop version!
+        </p>
+      </div>
+      <div className="flex items-center justify-center gap-2 sm:gap-4">
+        <Link
+          to="/dwenlite-download"
+          className="bg-white text-purple-600 py-1 px-2 sm:px-3 sm:py-1.5 text-xs sm:text-sm rounded-lg hover:bg-gray-200"
+        >
+          Download Now
+        </Link>
+        <button
+          onClick={onClose}
+          className="text-white hover:text-gray-200 focus:outline-none"
+        >
+          <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [isAdBlockDetected, setIsAdBlockDetected] = useState(false);
+  const [showNotice, setShowNotice] = useState(true);
 
   useEffect(() => {
     const detectAdBlock = async () => {
@@ -72,10 +101,25 @@ function App() {
     detectAdBlock();
   }, []);
 
+  useEffect(() => {
+    if (isAdBlockDetected) return; // Don't show notice if ad blocker is detected
+
+    const showNoticeTimer = setInterval(() => {
+      setShowNotice(true);
+    }, 5 * 60 * 1000); // Show every 5 minutes
+
+    return () => clearInterval(showNoticeTimer);
+  }, [isAdBlockDetected]);
+
+  const handleCloseNotice = () => {
+    setShowNotice(false);
+  };
+
   return (
     <ErrorBoundary>
       <Router>
         <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
+        {!isAdBlockDetected && showNotice && <AdNotice onClose={handleCloseNotice} />}
         <Routes>
           <Route path="/" element={<MaintenanceRoute component={Welcome} isAdBlockDetected={isAdBlockDetected} />} />
           <Route path="/login" element={<MaintenanceRoute component={Login} isAdBlockDetected={isAdBlockDetected} />} />
