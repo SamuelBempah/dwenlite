@@ -119,7 +119,7 @@ function DwenLiteDownload() {
             whileInView={{ opacity: 1 }}
             transition={{ delay: 0.3, duration: 1 }}
           >
-            Transform your learning experience with AI-powered tools that generate notes, quizzes, and flashcards. Available on Android and Desktop, DwenLite helps you study smarter and faster.
+            Transform your learning experience with AI-powered tools that generate notes, quizzes, and flashcards. Available on Windows devices, DwenLite helps you study smarter and faster.
           </motion.p>
         </div>
       </motion.div>
