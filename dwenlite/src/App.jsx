@@ -84,6 +84,14 @@ function AdNotice({ onClose }) {
 function App() {
   const [isAdBlockDetected, setIsAdBlockDetected] = useState(false);
   const [showNotice, setShowNotice] = useState(true);
+  const [isNativefier, setIsNativefier] = useState(false);
+
+  useEffect(() => {
+    // Detect Nativefier by checking userAgent
+    const userAgent = navigator.userAgent.toLowerCase();
+    const isNative = userAgent.includes('nativefier');
+    setIsNativefier(isNative);
+  }, []);
 
   useEffect(() => {
     const detectAdBlock = async () => {
@@ -102,14 +110,14 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (isAdBlockDetected) return; // Don't show notice if ad blocker is detected
+    if (isAdBlockDetected || isNativefier) return; // Don't show notice if ad blocker or Nativefier is detected
 
     const showNoticeTimer = setInterval(() => {
       setShowNotice(true);
     }, 5 * 60 * 1000); // Show every 5 minutes
 
     return () => clearInterval(showNoticeTimer);
-  }, [isAdBlockDetected]);
+  }, [isAdBlockDetected, isNativefier]);
 
   const handleCloseNotice = () => {
     setShowNotice(false);
@@ -119,7 +127,7 @@ function App() {
     <ErrorBoundary>
       <Router>
         <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
-        {!isAdBlockDetected && showNotice && <AdNotice onClose={handleCloseNotice} />}
+        {!isAdBlockDetected && !isNativefier && showNotice && <AdNotice onClose={handleCloseNotice} />}
         <Routes>
           <Route path="/" element={<MaintenanceRoute component={Welcome} isAdBlockDetected={isAdBlockDetected} />} />
           <Route path="/login" element={<MaintenanceRoute component={Login} isAdBlockDetected={isAdBlockDetected} />} />
