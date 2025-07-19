@@ -5,19 +5,9 @@ import welcomeVideo from '../videos/welcome.mp4'; // Adjust path if needed
 import logo from '../assets/react.png'; // Logo path
 
 function DwenLiteDownload() {
-  const [androidLoading, setAndroidLoading] = useState(false);
   const [desktopLoading, setDesktopLoading] = useState(false);
   const [videoError, setVideoError] = useState(false);
   const [showThankYou, setShowThankYou] = useState(false);
-
-  const handleAndroidClick = (e) => {
-    e.preventDefault();
-    setAndroidLoading(true);
-    setTimeout(() => {
-      setAndroidLoading(false);
-      window.location.href = 'https://play.google.com/store/apps/details?id=co.median.android.pkmzbk'; // Replace with actual link
-    }, 1000);
-  };
 
   const handleDesktopClick = (e) => {
     e.preventDefault();
@@ -207,30 +197,6 @@ function DwenLiteDownload() {
             </motion.p>
           )}
           <div className="flex flex-col sm:flex-row justify-center space-y-4 sm:space-y-0 sm:space-x-4">
-            <motion.a
-              href="https://play.google.com/store/apps/details?id=com.dwenlite.app"
-              onClick={handleAndroidClick}
-              className={`bg-green-600 text-white px-6 py-3 sm:px-8 sm:py-3 rounded-full transition-all flex items-center justify-center space-x-2 ${androidLoading ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-500'}`}
-              whileHover={{ scale: androidLoading ? 1 : 1.1 }}
-              whileTap={{ scale: androidLoading ? 1 : 0.95 }}
-            >
-              {androidLoading ? (
-                <span className="flex items-center">
-                  <svg className="animate-spin h-5 w-5 mr-2 text-white" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                  </svg>
-                  Loading...
-                </span>
-              ) : (
-                <>
-                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M3 20.5v-17c0-.83.67-1.5 1.5-1.5h1.67l6 6 6-6h1.83c.83 0 1.5.67 1.5 1.5v17c0 .83-.67 1.5-1.5 1.5h-15c-.83 0-1.5-.67-1.5-1.5zM12 14l-6-6h12l-6 6z"/>
-                  </svg>
-                  <span>Download For Android</span>
-                </>
-              )}
-            </motion.a>
             <motion.a
               href="#"
               onClick={handleDesktopClick}
