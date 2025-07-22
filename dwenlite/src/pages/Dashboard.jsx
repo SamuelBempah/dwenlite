@@ -373,9 +373,9 @@ function Dashboard() {
       {showAdNotice && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 px-4">
           <div className="bg-gray-800 p-6 rounded-lg w-full max-w-md ad-notice-enter">
-            <h3 className="text-lg md:text-xl font-semibold mb-3 text-purple-400">Supporting Free Access</h3>
+            <h3 className="text-lg md:text-xl font-semibold mb-3 text-purple-400">Upcoming Subscription Changes</h3>
             <p className="text-gray-300 text-sm md:text-base mb-4">
-              To provide our services at no cost to all users, we rely on advertising revenue to cover expenses such as server maintenance, hosting, and development. As a result, advertisements are an integral part of our platform. You can download our apps on desktop to enjoy an ad-free experience. We appreciate your understanding and support in keeping our services accessible to everyone.
+              We'll be implementing subscription-based use within August of this year. After this, you'll still be able to use the system for free, but only a limited number of times per day. To use the system more frequently, you can subscribe for unlimited daily access. Until then, our services remain free for all users. Thank you for your support and understanding as we work to improve your experience.
             </p>
             <button
               onClick={handleCloseAdNotice}
