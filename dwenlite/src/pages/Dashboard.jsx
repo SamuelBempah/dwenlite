@@ -1,7 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
 import { auth, db } from '../firebase';
-import { collection, addDoc, query, where, getDocs, updateDoc, deleteDoc, doc } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, updateDoc, deleteDoc, doc, getDoc, setDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 
 function Dashboard() {
@@ -26,6 +26,8 @@ function Dashboard() {
   const [foldersLoading, setFoldersLoading] = useState(true);
   const [countdown, setCountdown] = useState('');
   const [showAdNotice, setShowAdNotice] = useState(false);
+  const [gCoins, setGCoins] = useState(0);
+  const [gCoinsAnimating, setGCoinsAnimating] = useState(false);
 
   const folderInputRef = useRef(null);
   const createButtonRef = useRef(null);
@@ -67,12 +69,12 @@ function Dashboard() {
     },
     {
       title: "Manage Folders",
-      description: "Your folders are listed here. Click a folder to view its contents, or use the menu to edit/delete.",
+      description: "Your folders are listed here. Click a folder to view its contents, or use the menu to edit/delete. Check your G_COINS balance above to generate notes.",
       highlightRef: foldersSectionRef,
     },
     {
       title: "You're All Set!",
-      description: "That's it! You can now create folders, upload content, and manage your study materials. Close this to continue.",
+      description: "That's it! You can now create folders, upload content, and manage your study materials. Use G_COINS to generate notes in folders. Close this to continue.",
       highlightRef: null,
     },
   ];
@@ -83,6 +85,7 @@ function Dashboard() {
         console.log('Authenticated user UID:', user.uid);
         setCurrentUser(user);
         fetchFolders(user.uid);
+        fetchUserGCoins(user.uid);
         if (!localStorage.getItem('tutorialCompleted')) {
           setShowTutorial(true);
         }
@@ -96,6 +99,24 @@ function Dashboard() {
     });
     return unsubscribe;
   }, [navigate]);
+
+  // Fetch user G_COINS
+  const fetchUserGCoins = async (userId) => {
+    try {
+      const userRef = doc(db, 'users', userId);
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        setGCoins(userSnap.data().gCoins || 0);
+      } else {
+        // Initialize user with default G_COINS
+        await setDoc(userRef, { gCoins: 5 });
+        setGCoins(5);
+      }
+    } catch (err) {
+      console.error('Fetch user G_COINS error:', err);
+      toast.error('Failed to fetch G_COINS. Please try again.');
+    }
+  };
 
   // Countdown timer for exam season (set to end on July 31, 2025)
   useEffect(() => {
@@ -270,6 +291,10 @@ function Dashboard() {
     }, 1000);
   };
 
+  const handleBuyGCoins = () => {
+    navigate('/buy-coins');
+  };
+
   const handleLogout = () => {
     setLogoutLoading(true);
     setTimeout(() => {
@@ -350,8 +375,16 @@ function Dashboard() {
             70% { box-shadow: 0 0 0 10px rgba(147, 51, 234, 0); }
             100% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0); }
           }
+          @keyframes coinsDeduction {
+            0% { transform: translateY(0); opacity: 1; }
+            50% { transform: translateY(-20px); opacity: 0.5; }
+            100% { transform: translateY(-40px); opacity: 0; }
+          }
           .pulse-glow {
             animation: pulseGlow 2s infinite;
+          }
+          .coins-deduct {
+            animation: coinsDeduction 1s ease-out forwards;
           }
           .hover-scale {
             transition: transform 0.2s ease;
@@ -375,7 +408,7 @@ function Dashboard() {
           <div className="bg-gray-800 p-6 rounded-lg w-full max-w-md ad-notice-enter">
             <h3 className="text-lg md:text-xl font-semibold mb-3 text-purple-400">Upcoming Subscription Changes</h3>
             <p className="text-gray-300 text-sm md:text-base mb-4">
-              We'll be implementing subscription-based use within August of this year. After this, you'll still be able to use the system for free, but only a limited number of times per day. To use the system more frequently, you can subscribe for unlimited daily access. Until then, our services remain free for all users. Thank you for your support and understanding as we work to improve your experience.
+              We'll be implementing subscription-based use within August of this year. After this, you'll still be able to use the system for free, but only a limited number of times per day. To generate notes and use the system more frequently, you can buy G_COINS or subscribe for unlimited daily access. Until then, our services remain free for all users. Thank you for your support and understanding as we work to improve your experience.
             </p>
             <button
               onClick={handleCloseAdNotice}
@@ -491,38 +524,14 @@ function Dashboard() {
             >
               <span className="mr-2">💬</span> Support
             </Link>
+            <button
+              onClick={handleBuyGCoins}
+              className="flex items-center mb-3 md:mb-4 text-purple-400 text-sm md:text-base"
+            >
+              <span className="mr-2">💰</span> Buy G_COINS
+            </button>
           </nav>
         </div>
-        <button
-          onClick={handleUpgrade}
-          disabled={upgradeLoading}
-          className={`bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base ${
-            upgradeLoading ? 'opacity-50 cursor-not-allowed' : ''
-          }`}
-        >
-          {upgradeLoading ? (
-            <span className="flex items-center justify-center">
-              <svg
-                className="animate-spin h-4 w-4 md:h-5 md:w-5 mr-2 text-white"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                  fill="none"
-                />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-              </svg>
-              Loading...
-            </span>
-          ) : (
-            'Support Me'
-          )}
-        </button>
       </div>
 
       {/* Main Content */}
@@ -699,7 +708,20 @@ function Dashboard() {
         </div>
 
         <div ref={foldersSectionRef} className={tutorialStep === 6 ? 'ring-4 ring-purple-500' : ''}>
-          <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">All Folders</h2>
+          <div className="flex justify-between items-center mb-3 md:mb-4">
+            <h2 className="text-lg md:text-xl font-semibold">All Folders</h2>
+            <div className="flex items-center space-x-3">
+              <p className={`text-sm md:text-base ${gCoinsAnimating ? 'coins-deduct' : ''}`}>
+                💰 G_COINS: {gCoins}
+              </p>
+              <button
+                onClick={handleBuyGCoins}
+                className="bg-purple-600 text-white py-1 px-3 rounded-lg hover:bg-purple-700 text-sm md:text-base hover-scale"
+              >
+                Buy G_COINS
+              </button>
+            </div>
+          </div>
           <div className={`flex flex-col sm:flex-row items-center mb-4 gap-3 ${tutorialStep === 3 || tutorialStep === 4 ? 'ring-4 ring-purple-500' : ''}`}>
             <input
               ref={folderInputRef}

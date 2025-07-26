@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { db, auth } from '../firebase';
-import { doc, getDoc, updateDoc, addDoc, collection } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, addDoc, collection, setDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 
@@ -25,6 +25,8 @@ function Quizzes() {
   const [showReportForm, setShowReportForm] = useState(null);
   const [reportReason, setReportReason] = useState('');
   const [reportLoading, setReportLoading] = useState(false);
+  const [gCoins, setGCoins] = useState(0);
+  const [gCoinsAnimating, setGCoinsAnimating] = useState(false);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -33,10 +35,50 @@ function Quizzes() {
         navigate('/login');
         return;
       }
+      setGCoins(0); // Reset G_COINS state
       fetchFolder(user.uid);
+      fetchUserGCoins(user.uid);
     });
     return () => unsubscribe();
   }, [navigate, folderId]);
+
+  const fetchUserGCoins = async (userId) => {
+    try {
+      const userRef = doc(db, 'users', userId);
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        setGCoins(userSnap.data().gCoins || 0);
+      } else {
+        // Initialize user with 5 G_COINS
+        await setDoc(userRef, { gCoins: 5 });
+        setGCoins(5);
+      }
+    } catch (err) {
+      console.error('Fetch user G_COINS error:', err);
+      toast.error('Failed to fetch G_COINS. Please try again.');
+    }
+  };
+
+  const deductGCoins = async (userId, amount) => {
+    try {
+      const userRef = doc(db, 'users', userId);
+      const userSnap = await getDoc(userRef);
+      if (!userSnap.exists()) {
+        throw new Error('User document not found.');
+      }
+      const currentGCoins = userSnap.data().gCoins || 0;
+      if (currentGCoins < amount) {
+        throw new Error('Insufficient G_COINS.');
+      }
+      await updateDoc(userRef, { gCoins: currentGCoins - amount });
+      setGCoins(currentGCoins - amount);
+      setGCoinsAnimating(true);
+      setTimeout(() => setGCoinsAnimating(false), 1000); // Animation duration
+    } catch (err) {
+      console.error('Deduct G_COINS error:', err);
+      throw err;
+    }
+  };
 
   const fetchFolder = async (userId) => {
     try {
@@ -281,7 +323,7 @@ function Quizzes() {
       let prompt = `Generate 40 multiple-choice quiz questions based on the following content: "${context}". For each question, provide the question, four options (labeled a, b, c, d), and the correct answer. Format as a JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }], ...]. Return only the JSON array string, without any markdown, code block markers (like \`\`\`json), or additional text. Ensure the output is valid JSON.`;
 
       if (retry) {
-        prompt = `You previously failed to return valid JSON. Generate 40 multiple-choice quiz questions based on the following content: "${context}". For each question, provide the question, four options (labeled a, b), c), d), ...], and the correct answer. Format as a JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }, ...]. Return ONLY the JSON array string. Do NOT include markdown, code block markers (like \`\`\`json), or any additional text before or after the JSON. The output MUST be valid JSON, parsable by JSON.parse().`;
+        prompt = `You previously failed to return valid JSON. Generate 40 multiple-choice quiz questions based on the following content: "${context}". For each question, provide the question, four options (labeled a, b, c, d), and the correct answer. Format as a JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }, ...]. Return ONLY the JSON array string. Do NOT include markdown, code block markers (like \`\`\`json), or any additional text before or after the JSON. The output MUST be valid JSON, parsable by JSON.parse().`;
       }
 
       const response = await axios.post(
@@ -378,6 +420,25 @@ function Quizzes() {
   };
 
   const handleRegenerateQuiz = async () => {
+    if (!auth.currentUser) {
+      toast.error('Please log in to generate quizzes.');
+      return;
+    }
+
+    // Check G_COINS balance
+    if (gCoins < 5) {
+      toast.error(
+        <div>
+          Insufficient G_COINS. You need 5 G_COINS to generate quizzes.{' '}
+          <Link to="/buy-coins" className="underline text-purple-400 hover:text-purple-300">
+            Buy more G_COINS
+          </Link>.
+        </div>,
+        { duration: 5000 }
+      );
+      return;
+    }
+
     setQuizLoading(true);
     try {
       const newQuizzes = await generateContent();
@@ -395,11 +456,14 @@ function Quizzes() {
         quizGroups: updatedQuizGroups,
       });
 
+      // Deduct 5 G_COINS on successful generation
+      await deductGCoins(auth.currentUser.uid, 5);
+
       setFolder(prev => ({
         ...prev,
         quizGroups: updatedQuizGroups,
       }));
-      toast.success('New quiz group generated successfully!');
+      toast.success('New quiz group generated successfully! 5 G_COINS deducted.');
       setSelectedQuizGroup(newQuizGroup);
       setCurrentQuizIndex(0);
       setSelectedAnswer(null);
@@ -671,7 +735,7 @@ function Quizzes() {
           <p className="text-gray-400 text-lg">Unable to load folder.</p>
           <Link
             to="/dashboard"
-            className="mt-4 inline-block bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700"
+            className={`mt-4 inline-block bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
           >
             Back to Dashboard
           </Link>
@@ -708,6 +772,11 @@ function Quizzes() {
             70% { box-shadow: 0 0 0 10px rgba(147, 51, 234, 0); }
             100% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0); }
           }
+          @keyframes coinsDeduction {
+            0% { transform: translateY(0); opacity: 1; }
+            50% { transform: translateY(-20px); opacity: 0.5; }
+            100% { transform: translateY(-40px); opacity: 0; }
+          }
           .animate-slide-in-right {
             animation: slideInFromRight 0.3s ease-out forwards;
           }
@@ -726,6 +795,9 @@ function Quizzes() {
           .pulse-container {
             animation: pulseContainer 2s infinite;
           }
+          .coins-deduct {
+            animation: coinsDeduction 1s ease-out forwards;
+          }
           .hover-scale {
             transition: transform 0.2s ease, box-shadow 0.2s ease;
           }
@@ -738,25 +810,28 @@ function Quizzes() {
 
       <div className="flex justify-between items-center mb-6 md:mb-8">
         <h1 className="text-2xl md:text-3xl font-bold">{folder.name} - Quizzes</h1>
-        <Link
-          to={`/folder/${folderId}`}
-          className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base"
-        >
-          Back to Folder
-        </Link>
+        <div className="flex items-center space-x-3">
+          <p className={`text-sm md:text-base ${gCoinsAnimating ? 'coins-deduct' : ''}`}>
+            💰 G_COINS: {gCoins}
+          </p>
+          <Link
+            to={`/folder/${folderId}`}
+            className={`bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+          >
+            Back to Folder
+          </Link>
+        </div>
       </div>
 
       <div className="mb-6 md:mb-8">
         <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Generate Quizzes</h2>
         <p className="text-gray-400 text-sm md:text-base mb-3 md:mb-4">
-          Quiz generation typically takes 60-180 seconds. Processing time may vary based on server load and document size.
+          Quiz generation typically takes 60-180 seconds and costs 5 G_COINS. Processing time may vary based on server load and document size.
         </p>
         <button
           onClick={handleRegenerateQuiz}
           disabled={quizLoading}
-          className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base w-full ${
-            quizLoading ? 'opacity-50 cursor-not-allowed' : ''
-          }`}
+          className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base w-full ${quizLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
           {quizLoading ? (
             <span className="flex items-center">
@@ -783,7 +858,7 @@ function Quizzes() {
             </span>
           ) : (
             <>
-              <span>Generate Quizzes</span>
+              <span>Generate Quizzes (5 G_COINS)</span>
               <span>➔</span>
             </>
           )}
@@ -813,7 +888,7 @@ function Quizzes() {
                           : 'bg-red-600'
                         : 'bg-gray-700 hover:bg-gray-600'
                     }`}
-                    disabled={selectedAnswer !== null}
+                    disabled={selectedAnswer !== null || quizLoading}
                   >
                     {option}
                   </button>
@@ -828,7 +903,7 @@ function Quizzes() {
             {selectedAnswer && (
               <button
                 onClick={handleNextQuestion}
-                className="mt-4 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700"
+                className={`mt-4 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
               >
                 Next Question
               </button>
@@ -847,7 +922,7 @@ function Quizzes() {
           <div>
             <button
               onClick={() => setShowStoredQuizzes(!showStoredQuizzes)}
-              className="bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base w-full mb-3"
+              className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base w-full mb-3 ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
             >
               <span>{showStoredQuizzes ? 'Hide Stored Quiz Groups' : 'Show Stored Quiz Groups'}</span>
               <span>{showStoredQuizzes ? '▼' : '▶'}</span>
@@ -862,20 +937,20 @@ function Quizzes() {
                     <div className="flex justify-between items-center mb-2">
                       <button
                         onClick={() => handleSelectQuizGroup(group)}
-                        className="text-left flex-1 text-base md:text-lg font-semibold hover:text-purple-400"
+                        className={`text-left flex-1 text-base md:text-lg font-semibold hover:text-purple-400 ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
                       >
                         Quiz Group {index + 1} (Created: {new Date(group.createdAt).toLocaleDateString()})
                       </button>
                       <div className="flex items-center space-x-2">
                         <button
                           onClick={() => handleToggleGroup(group.id)}
-                          className="text-gray-400 hover:text-white"
+                          className={`text-gray-400 hover:text-white ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
                         >
                           {expandedGroups[group.id] ? 'Hide Questions' : 'Show Questions'}
                         </button>
                         <button
                           onClick={() => handleDeleteQuizGroup(group.id)}
-                          className="bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700"
+                          className={`bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700 ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
                         >
                           Delete
                         </button>
@@ -945,7 +1020,7 @@ function Quizzes() {
                 {message.type === 'ai' && !message.content.includes('DwenLite AI is typing...') && (
                   <button
                     onClick={() => setShowReportForm(showReportForm === index ? null : index)}
-                    className="absolute top-0 right-0 text-red-500 hover:text-red-400 text-xs p-1"
+                    className={`absolute top-0 right-0 text-red-500 hover:text-red-400 text-xs p-1 ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
                   >
                     {showReportForm === index ? 'Cancel' : 'Report'}
                   </button>
@@ -961,9 +1036,9 @@ function Quizzes() {
                     />
                     <button
                       onClick={() => handleReportContent(index, reportReason)}
-                      disabled={reportLoading || !reportReason.trim()}
+                      disabled={reportLoading || !reportReason.trim() || quizLoading}
                       className={`mt-2 bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700 text-sm ${
-                        reportLoading || !reportReason.trim() ? 'opacity-50 cursor-not-allowed' : ''
+                        reportLoading || !reportReason.trim() || quizLoading ? 'opacity-50 cursor-not-allowed' : ''
                       }`}
                     >
                       {reportLoading ? (
@@ -1004,6 +1079,7 @@ function Quizzes() {
                 value={selectedQuizGroupId}
                 onChange={(e) => setSelectedQuizGroupId(e.target.value)}
                 className="w-full p-2 bg-gray-700 text-white rounded-lg text-sm"
+                disabled={quizLoading}
               >
                 <option value="">Select a quiz group</option>
                 {folder.quizGroups.map((group, index) => (
@@ -1014,7 +1090,8 @@ function Quizzes() {
               </select>
               <button
                 onClick={handleQuizGroupSelection}
-                className="mt-2 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 w-full hover-scale text-sm"
+                className={`mt-2 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 w-full hover-scale text-sm ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                disabled={quizLoading}
               >
                 Submit
               </button>
@@ -1028,13 +1105,13 @@ function Quizzes() {
                 onChange={(e) => setChatInput(e.target.value)}
                 placeholder="Ask DwenLite AI a question..."
                 className="flex-1 p-2 bg-gray-700 text-white rounded-l-lg focus:outline-none text-sm"
-                disabled={chatLoading}
+                disabled={chatLoading || quizLoading}
               />
               <button
                 type="submit"
-                disabled={chatLoading}
+                disabled={chatLoading || quizLoading}
                 className={`bg-purple-600 text-white py-2 px-4 rounded-r-lg hover:bg-purple-700 hover-scale text-sm ${
-                  chatLoading ? 'opacity-50 cursor-not-allowed' : ''
+                  chatLoading || quizLoading ? 'opacity-50 cursor-not-allowed' : ''
                 }`}
               >
                 Send

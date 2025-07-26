@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { db, auth } from '../firebase';
-import { doc, getDoc, updateDoc, addDoc, collection } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, addDoc, collection, setDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 
@@ -24,6 +24,8 @@ function Flashcards() {
   const [showReportForm, setShowReportForm] = useState(null);
   const [reportReason, setReportReason] = useState('');
   const [reportLoading, setReportLoading] = useState(false);
+  const [gCoins, setGCoins] = useState(0);
+  const [gCoinsAnimating, setGCoinsAnimating] = useState(false);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -32,10 +34,50 @@ function Flashcards() {
         navigate('/login');
         return;
       }
+      setGCoins(0); // Reset G_COINS state
       fetchFolder(user.uid);
+      fetchUserGCoins(user.uid);
     });
     return () => unsubscribe();
   }, [navigate, folderId]);
+
+  const fetchUserGCoins = async (userId) => {
+    try {
+      const userRef = doc(db, 'users', userId);
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) {
+        setGCoins(userSnap.data().gCoins || 0);
+      } else {
+        // Initialize user with 5 G_COINS
+        await setDoc(userRef, { gCoins: 5 });
+        setGCoins(5);
+      }
+    } catch (err) {
+      console.error('Fetch user G_COINS error:', err);
+      toast.error('Failed to fetch G_COINS. Please try again.');
+    }
+  };
+
+  const deductGCoins = async (userId, amount) => {
+    try {
+      const userRef = doc(db, 'users', userId);
+      const userSnap = await getDoc(userRef);
+      if (!userSnap.exists()) {
+        throw new Error('User document not found.');
+      }
+      const currentGCoins = userSnap.data().gCoins || 0;
+      if (currentGCoins < amount) {
+        throw new Error('Insufficient G_COINS.');
+      }
+      await updateDoc(userRef, { gCoins: currentGCoins - amount });
+      setGCoins(currentGCoins - amount);
+      setGCoinsAnimating(true);
+      setTimeout(() => setGCoinsAnimating(false), 1000); // Animation duration
+    } catch (err) {
+      console.error('Deduct G_COINS error:', err);
+      throw err;
+    }
+  };
 
   const fetchFolder = async (userId) => {
     try {
@@ -352,6 +394,25 @@ function Flashcards() {
   };
 
   const handleGenerateFlashcards = async () => {
+    if (!auth.currentUser) {
+      toast.error('Please log in to generate flashcards.');
+      return;
+    }
+
+    // Check G_COINS balance
+    if (gCoins < 3) {
+      toast.error(
+        <div>
+          Insufficient G_COINS. You need 3 G_COINS to generate flashcards.{' '}
+          <Link to="/buy-coins" className="underline text-purple-400 hover:text-purple-300">
+            Buy more G_COINS
+          </Link>.
+        </div>,
+        { duration: 5000 }
+      );
+      return;
+    }
+
     setFlashcardsLoading(true);
     try {
       const newFlashcards = await generateContent();
@@ -369,11 +430,14 @@ function Flashcards() {
         flashcardGroups: updatedFlashcardGroups,
       });
 
+      // Deduct 3 G_COINS on successful generation
+      await deductGCoins(auth.currentUser.uid, 3);
+
       setFolder(prev => ({
         ...prev,
         flashcardGroups: updatedFlashcardGroups,
       }));
-      toast.success('New flashcard group generated successfully!');
+      toast.success('New flashcard group generated successfully! 3 G_COINS deducted.');
       setSelectedFlashcardGroup(newFlashcardGroup);
       setCurrentFlashcardIndex(0);
       setShowAnswer(false);
@@ -737,7 +801,7 @@ function Flashcards() {
           <p className="text-gray-400 text-lg">Unable to load folder.</p>
           <Link
             to="/dashboard"
-            className="mt-4 inline-block bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700"
+            className={`mt-4 inline-block bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
           >
             Back to Dashboard
           </Link>
@@ -782,6 +846,11 @@ function Flashcards() {
             0% { transform: rotateY(180deg); }
             100% { transform: rotateY(0deg); }
           }
+          @keyframes coinsDeduction {
+            0% { transform: translateY(0); opacity: 1; }
+            50% { transform: translateY(-20px); opacity: 0.5; }
+            100% { transform: translateY(-40px); opacity: 0; }
+          }
           .animate-slide-in-right {
             animation: slideInFromRight 0.3s ease-out forwards;
           }
@@ -799,6 +868,9 @@ function Flashcards() {
           .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
           .pulse-container {
             animation: pulseContainer 2s infinite;
+          }
+          .coins-deduct {
+            animation: coinsDeduction 1s ease-out forwards;
           }
           .hover-scale {
             transition: transform 0.2s ease, box-shadow 0.2s ease;
@@ -851,25 +923,28 @@ function Flashcards() {
 
       <div className="flex justify-between items-center mb-6 md:mb-8">
         <h1 className="text-2xl md:text-3xl font-bold">{folder.name} - Flashcards</h1>
-        <Link
-          to={`/folder/${folderId}`}
-          className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base"
-        >
-          Back to Folder
-        </Link>
+        <div className="flex items-center space-x-3">
+          <p className={`text-sm md:text-base ${gCoinsAnimating ? 'coins-deduct' : ''}`}>
+            💰 G_COINS: {gCoins}
+          </p>
+          <Link
+            to={`/folder/${folderId}`}
+            className={`bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+          >
+            Back to Folder
+          </Link>
+        </div>
       </div>
 
       <div className="mb-6 md:mb-8">
         <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Generate Flashcards</h2>
         <p className="text-gray-400 text-sm md:text-base mb-3 md:mb-4">
-          FlashCards generation typically takes 30-60 seconds. Processing time may vary based on server load and document size.
+          FlashCards generation typically takes 30-60 seconds and costs 3 G_COINS. Processing time may vary based on server load and document size.
         </p>
         <button
           onClick={handleGenerateFlashcards}
           disabled={flashcardsLoading}
-          className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base w-full ${
-            flashcardsLoading ? 'opacity-50 cursor-not-allowed' : ''
-          }`}
+          className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base w-full ${flashcardsLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
           {flashcardsLoading ? (
             <span className="flex items-center">
@@ -896,7 +971,7 @@ function Flashcards() {
             </span>
           ) : (
             <>
-              <span>Generate Flashcards</span>
+              <span>Generate Flashcards (3 G_COINS)</span>
               <span>➔</span>
             </>
           )}
@@ -927,7 +1002,8 @@ function Flashcards() {
             <div className="mt-4 flex justify-center max-w-[600px] mx-auto">
               <button
                 onClick={handleToggleAnswer}
-                className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700"
+                className={`bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                disabled={flashcardsLoading}
               >
                 {showAnswer ? 'Show Question' : 'Show Answer'}
               </button>
@@ -935,16 +1011,15 @@ function Flashcards() {
             <div className="mt-4 flex justify-between max-w-[600px] mx-auto">
               <button
                 onClick={handlePreviousFlashcard}
-                disabled={currentFlashcardIndex === 0}
-                className={`bg-gray-700 text-white py-2 px-4 rounded-lg hover:bg-gray-600 ${
-                  currentFlashcardIndex === 0 ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
+                disabled={currentFlashcardIndex === 0 || flashcardsLoading}
+                className={`bg-gray-700 text-white py-2 px-4 rounded-lg hover:bg-gray-600 ${currentFlashcardIndex === 0 || flashcardsLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 Previous
               </button>
               <button
                 onClick={handleNextFlashcard}
-                className="bg-gray-700 text-white py-2 px-4 rounded-lg hover:bg-gray-600"
+                disabled={flashcardsLoading}
+                className={`bg-gray-700 text-white py-2 px-4 rounded-lg hover:bg-gray-600 ${flashcardsLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
               >
                 Next
               </button>
@@ -963,7 +1038,8 @@ function Flashcards() {
           <div>
             <button
               onClick={() => setShowStoredFlashcards(!showStoredFlashcards)}
-              className="bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base w-full mb-3"
+              className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base w-full mb-3 ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+              disabled={flashcardsLoading}
             >
               <span>{showStoredFlashcards ? 'Hide Stored Flashcard Groups' : 'Show Stored Flashcard Groups'}</span>
               <span>{showStoredFlashcards ? '▼' : '▶'}</span>
@@ -978,20 +1054,23 @@ function Flashcards() {
                     <div className="flex justify-between items-center mb-2">
                       <button
                         onClick={() => handleSelectFlashcardGroup(group)}
-                        className="text-left flex-1 text-base md:text-lg font-semibold hover:text-purple-400"
+                        className={`text-left flex-1 text-base md:text-lg font-semibold hover:text-purple-400 ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                        disabled={flashcardsLoading}
                       >
                         Flashcard Group {index + 1} (Created: {new Date(group.createdAt).toLocaleDateString()})
                       </button>
                       <div className="flex items-center space-x-2">
                         <button
                           onClick={() => handleToggleGroup(group.id)}
-                          className="text-gray-400 hover:text-white"
+                          className={`text-gray-400 hover:text-white ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                          disabled={flashcardsLoading}
                         >
                           {expandedGroups[group.id] ? 'Hide Flashcards' : 'Show Flashcards'}
                         </button>
                         <button
                           onClick={() => handleDeleteFlashcardGroup(group.id)}
-                          className="bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700"
+                          className={`bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700 ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                          disabled={flashcardsLoading}
                         >
                           Delete
                         </button>
@@ -1037,7 +1116,7 @@ function Flashcards() {
                 }`}
               >
                 <span
-                  className={`inline-block p-2 rounded-lg ${
+                  className={`inline-block p-2 rounded-lg text-sm md:text-base ${
                     message.type === 'user'
                       ? 'bg-purple-600'
                       : message.type === 'ai'
@@ -1059,7 +1138,8 @@ function Flashcards() {
                 {message.type === 'ai' && !message.content.includes('DwenLite AI is typing...') && !message.content.includes('DwenLite AI is searching the web...') && (
                   <button
                     onClick={() => setShowReportForm(showReportForm === index ? null : index)}
-                    className="absolute top-0 right-0 text-red-500 hover:text-red-400 text-xs p-1"
+                    className={`absolute top-0 right-0 text-red-500 hover:text-red-400 text-xs p-1 ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                    disabled={flashcardsLoading}
                   >
                     {showReportForm === index ? 'Cancel' : 'Report'}
                   </button>
@@ -1070,14 +1150,14 @@ function Flashcards() {
                       value={reportReason}
                       onChange={(e) => setReportReason(e.target.value)}
                       placeholder="Why is this content offensive or inappropriate?"
-                      className="w-full p-2 bg-gray-600 text-white rounded-lg focus:outline-none"
+                      className="w-full p-2 bg-gray-600 text-white rounded-lg focus:outline-none text-sm"
                       rows="3"
                     />
                     <button
                       onClick={() => handleReportContent(index, reportReason)}
-                      disabled={reportLoading || !reportReason.trim()}
-                      className={`mt-2 bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700 ${
-                        reportLoading || !reportReason.trim() ? 'opacity-50 cursor-not-allowed' : ''
+                      disabled={reportLoading || !reportReason.trim() || flashcardsLoading}
+                      className={`mt-2 bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700 text-sm ${
+                        reportLoading || !reportReason.trim() || flashcardsLoading ? 'opacity-50 cursor-not-allowed' : ''
                       }`}
                     >
                       {reportLoading ? (
@@ -1117,7 +1197,8 @@ function Flashcards() {
               <select
                 value={selectedFlashcardGroupId}
                 onChange={(e) => setSelectedFlashcardGroupId(e.target.value)}
-                className="w-full p-2 bg-gray-700 text-white rounded-lg"
+                className="w-full p-2 bg-gray-700 text-white rounded-lg text-sm"
+                disabled={flashcardsLoading}
               >
                 <option value="">Select a flashcard group</option>
                 {folder.flashcardGroups.map((group, index) => (
@@ -1128,7 +1209,8 @@ function Flashcards() {
               </select>
               <button
                 onClick={handleFlashcardGroupSelection}
-                className="mt-2 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 w-full hover-scale"
+                className={`mt-2 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 w-full hover-scale text-sm ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                disabled={flashcardsLoading}
               >
                 Submit
               </button>
@@ -1141,14 +1223,14 @@ function Flashcards() {
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 placeholder="Ask DwenLite AI a question..."
-                className="flex-1 p-2 bg-gray-700 text-white rounded-l-lg focus:outline-none"
-                disabled={chatLoading}
+                className="flex-1 p-2 bg-gray-700 text-white rounded-l-lg focus:outline-none text-sm"
+                disabled={chatLoading || flashcardsLoading}
               />
               <button
                 type="submit"
-                disabled={chatLoading}
-                className={`bg-purple-600 text-white py-2 px-4 rounded-r-lg hover:bg-purple-700 hover-scale ${
-                  chatLoading ? 'opacity-50 cursor-not-allowed' : ''
+                disabled={chatLoading || flashcardsLoading}
+                className={`bg-purple-600 text-white py-2 px-4 rounded-r-lg hover:bg-purple-700 hover-scale text-sm ${
+                  chatLoading || flashcardsLoading ? 'opacity-50 cursor-not-allowed' : ''
                 }`}
               >
                 Send
