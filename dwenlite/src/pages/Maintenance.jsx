@@ -26,9 +26,9 @@ const Maintenance = () => {
             />
           </svg>
         </div>
-        <h1 className="text-4xl md:text-5xl font-bold mb-4">System Maintenance</h1>
+        <h1 className="text-4xl md:text-5xl font-bold mb-4">Weekly Maintenance Ongoing</h1>
         <p className="text-gray-400 text-lg md:text-xl mb-6">
-          We're performing a special system upgrade. Services will resume at Midnight.
+          We'll be back soon! Maintenance is scheduled every Saturday from 12:00 PM to 3:00 PM.
         </p>
       </div>
       <style>
