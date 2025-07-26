@@ -109,8 +109,8 @@ function Dashboard() {
         setGCoins(userSnap.data().gCoins || 0);
       } else {
         // Initialize user with default G_COINS
-        await setDoc(userRef, { gCoins: 5 });
-        setGCoins(5);
+        await setDoc(userRef, { gCoins: 30 });
+        setGCoins(30);
       }
     } catch (err) {
       console.error('Fetch user G_COINS error:', err);

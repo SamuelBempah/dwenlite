@@ -47,9 +47,9 @@ function Notes() {
       if (userSnap.exists()) {
         setGCoins(userSnap.data().gCoins || 0);
       } else {
-        // Initialize user with 5 G_COINS
-        await setDoc(userRef, { gCoins: 5 });
-        setGCoins(5);
+        // Initialize user with 30 G_COINS
+        await setDoc(userRef, { gCoins: 30 });
+        setGCoins(30);
       }
     } catch (err) {
       console.error('Fetch user G_COINS error:', err);
