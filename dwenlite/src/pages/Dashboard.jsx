@@ -402,24 +402,6 @@ function Dashboard() {
         `}
       </style>
 
-      {/* Ad Notice Pop-up */}
-        {showAdNotice && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 px-4">
-            <div className="bg-gray-800 p-6 rounded-lg w-full max-w-md ad-notice-enter">
-          <h3 className="text-lg md:text-xl font-semibold mb-3 text-purple-400">G_COINS Now Required</h3>
-          <p className="text-gray-300 text-sm md:text-base mb-4">
-            All dvanced features now require G_COINS. You can buy G_COINS here: <a href="/buy-gcoins" className="text-purple-400 underline">Buy G_COINS</a> or use your free G_COINS as a start.
-          </p>
-          <button
-            onClick={handleCloseAdNotice}
-            className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base w-full"
-          >
-            Understood
-          </button>
-            </div>
-          </div>
-        )}
-
         {/* Mobile Sidebar Toggle Button */}
       <button
         onClick={toggleSidebar}
