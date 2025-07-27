@@ -20,6 +20,7 @@ import DwenLiteDownload from './pages/DwenLiteDownload';
 import Maintenance from './pages/Maintenance';
 import ExamsPreparation from './pages/ExamsPreparation';
 import BuyCoins from './pages/BuyCoins';
+import DwenliteHelpdesk from './pages/DwenliteHelpdesk';
 
 const isMaintenanceWindow = () => {
   const now = new Date();
@@ -72,6 +73,7 @@ function App() {
           <Route path="/reset-password" element={<MaintenanceRoute component={ResetPassword} />} />
           <Route path="/support" element={<MaintenanceRoute component={Support} />} />
           <Route path="/buy-coins" element={<MaintenanceRoute component={BuyCoins} />} />
+          <Route path="/dwenlite-helpdesk" element={<MaintenanceRoute component={DwenliteHelpdesk} />} />
           <Route path="/exams-preparation" element={<MaintenanceRoute component={ExamsPreparation} />} />
           <Route path="/maintenance" element={<Maintenance />} />
           <Route path="*" element={isMaintenanceWindow() ? <Maintenance /> : <NotFound />} />
