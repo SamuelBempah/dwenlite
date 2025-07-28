@@ -28,7 +28,7 @@ function Support() {
     notes: 'Dwenlite generates concise study notes from your uploaded files. Select a folder, click "Generate Notes" in the notes section, and the AI will create a summary based on your latest document, audio, or video. Is that all?',
     quizzes: 'To generate quizzes, select a folder and go to the quizzes section. Click "Generate Quiz" to create interactive questions from your uploaded study materials. Is that all?',
     flashcards: 'Dwenlite can create flashcards for quick review. In a folder, navigate to the flashcards section and click "Generate Flashcards" to produce study cards from your uploaded content. Is that all?',
-    agent: 'An agent will join your chat shortly. Please wait.',
+    agent: 'Your case has been forwarded to a human agent. Please wait. Note: Human agents are available Monday to Friday, 9am–8pm. Outside these hours, responses may be delayed, but our AI support is available 24/7.',
   };
 
   useEffect(() => {
