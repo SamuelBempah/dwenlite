@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp, deleteDoc, addDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp, deleteDoc, addDoc, getDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 
 function DwenliteHelpdesk() {
@@ -13,7 +13,10 @@ function DwenliteHelpdesk() {
   const [selectedChat, setSelectedChat] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
+  const [isAgentTyping, setIsAgentTyping] = useState(false);
+  const [isUserTyping, setIsUserTyping] = useState(false);
   const chatDisplayRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
 
   const handlePasscodeSubmit = () => {
     if (passcode === '10203339') {
@@ -59,8 +62,12 @@ function DwenliteHelpdesk() {
           chatId: doc.id,
           ...doc.data(),
         }));
-        setChatHistory(historyList);
-        console.log('Chat history fetched:', historyList);
+        // Deduplicate by chatId
+        const uniqueHistory = Array.from(
+          new Map(historyList.map(chat => [chat.chatId, chat])).values()
+        );
+        setChatHistory(uniqueHistory);
+        console.log('Chat history fetched (deduplicated):', uniqueHistory);
       }, (error) => {
         console.error('Error fetching chat history:', error.code, error.message);
         toast.error(`Failed to load chat history: ${error.message}`);
@@ -73,15 +80,23 @@ function DwenliteHelpdesk() {
           ...acc,
           [doc.id]: doc.data().rating,
         }), {});
+        console.log('Ratings fetched:', ratings);
         setChats(prev => prev.map(chat => ({
           ...chat,
           rating: ratings[chat.chatId] || null,
         })));
-        setChatHistory(prev => prev.map(chat => ({
-          ...chat,
-          rating: ratings[chat.chatId] || null,
-        })));
-        console.log('Ratings fetched:', ratings);
+        setChatHistory(prev => {
+          const updatedHistory = prev.map(chat => ({
+            ...chat,
+            rating: ratings[chat.chatId] || null,
+          }));
+          // Deduplicate by chatId
+          const uniqueHistory = Array.from(
+            new Map(updatedHistory.map(chat => [chat.chatId, chat])).values()
+          );
+          console.log('Updated chat history with ratings (deduplicated):', uniqueHistory);
+          return uniqueHistory;
+        });
       }, (error) => {
         console.error('Error fetching ratings:', error.code, error.message);
         toast.error(`Failed to load ratings: ${error.message}`);
@@ -100,7 +115,9 @@ function DwenliteHelpdesk() {
       const chatDocRef = doc(db, 'chats', selectedChat.chatId);
       const unsubscribeMessages = onSnapshot(chatDocRef, (doc) => {
         if (doc.exists()) {
-          setMessages(doc.data().messages || []);
+          const data = doc.data();
+          setMessages(data.messages || []);
+          setIsUserTyping(data.isUserTyping || false);
           scrollToBottom();
         } else {
           console.error('Selected chat not found:', selectedChat.chatId);
@@ -146,6 +163,41 @@ function DwenliteHelpdesk() {
     }
   };
 
+  const handleTyping = async (value) => {
+    setInput(value);
+    if (!selectedChat) return;
+
+    const wasTyping = isAgentTyping;
+    setIsAgentTyping(!!value.trim());
+
+    if (value.trim() && !wasTyping) {
+      try {
+        await updateDoc(doc(db, 'chats', selectedChat.chatId), {
+          isAgentTyping: true,
+        });
+      } catch (error) {
+        console.error('Error updating agent typing status:', error.code, error.message);
+      }
+    }
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    typingTimeoutRef.current = setTimeout(async () => {
+      if (isAgentTyping) {
+        setIsAgentTyping(false);
+        try {
+          await updateDoc(doc(db, 'chats', selectedChat.chatId), {
+            isAgentTyping: false,
+          });
+        } catch (error) {
+          console.error('Error clearing agent typing status:', error.code, error.message);
+        }
+      }
+    }, 2000);
+  };
+
   const handleSendMessage = async () => {
     if (!input.trim() || !selectedChat) return;
     const agentMessage = {
@@ -156,10 +208,12 @@ function DwenliteHelpdesk() {
     };
     setMessages(prev => [...prev, agentMessage]);
     setInput('');
+    setIsAgentTyping(false);
     try {
       await updateDoc(doc(db, 'chats', selectedChat.chatId), {
         messages: [...messages, agentMessage],
         lastMessageTime: serverTimestamp(),
+        isAgentTyping: false,
       });
       console.log('Message sent:', agentMessage);
     } catch (error) {
@@ -175,12 +229,16 @@ function DwenliteHelpdesk() {
       return;
     }
     try {
-      // Move chat to history before closing
-      await addDoc(collection(db, 'chat_history'), {
-        ...selectedChat,
-        status: 'closed',
-        closedAt: serverTimestamp(),
-      });
+      // Check if chat already exists in history to avoid duplication
+      const historyDocRef = doc(db, 'chat_history', selectedChat.chatId);
+      const historyDoc = await getDoc(historyDocRef);
+      if (!historyDoc.exists()) {
+        await addDoc(collection(db, 'chat_history'), {
+          ...selectedChat,
+          status: 'closed',
+          closedAt: serverTimestamp(),
+        });
+      }
 
       await updateDoc(doc(db, 'chats', selectedChat.chatId), {
         status: 'closed',
@@ -194,10 +252,13 @@ function DwenliteHelpdesk() {
           },
         ],
         lastMessageTime: serverTimestamp(),
+        isAgentTyping: false,
+        isUserTyping: false,
       });
       setChats(prev => prev.filter(chat => chat.chatId !== selectedChat.chatId));
       setSelectedChat(null);
       setMessages([]);
+      setIsUserTyping(false);
       console.log('Chat closed and moved to history:', selectedChat.chatId);
       toast.success('Chat closed successfully.');
     } catch (err) {
@@ -259,7 +320,7 @@ function DwenliteHelpdesk() {
                 <p><strong>User:</strong> {chat.username || 'Unknown'}</p>
                 <p><small>Last Message: {chat.lastMessageTime?.toDate().toLocaleString() || 'N/A'}</small></p>
                 {chat.needsAgent && <p><strong>Status:</strong> Awaiting Agent</p>}
-                {chat.rating && <p><strong>Rating:</strong> {chat.rating} ★</p>}
+                {chat.rating && <p><strong>Rating:</strong> {chat.rating}/5</p>}
               </div>
             ))}
             <h2 className="text-xl font-semibold mb-4 mt-8">Chat History</h2>
@@ -274,7 +335,7 @@ function DwenliteHelpdesk() {
                   <p>
                     <small>
                       Closed: {chat.closedAt?.toDate().toLocaleString() || 'N/A'}
-                      {chat.rating && `, Rating: ${chat.rating} ★`}
+                      {typeof chat.rating === 'number' && `, ${chat.rating}/5`}
                     </small>
                   </p>
                 </div>
@@ -308,12 +369,28 @@ function DwenliteHelpdesk() {
                       <small className="block text-xs opacity-75">{msg.timestamp || 'N/A'}</small>
                     </div>
                   ))}
+                  {isAgentTyping && (
+                    <div className="flex items-center px-3 py-2 text-gray-400 text-sm">
+                      <span>Agent is typing</span>
+                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink"></span>
+                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-200"></span>
+                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-400"></span>
+                    </div>
+                  )}
+                  {isUserTyping && (
+                    <div className="flex items-center px-3 py-2 text-gray-400 text-sm">
+                      <span>User is typing</span>
+                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink"></span>
+                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-200"></span>
+                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-400"></span>
+                    </div>
+                  )}
                 </div>
                 <div className="flex gap-2 mt-4">
                   <input
                     type="text"
                     value={input}
-                    onChange={(e) => setInput(e.target.value)}
+                    onChange={(e) => handleTyping(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
                     placeholder="Type your message..."
                     className="flex-1 p-2 rounded-lg bg-gray-700 text-white text-sm border border-gray-600"

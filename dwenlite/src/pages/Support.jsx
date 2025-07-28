@@ -19,6 +19,7 @@ function Support() {
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
   const chatDisplayRef = useRef(null);
   const audioRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
 
   // Predefined responses for Dwenlite features
   const predefinedResponses = {
@@ -42,14 +43,12 @@ function Support() {
         );
         const querySnapshot = await getDocs(chatsQuery);
         if (!querySnapshot.empty) {
-          // Load the first active chat
           const chatDoc = querySnapshot.docs[0];
           setChatId(chatDoc.id);
           setMessages(chatDoc.data().messages || []);
           setAgentJoined(!!chatDoc.data().agentId);
           setIsConversationEnded(chatDoc.data().status === 'closed');
         } else {
-          // Create new chat if none exists
           const chatDoc = await addDoc(collection(db, 'chats'), {
             userId: user.uid,
             username: user.displayName || 'User',
@@ -62,6 +61,8 @@ function Support() {
             status: 'active',
             needsAgent: false,
             lastMessageTime: serverTimestamp(),
+            isUserTyping: false,
+            isAgentTyping: false,
           });
           setChatId(chatDoc.id);
           setMessages([{
@@ -89,6 +90,7 @@ function Support() {
           setMessages(data.messages || []);
           setAgentJoined(!!data.agentId);
           setIsConversationEnded(data.status === 'closed');
+          setIsTyping(data.isAgentTyping || false);
           if (data.status === 'closed' && !showRating) {
             setShowRating(true);
           }
@@ -104,7 +106,6 @@ function Support() {
     }
   }, [chatId, showRating]);
 
-  // Auto-open chat after 10 seconds
   useEffect(() => {
     const timer = setTimeout(() => {
       if (!isChatOpen) {
@@ -116,14 +117,12 @@ function Support() {
     return () => clearTimeout(timer);
   }, [isChatOpen]);
 
-  // Scroll to bottom of chat
   const scrollToBottom = () => {
     if (chatDisplayRef.current) {
       chatDisplayRef.current.scrollTop = chatDisplayRef.current.scrollHeight;
     }
   };
 
-  // Play alert sound
   const playAlertSound = () => {
     if (audioRef.current) {
       audioRef.current.currentTime = 0;
@@ -151,11 +150,46 @@ function Support() {
         }],
         status: 'closed',
         lastMessageTime: serverTimestamp(),
+        isUserTyping: false,
+        isAgentTyping: false,
       });
       setIsConversationEnded(true);
       playAlertSound();
       scrollToBottom();
     }, 3000);
+  };
+
+  const handleTyping = async (value) => {
+    setInput(value);
+    if (!chatId || isConversationEnded) return;
+
+    const isTypingNow = !!value.trim();
+
+    if (isTypingNow) {
+      try {
+        await updateDoc(doc(db, 'chats', chatId), {
+          isUserTyping: true,
+        });
+      } catch (error) {
+        console.error('Error updating user typing status:', error);
+      }
+    }
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    typingTimeoutRef.current = setTimeout(async () => {
+      if (isTypingNow) {
+        try {
+          await updateDoc(doc(db, 'chats', chatId), {
+            isUserTyping: false,
+          });
+        } catch (error) {
+          console.error('Error clearing user typing status:', error);
+        }
+      }
+    }, 2000);
   };
 
   const handleSendMessage = async () => {
@@ -173,24 +207,22 @@ function Support() {
     await updateDoc(doc(db, 'chats', chatId), {
       messages: [...messages, userMessage],
       lastMessageTime: serverTimestamp(),
+      isUserTyping: false,
     }).catch(error => {
       console.error('Error updating chat:', error);
       toast.error('Failed to send message.');
     });
     scrollToBottom();
 
-    // Check if user wants to end conversation
     if (input.toLowerCase().includes("that's all") && !agentJoined) {
       endConversation('Thank you for using Dwenlite Support! Goodbye.');
       return;
     }
 
-    // Delay before showing typing indicator
     if (!agentJoined) {
       setTimeout(async () => {
         setIsTyping(true);
 
-        // Check for predefined responses
         const lowercaseInput = input.toLowerCase();
         let responseText = null;
 
@@ -227,6 +259,7 @@ function Support() {
             updateDoc(doc(db, 'chats', chatId), {
               messages: [...messages, userMessage, botMessage],
               lastMessageTime: serverTimestamp(),
+              isUserTyping: false,
             }).catch(error => {
               console.error('Error saving bot message:', error);
               toast.error('Failed to save response.');
@@ -238,7 +271,6 @@ function Support() {
           return;
         }
 
-        // DeepSeek API call for other queries
         try {
           const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
           if (!apiKey) {
@@ -285,6 +317,7 @@ function Support() {
             updateDoc(doc(db, 'chats', chatId), {
               messages: [...messages, userMessage, botMessage],
               lastMessageTime: serverTimestamp(),
+              isUserTyping: false,
             }).catch(error => {
               console.error('Error saving bot message:', error);
               toast.error('Failed to save response.');
@@ -305,6 +338,7 @@ function Support() {
             updateDoc(doc(db, 'chats', chatId), {
               messages: [...messages, userMessage, errorMessage],
               lastMessageTime: serverTimestamp(),
+              isUserTyping: false,
             }).catch(error => {
               console.error('Error saving error message:', error);
               toast.error('Failed to save response.');
@@ -327,7 +361,6 @@ function Support() {
         rating,
         timestamp: serverTimestamp(),
       });
-      // Move chat to history
       await addDoc(collection(db, 'chat_history'), {
         userId: currentUser.uid,
         username: currentUser.displayName || 'User',
@@ -351,6 +384,8 @@ function Support() {
           timestamp: new Date().toLocaleString(),
         }],
         lastMessageTime: serverTimestamp(),
+        isUserTyping: false,
+        isAgentTyping: false,
       });
       scrollToBottom();
     } catch (err) {
@@ -373,6 +408,8 @@ function Support() {
         status: 'active',
         needsAgent: false,
         lastMessageTime: serverTimestamp(),
+        isUserTyping: false,
+        isAgentTyping: false,
       });
       setChatId(chatDoc.id);
       setMessages([{
@@ -409,7 +446,6 @@ function Support() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col md:flex-row">
-      {/* Sidebar */}
       <div className="w-full md:w-64 bg-gray-800 p-6 flex flex-col justify-between">
         <div>
           <div className="flex items-center mb-8">
@@ -435,7 +471,6 @@ function Support() {
         </button>
       </div>
 
-      {/* Main Content */}
       <div className="flex-1 p-8">
         <h1 className="text-3xl font-bold mb-8">Support</h1>
         <div className="bg-gray-800 p-6 rounded-lg">
@@ -444,7 +479,6 @@ function Support() {
         </div>
       </div>
 
-      {/* Chat Bubble */}
       <button
         onClick={() => {
           setIsChatOpen(!isChatOpen);
@@ -461,7 +495,6 @@ function Support() {
         <span className="absolute top-[-40px] opacity-0 bg-orange-400 text-white text-xs px-2 py-1 rounded-lg transition-opacity duration-500 pointer-events-none">Chat</span>
       </button>
 
-      {/* Chat Container */}
       {isChatOpen && (
         <div className="fixed bottom-20 right-5 max-w-sm w-full bg-gray-800 rounded-lg shadow-lg overflow-hidden z-50">
           <div className="flex flex-col h-[400px]">
@@ -487,15 +520,23 @@ function Support() {
                   <small className="block text-xs opacity-75">{msg.timestamp}</small>
                 </div>
               ))}
+              {(isTyping && agentJoined) && (
+                <div className="flex items-center px-3 py-2 text-gray-400 text-sm">
+                  <span>Agent is typing</span>
+                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink"></span>
+                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-200"></span>
+                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-400"></span>
+                </div>
+              )}
+              {(isTyping && !agentJoined) && (
+                <div className="flex items-center px-3 py-2 text-gray-400 text-sm">
+                  <span>DwenLite Support AI is typing</span>
+                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink"></span>
+                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-200"></span>
+                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-400"></span>
+                </div>
+              )}
             </div>
-            {isTyping && (
-              <div className="flex items-center px-3 py-2 text-gray-400 text-sm">
-                <span>{agentJoined ? 'Agent is typing' : 'DwenLite Support AI is typing'}</span>
-                <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink"></span>
-                <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-200"></span>
-                <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-400"></span>
-              </div>
-            )}
             {showRating && !ratingSubmitted && (
               <div className="px-3 py-2 border-t border-gray-700">
                 <div className="text-white text-sm mb-2">Rate your experience:</div>
@@ -535,7 +576,7 @@ function Support() {
                   <input
                     type="text"
                     value={input}
-                    onChange={(e) => setInput(e.target.value)}
+                    onChange={(e) => handleTyping(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
                     placeholder="Type your message..."
                     className={`flex-1 p-2 rounded-lg bg-gray-700 text-white text-sm border border-gray-600 ${
@@ -565,7 +606,6 @@ function Support() {
         </div>
       )}
 
-      {/* Audio for alert sound */}
       <audio ref={audioRef} preload="auto" src="https://paysub.great-site.net/ping.mp3" />
     </div>
   );
