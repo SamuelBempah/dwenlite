@@ -100,17 +100,32 @@ function Dashboard() {
     return unsubscribe;
   }, [navigate]);
 
-  // Fetch user G_COINS
+  // Fetch user G_COINS and handle daily coin increase
   const fetchUserGCoins = async (userId) => {
     try {
       const userRef = doc(db, 'users', userId);
       const userSnap = await getDoc(userRef);
-      if (userSnap.exists()) {
-        setGCoins(userSnap.data().gCoins || 0);
+      let userData = userSnap.exists() ? userSnap.data() : { gCoins: 30, lastCoinDrop: null };
+
+      // Check if it's a new day for coin drop
+      const today = new Date().toDateString();
+      const lastCoinDrop = userData.lastCoinDrop ? new Date(userData.lastCoinDrop).toDateString() : null;
+
+      if (!lastCoinDrop || lastCoinDrop !== today) {
+        // Add 3 coins, cap at 30
+        const newGCoins = Math.min((userData.gCoins || 30) + 3, 30);
+        await setDoc(userRef, { 
+          gCoins: newGCoins, 
+          lastCoinDrop: new Date().toISOString() 
+        }, { merge: true });
+        setGCoins(newGCoins);
+        if (userData.gCoins !== newGCoins) {
+          setGCoinsAnimating(true);
+          setTimeout(() => setGCoinsAnimating(false), 1000);
+          toast.success('You received 3 G_COINS for today!');
+        }
       } else {
-        // Initialize user with default G_COINS
-        await setDoc(userRef, { gCoins: 30 });
-        setGCoins(30);
+        setGCoins(userData.gCoins || 30);
       }
     } catch (err) {
       console.error('Fetch user G_COINS error:', err);
@@ -402,7 +417,7 @@ function Dashboard() {
         `}
       </style>
 
-        {/* Mobile Sidebar Toggle Button */}
+      {/* Mobile Sidebar Toggle Button */}
       <button
         onClick={toggleSidebar}
         className="md:hidden p-4 bg-gray-800 text-white flex items-center justify-between"
