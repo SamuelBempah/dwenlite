@@ -20,6 +20,7 @@ function Support() {
   const chatDisplayRef = useRef(null);
   const audioRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+  const prevMessagesRef = useRef([]); // Added to track previous messages
 
   // Predefined responses for Dwenlite features
   const predefinedResponses = {
@@ -35,7 +36,6 @@ function Support() {
     const unsubscribeAuth = auth.onAuthStateChanged(async user => {
       if (user) {
         setCurrentUser(user);
-        // Check for existing active chat
         const chatsQuery = query(
           collection(db, 'chats'),
           where('userId', '==', user.uid),
@@ -87,7 +87,20 @@ function Support() {
       const unsubscribeChat = onSnapshot(chatDocRef, (doc) => {
         if (doc.exists()) {
           const data = doc.data();
-          setMessages(data.messages || []);
+          const newMessages = data.messages || [];
+
+          // Check for new agent messages
+          const prevMessages = prevMessagesRef.current;
+          if (newMessages.length > prevMessages.length) {
+            const latestMessage = newMessages[newMessages.length - 1];
+            if (latestMessage.sender === 'agent') {
+              playAlertSound();
+              scrollToBottom();
+            }
+          }
+          prevMessagesRef.current = newMessages; // Update previous messages
+
+          setMessages(newMessages);
           setAgentJoined(!!data.agentId);
           setIsConversationEnded(data.status === 'closed');
           setIsTyping(data.isAgentTyping || false);
@@ -445,40 +458,45 @@ function Support() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col md:flex-row">
-      <div className="w-full md:w-64 bg-gray-800 p-6 flex flex-col justify-between">
+    <div className="min-h-screen bg-gray-900 text-white flex flex-col">
+      {/* Sidebar */}
+      <div className="w-full bg-gray-800 p-4 sm:p-6 flex flex-col justify-between">
         <div>
-          <div className="flex items-center mb-8">
-            <div className="w-10 h-10 bg-purple-600 rounded-full flex items-center justify-center text-xl">
+          <div className="flex items-center mb-6 sm:mb-8">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 bg-purple-600 rounded-full flex items-center justify-center text-lg sm:text-xl">
               {currentUser.displayName?.charAt(0) || 'U'}
             </div>
-            <span className="ml-3 text-lg font-semibold">{currentUser.displayName || 'User'}</span>
+            <span className="ml-3 text-base sm:text-lg font-semibold">{currentUser.displayName || 'User'}</span>
           </div>
           <nav>
-            <Link to="/dashboard" className="flex items-center mb-4 text-purple-400 text-base">
+            <Link to="/dashboard" className="flex items-center mb-4 text-purple-400 text-sm sm:text-base">
               <span className="mr-2">🏠</span> Dashboard
             </Link>
-            <Link to="/support" className="flex items-center mb-4 text-white bg-gray-700 p-2 rounded-lg">
+            <Link to="/support" className="flex items-center mb-4 text-white bg-gray-700 p-2 rounded-lg text-sm sm:text-base">
               <span className="mr-2">💬</span> Support
             </Link>
           </nav>
         </div>
         <button
           onClick={() => auth.signOut().then(() => navigate('/login'))}
-          className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-base"
+          className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm sm:text-base"
         >
           Logout
         </button>
       </div>
 
-      <div className="flex-1 p-8">
-        <h1 className="text-3xl font-bold mb-8">Support</h1>
-        <div className="bg-gray-800 p-6 rounded-lg">
-          <h2 className="text-xl font-semibold mb-4">Live Chat Support</h2>
-          <p className="text-gray-400 mb-4">Click the chat button in the bottom-right corner to start a conversation with our AI-powered support bot or request a human agent by typing "agent".</p>
+      {/* Main Content */}
+      <div className="flex-1 p-4 sm:p-8">
+        <h1 className="text-2xl sm:text-3xl font-bold mb-6 sm:mb-8">Support</h1>
+        <div className="bg-gray-800 p-4 sm:p-6 rounded-lg">
+          <h2 className="text-lg sm:text-xl font-semibold mb-4">Live Chat Support</h2>
+          <p className="text-gray-400 mb-4 text-sm sm:text-base">
+            Tap the chat button in the bottom-right corner to start a conversation with our AI-powered support bot or request a human agent by typing "agent".
+          </p>
         </div>
       </div>
 
+      {/* Chat Button */}
       <button
         onClick={() => {
           setIsChatOpen(!isChatOpen);
@@ -487,28 +505,33 @@ function Support() {
             setTimeout(scrollToBottom, 0);
           }
         }}
-        className="fixed bottom-5 right-5 w-14 h-14 bg-gradient-to-r from-yellow-400 to-red-500 rounded-full flex items-center justify-center shadow-lg hover:bg-gradient-to-l transition-all duration-1000 z-50"
+        className="fixed bottom-4 right-4 w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-r from-yellow-400 to-red-500 rounded-full flex items-center justify-center shadow-lg hover:bg-gradient-to-l transition-all duration-1000 z-50"
       >
-        <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+        <svg className="w-5 h-5 sm:w-6 sm:h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
           <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/>
         </svg>
-        <span className="absolute top-[-40px] opacity-0 bg-orange-400 text-white text-xs px-2 py-1 rounded-lg transition-opacity duration-500 pointer-events-none">Chat</span>
+        <span className="absolute top-[-40px] opacity-0 bg-orange-400 text-white text-xs px-2 py-1 rounded-lg transition-opacity duration-500 pointer-events-none">
+          Chat
+        </span>
       </button>
 
+      {/* Chat Window */}
       {isChatOpen && (
-        <div className="fixed bottom-20 right-5 max-w-sm w-full bg-gray-800 rounded-lg shadow-lg overflow-hidden z-50">
-          <div className="flex flex-col h-[400px]">
-            <div className="px-4 py-3 border-b border-gray-700">
+        <div className="fixed bottom-16 right-2 sm:right-5 w-[calc(100%-1rem)] sm:max-w-sm bg-gray-800 rounded-lg shadow-lg overflow-hidden z-50">
+          <div className="flex flex-col h-[70vh] sm:h-[400px]">
+            <div className="px-3 sm:px-4 py-2 sm:py-3 border-b border-gray-700">
               <div className="flex justify-between items-center">
-                <h2 className="text-lg font-semibold text-white">Dwenlite Support</h2>
-                <div className="bg-green-500 text-white text-xs px-2 py-1 rounded-full">{agentJoined ? 'Agent Online' : 'Online'}</div>
+                <h2 className="text-base sm:text-lg font-semibold text-white">Dwenlite Support</h2>
+                <div className="bg-green-500 text-white text-xs px-2 py-1 rounded-full">
+                  {agentJoined ? 'Agent Online' : 'Online'}
+                </div>
               </div>
             </div>
             <div ref={chatDisplayRef} className="flex-1 p-3 overflow-y-auto flex flex-col space-y-2">
               {messages.map(msg => (
                 <div
                   key={msg.id}
-                  className={`max-w-xs rounded-lg px-3 py-1.5 text-sm ${
+                  className={`max-w-[80%] rounded-lg px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm ${
                     msg.sender === 'user'
                       ? 'self-end bg-purple-600 text-white'
                       : msg.sender === 'agent'
@@ -521,31 +544,31 @@ function Support() {
                 </div>
               ))}
               {(isTyping && agentJoined) && (
-                <div className="flex items-center px-3 py-2 text-gray-400 text-sm">
+                <div className="flex items-center px-2 sm:px-3 py-1 sm:py-2 text-gray-400 text-xs">
                   <span>Agent is typing</span>
-                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink"></span>
-                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-200"></span>
-                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-400"></span>
+                  <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-gray-400 rounded-full mx-1 animate-blink"></span>
+                  <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-200"></span>
+                  <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-400"></span>
                 </div>
               )}
               {(isTyping && !agentJoined) && (
-                <div className="flex items-center px-3 py-2 text-gray-400 text-sm">
+                <div className="flex items-center px-2 sm:px-3 py-1 sm:py-2 text-gray-400 text-xs">
                   <span>DwenLite Support AI is typing</span>
-                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink"></span>
-                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-200"></span>
-                  <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-400"></span>
+                  <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-gray-400 rounded-full mx-1 animate-blink"></span>
+                  <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-200"></span>
+                  <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-400"></span>
                 </div>
               )}
             </div>
             {showRating && !ratingSubmitted && (
-              <div className="px-3 py-2 border-t border-gray-700">
-                <div className="text-white text-sm mb-2">Rate your experience:</div>
+              <div className="px-2 sm:px-3 py-2 border-t border-gray-700">
+                <div className="text-white text-xs sm:text-sm mb-2">Rate your experience:</div>
                 <div className="flex gap-1">
                   {[1, 2, 3, 4, 5].map(star => (
                     <button
                       key={star}
                       onClick={() => setRating(star)}
-                      className={`text-2xl ${rating >= star ? 'text-yellow-400' : 'text-gray-400'}`}
+                      className={`text-xl sm:text-2xl ${rating >= star ? 'text-yellow-400' : 'text-gray-400'}`}
                     >
                       ★
                     </button>
@@ -553,7 +576,7 @@ function Support() {
                 </div>
                 <button
                   onClick={handleRatingSubmit}
-                  className="bg-purple-600 text-white py-1 px-3 rounded-lg hover:bg-purple-700 text-sm mt-2"
+                  className="bg-purple-600 text-white py-1 px-3 rounded-lg hover:bg-purple-700 text-xs sm:text-sm mt-2"
                   disabled={rating === 0}
                 >
                   Submit Rating
@@ -561,17 +584,17 @@ function Support() {
               </div>
             )}
             {ratingSubmitted && (
-              <div className="px-3 py-2 border-t border-gray-700">
+              <div className="px-2 sm:px-3 py-2 border-t border-gray-700">
                 <button
                   onClick={handleStartNewChat}
-                  className="bg-purple-600 text-white py-1 px-3 rounded-lg hover:bg-purple-700 text-sm"
+                  className="bg-purple-600 text-white py-1 px-3 rounded-lg hover:bg-purple-700 text-xs sm:text-sm"
                 >
                   Start New Chat
                 </button>
               </div>
             )}
             {!showRating && !ratingSubmitted && (
-              <div className="px-3 py-2 border-t border-gray-700">
+              <div className="px-2 sm:px-3 py-2 border-t border-gray-700">
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -579,14 +602,14 @@ function Support() {
                     onChange={(e) => handleTyping(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
                     placeholder="Type your message..."
-                    className={`flex-1 p-2 rounded-lg bg-gray-700 text-white text-sm border border-gray-600 ${
+                    className={`flex-1 p-2 rounded-lg bg-gray-700 text-white text-xs sm:text-sm border border-gray-600 ${
                       isConversationEnded ? 'opacity-50 cursor-not-allowed' : ''
                     }`}
                     disabled={isConversationEnded}
                   />
                   <button
                     onClick={handleSendMessage}
-                    className={`bg-purple-600 text-white py-1.5 px-3 rounded-lg hover:bg-purple-700 text-sm ${
+                    className={`bg-purple-600 text-white py-1.5 px-3 rounded-lg hover:bg-purple-700 text-xs sm:text-sm ${
                       isConversationEnded ? 'opacity-50 cursor-not-allowed' : ''
                     }`}
                     disabled={isConversationEnded}
@@ -597,7 +620,7 @@ function Support() {
                 <div className="text-gray-500 text-xs mt-2 text-center">Made by Samuel Bempah</div>
                 {isConversationEnded && !showRating && (
                   <div className="text-gray-500 text-xs mt-2 text-center">
-                    The conversation has ended. No messages can be sent until page reload.
+                    The conversation has ended. Tap "Start New Chat" to begin a new session.
                   </div>
                 )}
               </div>
@@ -606,7 +629,7 @@ function Support() {
         </div>
       )}
 
-      <audio ref={audioRef} preload="auto" src="https://paysub.great-site.net/ping.mp3" />
+      <audio ref={audioRef} preload="auto" src="/ping.mp3" />
     </div>
   );
 }
