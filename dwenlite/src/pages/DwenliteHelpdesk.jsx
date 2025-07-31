@@ -13,8 +13,10 @@ function DwenliteHelpdesk() {
   const [selectedChat, setSelectedChat] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
+  const [rewrittenText, setRewrittenText] = useState('');
   const [isAgentTyping, setIsAgentTyping] = useState(false);
   const [isUserTyping, setIsUserTyping] = useState(false);
+  const [isRewriting, setIsRewriting] = useState(false);
   const chatDisplayRef = useRef(null);
   const typingTimeoutRef = useRef(null);
 
@@ -23,6 +25,70 @@ function DwenliteHelpdesk() {
       setIsAuthenticated(true);
     } else {
       toast.error('Invalid passcode.');
+    }
+  };
+
+  // Function to rewrite text using DeepSeek API
+  const rewriteText = async (text) => {
+    const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
+    if (!apiKey) {
+      console.error('DeepSeek API key is missing or undefined.');
+      toast.error('API key is missing. Please check your environment configuration.');
+      return null;
+    }
+
+    try {
+      const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages: [
+            {
+              role: 'system',
+              content: 'You are a professional customer support agent. Rewrite the following text to be concise, polite, clear, and professional, without adding introductory or concluding sentences.',
+            },
+            {
+              role: 'user',
+              content: text,
+            },
+          ],
+          max_tokens: 200,
+          temperature: 0.7,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(`HTTP error! status: ${response.status}, message: ${errorData.message || 'Unknown error'}`);
+      }
+
+      const data = await response.json();
+      if (data.choices && data.choices.length > 0 && data.choices[0].message.content) {
+        return data.choices[0].message.content.trim();
+      } else {
+        throw new Error('No valid response from DeepSeek API');
+      }
+    } catch (error) {
+      console.error('Error rewriting text with DeepSeek API:', error.message);
+      toast.error(`Failed to rewrite message: ${error.message}`);
+      return null;
+    }
+  };
+
+  const handleRewriteText = async () => {
+    if (!input.trim()) {
+      toast.error('Please enter a message to rewrite.');
+      return;
+    }
+    setIsRewriting(true);
+    const rewritten = await rewriteText(input.trim());
+    setIsRewriting(false);
+    if (rewritten) {
+      setRewrittenText(rewritten);
     }
   };
 
@@ -48,7 +114,7 @@ function DwenliteHelpdesk() {
         setChats(chatList);
         console.log('Active chats fetched:', chatList);
         if (chatList.length === 0) {
-          toast('No active chats found.', { icon: 'ℹ️' });
+          toast('No active chats available.', { icon: 'ℹ️' });
         }
       }, (error) => {
         console.error('Error fetching active chats:', error.code, error.message);
@@ -139,18 +205,28 @@ function DwenliteHelpdesk() {
   };
 
   const handleJoinChat = async (chat) => {
+    // Check if chat has an agent assigned
+    const chatDocRef = doc(db, 'chats', chat.chatId);
+    const chatDoc = await getDoc(chatDocRef);
+    if (!chatDoc.exists() || chatDoc.data().agentId) {
+      toast.error('This chat is already being handled by another agent.');
+      return;
+    }
+
     setSelectedChat(chat);
     setMessages(chat.messages || []);
+    setRewrittenText(''); // Clear rewritten text when joining a new chat
     scrollToBottom();
     try {
-      await updateDoc(doc(db, 'chats', chat.chatId), {
+      await updateDoc(chatDocRef, {
         agentId: auth.currentUser.uid,
+        needsAgent: false,
         messages: [
           ...(chat.messages || []),
           {
             id: Date.now(),
             sender: 'dwenlite',
-            content: 'An agent has joined the conversation.',
+            content: 'Agent has joined this conversation.',
             timestamp: new Date().toLocaleString(),
           },
         ],
@@ -160,6 +236,39 @@ function DwenliteHelpdesk() {
     } catch (err) {
       console.error('Error joining chat:', err.code, err.message);
       toast.error(`Failed to join chat: ${err.message}`);
+    }
+  };
+
+  const handleLeaveChat = async () => {
+    if (!selectedChat) {
+      toast.error('No chat selected.');
+      return;
+    }
+    try {
+      await updateDoc(doc(db, 'chats', selectedChat.chatId), {
+        agentId: null,
+        needsAgent: true,
+        messages: [
+          ...messages,
+          {
+            id: Date.now(),
+            sender: 'dwenlite',
+            content: 'Agent has forwarded this conversation to another Agent, please wait.',
+            timestamp: new Date().toLocaleString(),
+          },
+        ],
+        lastMessageTime: serverTimestamp(),
+        isAgentTyping: false,
+      });
+      setSelectedChat(null);
+      setMessages([]);
+      setIsUserTyping(false);
+      setRewrittenText('');
+      console.log('Left chat:', selectedChat.chatId);
+      toast.success('You have left the chat.');
+    } catch (err) {
+      console.error('Error leaving chat:', err.code, err.message);
+      toast.error(`Failed to leave chat: ${err.message}`);
     }
   };
 
@@ -200,14 +309,17 @@ function DwenliteHelpdesk() {
 
   const handleSendMessage = async () => {
     if (!input.trim() || !selectedChat) return;
+
+    const messageContent = rewrittenText || input.trim();
     const agentMessage = {
       id: Date.now(),
       sender: 'agent',
-      content: input.trim(),
+      content: messageContent,
       timestamp: new Date().toLocaleString(),
     };
     setMessages(prev => [...prev, agentMessage]);
     setInput('');
+    setRewrittenText('');
     setIsAgentTyping(false);
     try {
       await updateDoc(doc(db, 'chats', selectedChat.chatId), {
@@ -229,7 +341,6 @@ function DwenliteHelpdesk() {
       return;
     }
     try {
-      // Check if chat already exists in history to avoid duplication
       const historyDocRef = doc(db, 'chat_history', selectedChat.chatId);
       const historyDoc = await getDoc(historyDocRef);
       if (!historyDoc.exists()) {
@@ -242,6 +353,8 @@ function DwenliteHelpdesk() {
 
       await updateDoc(doc(db, 'chats', selectedChat.chatId), {
         status: 'closed',
+        agentId: null,
+        needsAgent: true,
         messages: [
           ...messages,
           {
@@ -259,6 +372,7 @@ function DwenliteHelpdesk() {
       setSelectedChat(null);
       setMessages([]);
       setIsUserTyping(false);
+      setRewrittenText('');
       console.log('Chat closed and moved to history:', selectedChat.chatId);
       toast.success('Chat closed successfully.');
     } catch (err) {
@@ -314,12 +428,15 @@ function DwenliteHelpdesk() {
             {chats.map(chat => (
               <div
                 key={chat.chatId}
-                className="p-4 bg-gray-700 rounded-lg mb-2 cursor-pointer hover:bg-gray-600"
-                onClick={() => handleJoinChat(chat)}
+                className={`p-4 bg-gray-700 rounded-lg mb-2 ${
+                  !chat.agentId ? 'cursor-pointer hover:bg-gray-600' : 'cursor-not-allowed opacity-50'
+                }`}
+                onClick={() => !chat.agentId && handleJoinChat(chat)}
               >
                 <p><strong>User:</strong> {chat.username || 'Unknown'}</p>
                 <p><small>Last Message: {chat.lastMessageTime?.toDate().toLocaleString() || 'N/A'}</small></p>
-                {chat.needsAgent && <p><strong>Status:</strong> Awaiting Agent</p>}
+                {chat.needsAgent && !chat.agentId && <p><strong>Status:</strong> Awaiting Agent</p>}
+                {!chat.needsAgent && chat.agentId && <p><strong>Status:</strong> Agent Assigned</p>}
                 {chat.rating && <p><strong>Rating:</strong> {chat.rating}/5</p>}
               </div>
             ))}
@@ -386,6 +503,17 @@ function DwenliteHelpdesk() {
                     </div>
                   )}
                 </div>
+                {rewrittenText && (
+                  <div className="mt-4 p-3 bg-gray-700 rounded-lg">
+                    <p className="text-sm"><strong>Rewritten Message Preview:</strong> {rewrittenText}</p>
+                    <button
+                      onClick={() => setRewrittenText('')}
+                      className="mt-2 bg-gray-600 text-white py-1 px-2 rounded-lg hover:bg-gray-500 text-sm"
+                    >
+                      Clear Preview
+                    </button>
+                  </div>
+                )}
                 <div className="flex gap-2 mt-4">
                   <input
                     type="text"
@@ -396,10 +524,25 @@ function DwenliteHelpdesk() {
                     className="flex-1 p-2 rounded-lg bg-gray-700 text-white text-sm border border-gray-600"
                   />
                   <button
+                    onClick={handleRewriteText}
+                    disabled={isRewriting}
+                    className={`bg-yellow-600 text-white py-1.5 px-3 rounded-lg text-sm ${
+                      isRewriting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-700'
+                    }`}
+                  >
+                    {isRewriting ? 'Rewriting...' : 'Rewrite Text'}
+                  </button>
+                  <button
                     onClick={handleSendMessage}
                     className="bg-purple-600 text-white py-1.5 px-3 rounded-lg hover:bg-purple-700 text-sm"
                   >
                     Send
+                  </button>
+                  <button
+                    onClick={handleLeaveChat}
+                    className="bg-orange-600 text-white py-1.5 px-3 rounded-lg hover:bg-orange-700 text-sm"
+                  >
+                    Leave Chat
                   </button>
                   <button
                     onClick={handleCloseChat}
