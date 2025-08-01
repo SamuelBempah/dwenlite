@@ -679,7 +679,32 @@ function Dashboard() {
           </div>
         </div>
 
-        {/* Examination Preparation Event Removed */}
+        {/* Examination Preparation Event */}
+        {countdown !== 'Event Ended' && (
+          <div ref={examEventRef} className={`mb-6 md:mb-8 pulse-glow ${tutorialStep === 5 ? 'ring-4 ring-purple-500' : ''}`}>
+            <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4 text-purple-400">🏆 Limited-Time Exam Season Event!</h2>
+            <div className="bg-gray-800 p-4 md:p-6 rounded-lg">
+              <p className="text-gray-300 text-sm md:text-base mb-3">
+                It's examination season! Prepare for your exams with our new Exam Preparation feature. Upload your notes, tackle custom quizzes, reviews, and practice questions to excel in your tests. You can also set up meetings with your colleagues through <em><strong>DwenConnect</strong></em> to collaborate and discuss strategies for this exam season.
+              </p>
+              <p className="text-yellow-400 text-sm md:text-base font-semibold mb-3">
+                Event Expires In: {countdown}
+              </p>
+              {folders.length > 0 ? (
+                <Link
+                  to="/exams-preparation"
+                  className="inline-block bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 hover-scale text-sm md:text-base"
+                >
+                  Start Exam Preparation
+                </Link>
+              ) : (
+                <p className="text-gray-400 text-sm md:text-base">
+                  Create a folder to start your exam preparation!
+                </p>
+              )}
+            </div>
+          </div>
+        )}
 
         <div ref={foldersSectionRef} className={tutorialStep === 6 ? 'ring-4 ring-purple-500' : ''}>
           <div className="flex justify-between items-center mb-3 md:mb-4">
