@@ -687,12 +687,15 @@ function Dashboard() {
               It's examination season! Prepare for your exams with our new Exam Preparation feature. Upload your notes, tackle custom quizzes, reviews, and practice questions to excel in your tests. You can also set up meetings with your colleagues through <em><strong>DwenConnect</strong></em> to collaborate and discuss strategies for this exam season.
             </p>
             <p className="text-yellow-400 text-sm md:text-base font-semibold mb-3">
-              Event Expires In: {countdown}
+              {countdown}
             </p>
             {folders.length > 0 ? (
               <Link
                 to="/exams-preparation"
-                className="inline-block bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 hover-scale text-sm md:text-base"
+                className="inline-block bg-purple-600 text-white py-2 px-4 rounded-lg text-sm md:text-base opacity-50 cursor-not-allowed"
+                tabIndex={-1}
+                aria-disabled="true"
+                onClick={e => e.preventDefault()}
               >
                 Start Exam Preparation
               </Link>
