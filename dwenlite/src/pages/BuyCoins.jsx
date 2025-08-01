@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { auth, db } from '../firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
@@ -356,9 +356,9 @@ function BuyCoins() {
       <div className="text-center mt-8 text-gray-400 text-sm">
         <p>
           Need help?{' '}
-          <a href="mailto:samuelbempah@sbmindtechnologies.com" className="text-purple-300 hover:underline">
+          <Link to="/support" className="text-purple-300 hover:underline">
             Contact Support
-          </a>
+          </Link>
         </p>
       </div>
     </div>
