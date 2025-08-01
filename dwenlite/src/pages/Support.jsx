@@ -491,7 +491,7 @@ function Support() {
         <div className="bg-gray-800 p-4 sm:p-6 rounded-lg">
           <h2 className="text-lg sm:text-xl font-semibold mb-4">Live Chat Support</h2>
           <p className="text-gray-400 mb-4 text-sm sm:text-base">
-            Tap the chat button in the bottom-right corner to start a conversation with our AI-powered support bot or request a human agent by typing "agent".
+            Tap the chat button in the bottom-right corner to start a conversation with our AI-powered support bot or request a human agent by typing "agent". You can also check our community for already solved problems <Link to="/community-support" className="text-purple-400 underline">here</Link>.
           </p>
         </div>
       </div>

@@ -12,6 +12,7 @@ function BuyCoins() {
   const [selectedAmount, setSelectedAmount] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [paystackReady, setPaystackReady] = useState(false);
+  const [currency, setCurrency] = useState({ symbol: '₵', code: 'GHS', rate: 1 }); // Default to GHS
 
   const predefinedPackages = [
     { gCoins: 5, amount: 5 },
@@ -21,7 +22,16 @@ function BuyCoins() {
   ];
   const paystackPublicKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY;
 
-  // Load Paystack script and auth state
+  // Static exchange rates (GHS to other currencies, approximate as of 2025)
+  const currencyMap = {
+    US: { symbol: '$', code: 'USD', rate: 0.064 }, // 1 GHS ≈ 0.064 USD
+    GB: { symbol: '£', code: 'GBP', rate: 0.049 }, // 1 GHS ≈ 0.049 GBP
+    EU: { symbol: '€', code: 'EUR', rate: 0.059 }, // 1 GHS ≈ 0.059 EUR
+    GH: { symbol: '₵', code: 'GHS', rate: 1 }, // 1 GHS = 1 GHS
+    NG: { symbol: '₦', code: 'NGN', rate: 103.45 }, // 1 GHS ≈ 103.45 NGN
+  };
+
+  // Load Paystack script, auth state, and detect user country
   useEffect(() => {
     console.log('Environment variables:', import.meta.env);
     console.log('Paystack Public Key:', paystackPublicKey);
@@ -36,6 +46,21 @@ function BuyCoins() {
         navigate('/login');
       }
     });
+
+    // Detect user's country
+    fetch('https://ipapi.co/json/')
+      .then(response => response.json())
+      .then(data => {
+        console.log('Geolocation data:', data);
+        const countryCode = data.country_code || 'GH'; // Fallback to Ghana
+        const currencyInfo = currencyMap[countryCode] || currencyMap['GH']; // Default to GHS
+        setCurrency(currencyInfo);
+        console.log('Currency set:', currencyInfo);
+      })
+      .catch(err => {
+        console.error('Geolocation error:', err);
+        setCurrency(currencyMap['GH']); // Fallback to GHS
+      });
 
     const script = document.createElement('script');
     script.src = 'https://js.paystack.co/v1/inline.js';
@@ -100,12 +125,11 @@ function BuyCoins() {
       const handler = window.PaystackPop.setup({
         key: paystackPublicKey,
         email,
-        amount: Math.round(amount * 100), // Convert GHS to pesewas, ensure integer
-        currency: 'GHS',
+        amount: Math.round(amount * 100), // Convert GHS to pesewas
+        currency: 'GHS', // Fixed to GHS
         ref: `GCOINS_${Math.floor(Math.random() * 1000000)}`,
         callback: (response) => {
           console.log('Paystack payment response:', response);
-          // Handle G_COINS update asynchronously outside the callback
           updateUserGCoins(currentUser.uid, gCoins)
             .then(() => {
               toast.success(`Payment successful! Purchased ${gCoins} G_COINS. Reference: ${response.reference}`);
@@ -144,26 +168,30 @@ function BuyCoins() {
       setLoading(false);
       return;
     }
+    // Use original GHS amount for payment
     handlePaystackPayment(amount, gCoins, email);
   };
 
   const handleCustomPurchase = () => {
     console.log('Custom purchase initiated with amount:', gCoinsAmount);
-    const amount = parseFloat(gCoinsAmount);
-    if (!amount || amount < 5) {
-      console.error('Invalid custom amount:', amount);
-      toast.error('Minimum purchase is 5 G_COINS for 5 GHS.');
+    const amountInLocal = parseFloat(gCoinsAmount);
+    if (!amountInLocal || amountInLocal < 5) {
+      console.error('Invalid custom amount:', amountInLocal);
+      toast.error(`Minimum purchase is 5 G_COINS for ${currency.symbol}5.`);
       setLoading(false);
       return;
     }
-    const gCoins = Math.floor(amount);
-    handlePurchase(amount, gCoins, paystackEmail);
+    // Convert local amount back to GHS for payment
+    const amountInGHS = amountInLocal / currency.rate;
+    const gCoins = Math.floor(amountInGHS);
+    handlePurchase(amountInGHS, gCoins, paystackEmail);
   };
 
   const handlePredefinedPurchase = (pkg) => {
     console.log('Predefined purchase selected:', pkg);
-    setGCoinsAmount(pkg.amount.toString());
+    setGCoinsAmount((pkg.amount * currency.rate).toFixed(2).toString());
     setSelectedAmount(pkg.amount);
+    // Use original GHS amount for payment
     handlePurchase(pkg.amount, pkg.gCoins, paystackEmail);
   };
 
@@ -262,7 +290,7 @@ function BuyCoins() {
                   <span role="img" aria-label="coin" className="coin-icon">💰</span>
                 </span>
                 <h4 className="text-md md:text-lg font-semibold text-white">{pkg.gCoins} G_COINS</h4>
-                <p className="text-gray-400 text-sm">₵{pkg.amount}</p>
+                <p className="text-gray-400 text-sm">{currency.symbol}{(pkg.amount * currency.rate).toFixed(2)}</p>
                 <button
                   onClick={() => handlePredefinedPurchase(pkg)}
                   disabled={loading || !paystackReady}
@@ -306,8 +334,8 @@ function BuyCoins() {
               type="number"
               value={gCoinsAmount}
               onChange={(e) => setGCoinsAmount(e.target.value)}
-              placeholder="Enter amount in GHS (min 5)"
-              min="5"
+              placeholder={`Enter amount in ${currency.code} (min ${(5 * currency.rate).toFixed(2)})`}
+              min={(5 * currency.rate).toFixed(2)}
               step="0.01"
               className="w-full p-3 rounded-lg bg-gray-700 text-white border border-gray-600 focus:border-purple-500 focus:outline-none text-sm md:text-base"
               disabled={loading}
@@ -319,7 +347,7 @@ function BuyCoins() {
                 loading || !paystackReady ? 'opacity-50 cursor-not-allowed' : ''
               }`}
             >
-              {loading && selectedAmount === parseFloat(gCoinsAmount) ? (
+              {loading && selectedAmount === parseFloat(gCoinsAmount) / currency.rate ? (
                 <span className="flex items-center justify-center">
                   <svg
                     className="animate-spin h-4 w-4 md:h-5 md:w-5 mr-2 text-white"
@@ -343,12 +371,14 @@ function BuyCoins() {
               )}
             </button>
           </div>
-          <p className="text-gray-500 text-xs mt-2">Note: 1 GHS = 1 G_COIN. Minimum purchase is 5 GHS.</p>
+          <p className="text-gray-500 text-xs mt-2">
+            Note: 1 {currency.code} = {(1 / currency.rate).toFixed(2)} G_COINS. Minimum purchase is {(5 * currency.rate).toFixed(2)} {currency.code} (5 GHS).
+          </p>
         </div>
 
         {/* Note */}
         <p className="text-gray-400 text-sm text-center">
-          Payments are processed securely via Paystack using mobile money or card.
+          Payments are processed securely via Paystack in GHS using mobile money, bank account, or credit/debit card. Check rates for Supported Currencies <Link className='text-purple-300 hover:underline' to="/community-support">Here</Link>.
         </p>
       </div>
 
