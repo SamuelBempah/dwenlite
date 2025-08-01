@@ -386,7 +386,7 @@ function BuyCoins() {
       <div className="text-center mt-8 text-gray-400 text-sm">
         <p>
           Need help?{' '}
-          <Link to="/support" className="text-purple-300 hover:underline">
+          <Link to="/community-support" className="text-purple-300 hover:underline">
             Contact Support
           </Link>
         </p>
