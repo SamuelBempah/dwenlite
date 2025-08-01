@@ -679,33 +679,7 @@ function Dashboard() {
           </div>
         </div>
 
-        {/* Examination Preparation Event */}
-        <div ref={examEventRef} className={`mb-6 md:mb-8 pulse-glow ${tutorialStep === 5 ? 'ring-4 ring-purple-500' : ''}`}>
-          <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4 text-purple-400">🏆 Limited-Time Exam Season Event!</h2>
-          <div className="bg-gray-800 p-4 md:p-6 rounded-lg">
-            <p className="text-gray-300 text-sm md:text-base mb-3">
-              It's examination season! Prepare for your exams with our new Exam Preparation feature. Upload your notes, tackle custom quizzes, reviews, and practice questions to excel in your tests. You can also set up meetings with your colleagues through <em><strong>DwenConnect</strong></em> to collaborate and discuss strategies for this exam season.
-            </p>
-            <p className="text-yellow-400 text-sm md:text-base font-semibold mb-3">
-              {countdown}
-            </p>
-            {folders.length > 0 ? (
-              <Link
-                to="/exams-preparation"
-                className="inline-block bg-purple-600 text-white py-2 px-4 rounded-lg text-sm md:text-base opacity-50 cursor-not-allowed"
-                tabIndex={-1}
-                aria-disabled="true"
-                onClick={e => e.preventDefault()}
-              >
-                Start Exam Preparation
-              </Link>
-            ) : (
-              <p className="text-gray-400 text-sm md:text-base">
-                Create a folder to start your exam preparation!
-              </p>
-            )}
-          </div>
-        </div>
+        {/* Examination Preparation Event Removed */}
 
         <div ref={foldersSectionRef} className={tutorialStep === 6 ? 'ring-4 ring-purple-500' : ''}>
           <div className="flex justify-between items-center mb-3 md:mb-4">
