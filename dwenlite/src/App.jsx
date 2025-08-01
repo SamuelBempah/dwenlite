@@ -22,6 +22,7 @@ import ExamsPreparation from './pages/ExamsPreparation';
 import BuyCoins from './pages/BuyCoins';
 import DwenliteHelpdesk from './pages/DwenliteHelpdesk';
 import CommunitySupport from './pages/CommunitySupport';
+import { useState, useEffect } from 'react';
 
 const isMaintenanceWindow = () => {
   const now = new Date();
@@ -52,34 +53,53 @@ function NotFound() {
 }
 
 function App() {
+  const [isStandalone, setIsStandalone] = useState(false);
+
+  useEffect(() => {
+    // Check if the app is running in standalone mode (e.g., added to home screen)
+    const mediaQuery = window.matchMedia('(display-mode: standalone)');
+    setIsStandalone(mediaQuery.matches);
+
+    // Add event listener for changes in display mode
+    const handleDisplayModeChange = (e) => {
+      setIsStandalone(e.matches);
+    };
+    mediaQuery.addEventListener('change', handleDisplayModeChange);
+
+    // Cleanup event listener on component unmount
+    return () => mediaQuery.removeEventListener('change', handleDisplayModeChange);
+  }, []);
+
   return (
     <ErrorBoundary>
       <Router>
-        <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
-        <Routes>
-          <Route path="/" element={<MaintenanceRoute component={Welcome} />} />
-          <Route path="/login" element={<MaintenanceRoute component={Login} />} />
-          <Route path="/signup" element={<MaintenanceRoute component={Signup} />} />
-          <Route path="/verify-email" element={<MaintenanceRoute component={VerifyEmail} />} />
-          <Route path="/dashboard" element={<MaintenanceRoute component={Dashboard} />} />
-          <Route path="/folder/:folderId" element={<MaintenanceRoute component={ViewFolder} />} />
-          <Route path="/folder/:folderId/notes" element={<MaintenanceRoute component={Notes} />} />
-          <Route path="/folder/:folderId/quizzes" element={<MaintenanceRoute component={Quizzes} />} />
-          <Route path="/folder/:folderId/flashcards" element={<MaintenanceRoute component={Flashcards} />} />
-          <Route path="/folder/:folderId/podcast" element={<MaintenanceRoute component={Podcast} />} />
-          <Route path="/delete-account" element={<MaintenanceRoute component={DeleteAccount} />} />
-          <Route path="/support-me" element={<MaintenanceRoute component={SupportMe} />} />
-          <Route path="/dwenlite-download" element={<MaintenanceRoute component={DwenLiteDownload} />} />
-          <Route path="/terms" element={<MaintenanceRoute component={Terms} />} />
-          <Route path="/reset-password" element={<MaintenanceRoute component={ResetPassword} />} />
-          <Route path="/support" element={<MaintenanceRoute component={Support} />} />
-          <Route path="/buy-coins" element={<MaintenanceRoute component={BuyCoins} />} />
-          <Route path="/community-support" element={<MaintenanceRoute component={CommunitySupport} />} />
-          <Route path="/dwenlite-helpdesk" element={<MaintenanceRoute component={DwenliteHelpdesk} />} />
-          <Route path="/exams-preparation" element={<MaintenanceRoute component={ExamsPreparation} />} />
-          <Route path="/maintenance" element={<Maintenance />} />
-          <Route path="*" element={isMaintenanceWindow() ? <Maintenance /> : <NotFound />} />
-        </Routes>
+        <div className={isStandalone ? 'standalone-app min-h-screen' : 'min-h-screen'}>
+          <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
+          <Routes>
+            <Route path="/" element={<MaintenanceRoute component={Welcome} />} />
+            <Route path="/login" element={<MaintenanceRoute component={Login} />} />
+            <Route path="/signup" element={<MaintenanceRoute component={Signup} />} />
+            <Route path="/verify-email" element={<MaintenanceRoute component={VerifyEmail} />} />
+            <Route path="/dashboard" element={<MaintenanceRoute component={Dashboard} />} />
+            <Route path="/folder/:folderId" element={<MaintenanceRoute component={ViewFolder} />} />
+            <Route path="/folder/:folderId/notes" element={<MaintenanceRoute component={Notes} />} />
+            <Route path="/folder/:folderId/quizzes" element={<MaintenanceRoute component={Quizzes} />} />
+            <Route path="/folder/:folderId/flashcards" element={<MaintenanceRoute component={Flashcards} />} />
+            <Route path="/folder/:folderId/podcast" element={<MaintenanceRoute component={Podcast} />} />
+            <Route path="/delete-account" element={<MaintenanceRoute component={DeleteAccount} />} />
+            <Route path="/support-me" element={<MaintenanceRoute component={SupportMe} />} />
+            <Route path="/dwenlite-download" element={<MaintenanceRoute component={DwenLiteDownload} />} />
+            <Route path="/terms" element={<MaintenanceRoute component={Terms} />} />
+            <Route path="/reset-password" element={<MaintenanceRoute component={ResetPassword} />} />
+            <Route path="/support" element={<MaintenanceRoute component={Support} />} />
+            <Route path="/buy-coins" element={<MaintenanceRoute component={BuyCoins} />} />
+            <Route path="/community-support" element={<MaintenanceRoute component={CommunitySupport} />} />
+            <Route path="/dwenlite-helpdesk" element={<MaintenanceRoute component={DwenliteHelpdesk} />} />
+            <Route path="/exams-preparation" element={<MaintenanceRoute component={ExamsPreparation} />} />
+            <Route path="/maintenance" element={<Maintenance />} />
+            <Route path="*" element={isMaintenanceWindow() ? <Maintenance /> : <NotFound />} />
+          </Routes>
+        </div>
       </Router>
     </ErrorBoundary>
   );
