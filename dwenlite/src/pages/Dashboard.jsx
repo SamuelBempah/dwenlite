@@ -516,7 +516,7 @@ function Dashboard() {
               <span className="mr-2">🏠</span> Dashboard
             </Link>
             <Link
-              to="/support"
+              to="/community-support"
               className="flex items-center mb-3 md:mb-4 text-purple-400 text-sm md:text-base"
             >
               <span className="mr-2">💬</span> Support

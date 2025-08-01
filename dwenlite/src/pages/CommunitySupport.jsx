@@ -200,6 +200,7 @@ Start earning and using G_COINS to supercharge your learning today!
   ]);
   const [searchQuery, setSearchQuery] = useState('');
   const [openBlogId, setOpenBlogId] = useState(null);
+  const [hasNewMessage, setHasNewMessage] = useState(false); // New state for message highlight
 
   const filteredBlogs = blogs.filter(blog =>
     blog.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -305,7 +306,8 @@ Start earning and using G_COINS to supercharge your learning today!
           const prevMessages = prevMessagesRef.current;
           if (newMessages.length > prevMessages.length) {
             const latestMessage = newMessages[newMessages.length - 1];
-            if (latestMessage.sender === 'agent') {
+            if (latestMessage.sender === 'dwenlite' || latestMessage.sender === 'agent') {
+              setHasNewMessage(true); // Set highlight for new message
               playAlertSound();
               scrollToBottom();
             }
@@ -755,12 +757,13 @@ Start earning and using G_COINS to supercharge your learning today!
       <button
         onClick={() => {
           setIsChatOpen(!isChatOpen);
+          setHasNewMessage(false); // Remove highlight when chat is opened
           if (!isChatOpen) {
             playAlertSound();
             setTimeout(scrollToBottom, 0);
           }
         }}
-        className="fixed bottom-4 right-4 w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-r from-yellow-400 to-red-500 rounded-full flex items-center justify-center shadow-lg hover:bg-gradient-to-l transition-all duration-1000 z-50"
+        className={`fixed bottom-4 right-4 w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-r from-yellow-400 to-red-500 rounded-full flex items-center justify-center shadow-lg hover:bg-gradient-to-l transition-all duration-1000 z-50 ${hasNewMessage ? 'border-2 border-purple-500 shadow-[0_0_10px_rgba(139,92,246,0.7)]' : ''}`}
       >
         <svg className="w-5 h-5 sm:w-6 sm:h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
           <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/>
