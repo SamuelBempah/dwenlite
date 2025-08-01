@@ -875,7 +875,7 @@ Start earning and using G_COINS to supercharge your learning today!
                     Send
                   </button>
                 </div>
-                <div className="text-gray-500 text-xs mt-2 text-center">Made by Samuel Bempah</div>
+                <div className="text-gray-500 text-xs mt-2 text-center">SBMind Technologies</div>
                 {isConversationEnded && !showRating && (
                   <div className="text-gray-500 text-xs mt-2 text-center">
                     The conversation has ended. Tap "Start New Chat" to begin a new session.
