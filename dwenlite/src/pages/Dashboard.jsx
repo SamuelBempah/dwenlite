@@ -111,22 +111,23 @@ function Dashboard() {
       const today = new Date().toDateString();
       const lastCoinDrop = userData.lastCoinDrop ? new Date(userData.lastCoinDrop).toDateString() : null;
 
-      if (!lastCoinDrop || lastCoinDrop !== today) {
-        // Add 3 coins, cap at 30
-        const newGCoins = Math.min((userData.gCoins || 30) + 3, 30);
+      let newGCoins = userData.gCoins || 30;
+
+      // Only add coins if current balance is 30 or less and it's a new day
+      if (newGCoins <= 30 && (!lastCoinDrop || lastCoinDrop !== today)) {
+        newGCoins = Math.min(newGCoins + 3, 30); // Add 3 coins, cap at 30
         await setDoc(userRef, { 
           gCoins: newGCoins, 
           lastCoinDrop: new Date().toISOString() 
         }, { merge: true });
-        setGCoins(newGCoins);
         if (userData.gCoins !== newGCoins) {
           setGCoinsAnimating(true);
           setTimeout(() => setGCoinsAnimating(false), 1000);
           toast.success('You received 3 G_COINS for today!');
         }
-      } else {
-        setGCoins(userData.gCoins || 30);
       }
+
+      setGCoins(newGCoins);
     } catch (err) {
       console.error('Fetch user G_COINS error:', err);
       toast.error('Failed to fetch G_COINS. Please try again.');
