@@ -692,8 +692,13 @@ Start earning and using G_COINS to supercharge your learning today!
         <div className="flex items-center">
           <span className="text-xl sm:text-2xl font-bold">DwenLite Community Support</span>
         </div>
-        <nav className="flex items-center">
-          {/* Chat link removed */}
+        <nav className="flex items-center gap-3">
+          <Link
+            to="/dashboard"
+            className="bg-purple-600 hover:bg-purple-700 text-white font-semibold px-3 py-2 rounded-lg transition-colors"
+          >
+          Dashboard
+          </Link>
         </nav>
       </header>
 
