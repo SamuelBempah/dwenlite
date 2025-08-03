@@ -749,6 +749,32 @@ Start earning and using G_COINS to supercharge your learning today!
             <span className="text-xl sm:text-2xl font-bold">DwenLite Community Support</span>
           </div>
           <nav className="flex items-center gap-3">
+            <Link
+              to="/dashboard"
+              className="hidden md:block bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition-colors"
+            >
+              Back to Dashboard
+            </Link>
+            <button
+              onClick={handleLogout}
+              className="hidden md:block text-purple-400 hover:text-purple-300"
+              title="Logout"
+            >
+              <svg
+                className="w-6 h-6"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M17 16l4-4m0 0l-4-4m4 4H7m5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h3a3 3 0 013 3v1"
+                />
+              </svg>
+            </button>
           </nav>
         </header>
 
