@@ -15,7 +15,6 @@ function Dashboard() {
   const [youtubeLoading, setYoutubeLoading] = useState(false);
   const [documentLoading, setDocumentLoading] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(null);
   const [editFolderId, setEditFolderId] = useState(null);
   const [editFolderName, setEditFolderName] = useState('');
@@ -43,8 +42,8 @@ function Dashboard() {
       highlightRef: null,
     },
     {
-      title: "Sidebar Navigation",
-      description: "The sidebar shows your profile and navigation links. Use it to access the dashboard and other features.",
+      title: "Navigation",
+      description: "On desktop, use the sidebar for navigation. On mobile, use the bottom navigation bar to access dashboard, support, and more.",
       highlightRef: sidebarRef,
     },
     {
@@ -353,10 +352,6 @@ function Dashboard() {
     }, 3000);
   };
 
-  const toggleSidebar = () => {
-    setIsSidebarOpen(!isSidebarOpen);
-  };
-
   const toggleDropdown = (folderId) => {
     setDropdownOpen(dropdownOpen === folderId ? null : folderId);
   };
@@ -383,7 +378,7 @@ function Dashboard() {
   if (!currentUser) return null;
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col md:flex-row">
+    <div className="min-h-screen bg-gray-900 text-white flex flex-col md:flex-row relative">
       <style>
         {`
           @keyframes pulseGlow {
@@ -395,6 +390,14 @@ function Dashboard() {
             0% { transform: translateY(0); opacity: 1; }
             50% { transform: translateY(-20px); opacity: 0.5; }
             100% { transform: translateY(-40px); opacity: 0; }
+          }
+          @keyframes fadeInScale {
+            0% { opacity: 0; transform: scale(0.8); }
+            100% { opacity: 1; transform: scale(1); }
+          }
+          @keyframes slideUp {
+            0% { transform: translateY(100%); opacity: 0; }
+            100% { transform: translateY(0); opacity: 1; }
           }
           .pulse-glow {
             animation: pulseGlow 2s infinite;
@@ -408,37 +411,28 @@ function Dashboard() {
           .hover-scale:hover {
             transform: scale(1.05);
           }
-          @keyframes fadeInScale {
-            0% { opacity: 0; transform: scale(0.8); }
-            100% { opacity: 1; transform: scale(1); }
-          }
           .ad-notice-enter {
             animation: fadeInScale 0.3s ease-out forwards;
           }
+          .bottom-nav-enter {
+            animation: slideUp 0.3s ease-out forwards;
+          }
+          .bottom-nav-icon {
+            transition: transform 0.2s ease, color 0.2s ease;
+          }
+          .bottom-nav-icon:hover {
+            transform: scale(1.2);
+            color: #d1d5db;
+          }
+          .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 20;
+          }
         `}
       </style>
-
-      {/* Mobile Sidebar Toggle Button */}
-      <button
-        onClick={toggleSidebar}
-        className="md:hidden p-4 bg-gray-800 text-white flex items-center justify-between"
-      >
-        <span>{isSidebarOpen ? 'Close Menu' : 'Open Menu'}</span>
-        <svg
-          className="w-6 h-6"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth="2"
-            d={isSidebarOpen ? 'M6 18L18 6M6 6l12 12' : 'M4 6h16M4 12h16M4 18h16'}
-          />
-        </svg>
-      </button>
 
       {/* Tutorial Modal */}
       {showTutorial && (
@@ -474,18 +468,132 @@ function Dashboard() {
         </div>
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar for Desktop */}
       <div
         ref={sidebarRef}
-        className={`w-full md:w-64 bg-gray-800 p-4 md:p-6 flex flex-col justify-between absolute md:static z-10 transition-transform duration-300 ${
-          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } md:translate-x-0 ${tutorialStep === 1 ? 'ring-4 ring-purple-500' : ''}`}
+        className={`hidden md:block w-64 bg-gray-800 p-6 flex flex-col justify-between ${
+          tutorialStep === 1 ? 'ring-4 ring-purple-500' : ''
+        }`}
       >
-        <div className="relative">
-          <button
-            onClick={toggleSidebar}
-            className="md:hidden absolute top-0 right-0 p-2 text-gray-400 hover:text-white"
+        <div>
+          <div className="flex items-center mb-8">
+            <div className="w-10 h-10 bg-purple-600 rounded-full flex items-center justify-center text-xl">
+              {currentUser.displayName?.charAt(0) || 'U'}
+            </div>
+            <span className="ml-3 text-lg font-semibold">
+              {currentUser.displayName || 'User'}
+            </span>
+          </div>
+          <nav>
+            <Link
+              to="/dashboard"
+              className="flex items-center mb-4 text-purple-400 text-base"
+            >
+              <span className="mr-2">🏠</span> Dashboard
+            </Link>
+            <Link
+              to="/community-support"
+              className="flex items-center mb-4 text-purple-400 text-base"
+            >
+              <span className="mr-2">💬</span> Support
+            </Link>
+            <button
+              onClick={handleBuyGCoins}
+              className="flex items-center mb-4 text-purple-400 text-base"
+            >
+              <span className="mr-2">💰</span> Buy G_COINS
+            </button>
+          </nav>
+        </div>
+      </div>
+
+      {/* Bottom Navigation for Mobile */}
+      <div
+        className={`md:hidden bottom-nav bg-gray-800 p-4 flex justify-around items-center bottom-nav-enter`}
+      >
+        <Link
+          to="/dashboard"
+          className="text-purple-400 bottom-nav-icon"
+          title="Dashboard"
+        >
+          <svg
+            className="w-6 h-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
           >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+            />
+          </svg>
+        </Link>
+        <Link
+          to="/community-support"
+          className="text-purple-400 bottom-nav-icon"
+          title="Support"
+        >
+          <svg
+            className="w-6 h-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2m-4 0H7a2 2 0 01-2-2v-6a2 2 0 012-2h2m4 0V6a2 2 0 00-2-2H7a2 2 0 00-2 2v2m4 8h6m-6 4H7a2 2 0 01-2-2v-6a2 2 0 012-2h2"
+            />
+          </svg>
+        </Link>
+        <button
+          onClick={handleBuyGCoins}
+          className="text-purple-400 bottom-nav-icon"
+          title="Buy G_COINS"
+        >
+          <svg
+            className="w-6 h-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+        </button>
+        <button
+          onClick={handleLogout}
+          disabled={logoutLoading}
+          className={`text-purple-400 bottom-nav-icon ${logoutLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+          title="Logout"
+        >
+          {logoutLoading ? (
+            <svg
+              className="animate-spin h-6 w-6 text-white"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+                fill="none"
+              />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+          ) : (
             <svg
               className="w-6 h-6"
               fill="none"
@@ -497,82 +605,65 @@ function Dashboard() {
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeWidth="2"
-                d="M6 18L18 6M6 6l12 12"
+                d="M17 16l4-4m0 0l-4-4m4 4H7m5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h3a3 3 0 013 3v1"
               />
             </svg>
-          </button>
-          <div className="flex items-center mb-6 md:mb-8">
-            <div className="w-8 h-8 md:w-10 md:h-10 bg-purple-600 rounded-full flex items-center justify-center text-lg md:text-xl">
-              {currentUser.displayName?.charAt(0) || 'U'}
-            </div>
-            <span className="ml-2 md:ml-3 text-base md:text-lg font-semibold">
-              {currentUser.displayName || 'User'}
-            </span>
-          </div>
-          <nav>
-            <Link
-              to="/dashboard"
-              className="flex items-center mb-3 md:mb-4 text-purple-400 text-sm md:text-base"
-            >
-              <span className="mr-2">🏠</span> Dashboard
-            </Link>
-            <Link
-              to="/community-support"
-              className="flex items-center mb-3 md:mb-4 text-purple-400 text-sm md:text-base"
-            >
-              <span className="mr-2">💬</span> Support
-            </Link>
-            <button
-              onClick={handleBuyGCoins}
-              className="flex items-center mb-3 md:mb-4 text-purple-400 text-sm md:text-base"
-            >
-              <span className="mr-2">💰</span> Buy G_COINS
-            </button>
-          </nav>
-        </div>
+          )}
+        </button>
       </div>
 
       {/* Main Content */}
       <div className="flex-1 p-4 md:p-8">
         <div className="flex justify-between items-center mb-6 md:mb-8">
           <h1 className="text-2xl md:text-3xl font-bold">Dashboard</h1>
-          <div className="flex items-center space-x-4">
-            <button
-              onClick={() => setShowTutorial(true)}
-              className="text-purple-400 hover:text-purple-300 text-sm md:text-base"
-            >
-              Show Tutorial
-            </button>
-            <button
-              onClick={handleLogout}
-              disabled={logoutLoading}
-              className={`text-gray-400 hover:text-white text-sm md:text-base ${
-                logoutLoading ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              {logoutLoading ? (
-                <span className="flex items-center">
-                  <svg
-                    className="animate-spin h-4 w-4 md:h-5 md:w-5 mr-2 text-white"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                      fill="none"
-                    />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                  </svg>
-                  Loading...
-                </span>
-              ) : (
-                'Logout'
-              )}
-            </button>
+          <div className="flex flex-col items-end space-y-2">
+            {/* Profile name and icon for mobile only */}
+            <div className="flex items-center md:hidden">
+              <div className="w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center text-lg">
+                {currentUser.displayName?.charAt(0) || 'U'}
+              </div>
+              <span className="ml-2 text-base font-semibold">
+                {currentUser.displayName || 'User'}
+              </span>
+            </div>
+            <div className="flex items-center space-x-4">
+              <button
+                onClick={() => setShowTutorial(true)}
+                className="text-purple-400 hover:text-purple-300 text-sm md:text-base"
+              >
+                Show Tutorial
+              </button>
+              <button
+                onClick={handleLogout}
+                disabled={logoutLoading}
+                className={`hidden md:block text-gray-400 hover:text-white text-base ${
+                  logoutLoading ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                {logoutLoading ? (
+                  <span className="flex items-center">
+                    <svg
+                      className="animate-spin h-5 w-5 mr-2 text-white"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                        fill="none"
+                      />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                    </svg>
+                    Loading...
+                  </span>
+                ) : (
+                  'Logout'
+                )}
+              </button>
+            </div>
           </div>
         </div>
         <div ref={uploadSectionRef} className={`mb-6 md:mb-8 ${tutorialStep === 2 ? 'ring-4 ring-purple-500' : ''}`}>

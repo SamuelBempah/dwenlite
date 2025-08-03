@@ -808,18 +808,18 @@ function Quizzes() {
         `}
       </style>
 
-      <div className="flex justify-between items-center mb-6 md:mb-8">
+      <div className="mb-6 md:mb-8">
         <h1 className="text-2xl md:text-3xl font-bold">{folder.name} - Quizzes</h1>
-        <div className="flex items-center space-x-3">
-          <p className={`text-sm md:text-base ${gCoinsAnimating ? 'coins-deduct' : ''}`}>
-            💰 G_COINS: {gCoins}
-          </p>
+        <div className="mt-2 flex items-center space-x-3">
           <Link
             to={`/folder/${folderId}`}
-            className={`bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+            className={`bg-purple-600 text-white py-1 px-3 rounded-md hover:bg-purple-700 text-xs md:text-sm ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
           >
             Back to Folder
           </Link>
+          <p className={`text-sm md:text-base ml-2 ${gCoinsAnimating ? 'coins-deduct' : ''}`}>
+            💰 G_COINS: {gCoins}
+          </p>
         </div>
       </div>
 

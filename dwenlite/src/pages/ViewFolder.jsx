@@ -477,9 +477,10 @@ function ViewFolder() {
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
         <div className="text-center">
           <p className="text-gray-400 text-lg">Unable to load folder.</p>
+          {/* Move Back to Dashboard button under the folder name and make it smaller */}
           <Link
             to="/dashboard"
-            className="mt-4 inline-block bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700"
+            className="mt-4 inline-block bg-purple-600 text-white py-1 px-3 rounded hover:bg-purple-700 text-xs"
           >
             Back to Dashboard
           </Link>
@@ -523,23 +524,24 @@ function ViewFolder() {
         </div>
       )}
 
-      <div className="flex justify-between items-center mb-6 md:mb-8">
+      <div className="mb-2">
         <h1 className="text-2xl md:text-3xl font-bold">{folder.name}</h1>
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center space-x-2 mt-2">
+          <Link
+            to="/dashboard"
+            className="inline-block bg-purple-600 text-white py-1 px-3 rounded hover:bg-purple-700 text-xs"
+          >
+            Back to Dashboard
+          </Link>
           <button
             onClick={() => setShowTutorial(true)}
             className="text-purple-400 hover:text-purple-300 text-sm md:text-base"
           >
             Show Tutorial
           </button>
-          <Link
-            to="/dashboard"
-            className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base"
-          >
-            Back to Dashboard
-          </Link>
         </div>
       </div>
+      <div className="mb-6 md:mb-8"></div>
       <div className={`mb-6 md:mb-8 ${tutorialStep === 1 || tutorialStep === 2 || tutorialStep === 3 ? 'ring-4 ring-purple-500' : ''}`}>
         <h2 className="text-lg md:text-xl font-semibold mb-2 md:mb-3">Upload Document, Audio, or Video</h2>
         <p className="text-purple-400 text-sm md:text-base mb-3 animate-pulse-glow">

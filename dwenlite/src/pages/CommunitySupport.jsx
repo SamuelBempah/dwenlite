@@ -7,6 +7,7 @@ import { collection, addDoc, doc, onSnapshot, updateDoc, serverTimestamp, query,
 import toast from 'react-hot-toast';
 
 const CommunitySupport = () => {
+  const navigate = useNavigate();
   const [blogs, setBlogs] = useState([
     {
       id: 2,
@@ -222,8 +223,8 @@ Start earning and using G_COINS to supercharge your learning today!
     const html = marked(content);
     return DOMPurify.sanitize(html);
   };
+
   // Live Chat Bubble State and Logic (from Support.jsx, minimal version)
-  const navigate = useNavigate();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -290,6 +291,9 @@ Start earning and using G_COINS to supercharge your learning today!
             timestamp: new Date().toLocaleString(),
           }]);
         }
+      } else {
+        toast.error('Please log in to access support.');
+        navigate('/login');
       }
     });
 
@@ -589,8 +593,33 @@ Start earning and using G_COINS to supercharge your learning today!
     } catch {}
   };
 
+  const handleLogout = async () => {
+    try {
+      await auth.signOut();
+      toast.success('Logged out successfully!');
+      navigate('/login');
+    } catch (err) {
+      console.error('Logout error:', err);
+      toast.error('Failed to log out. Please try again.');
+    }
+  };
+
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <div className="flex items-center">
+          <svg className="animate-spin h-5 w-5 mr-3 text-white" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+          </svg>
+          Loading...
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
+    <div className="min-h-screen bg-gray-900 text-white flex flex-col md:flex-row">
       <style>
         {`
           .hover-scale {
@@ -684,78 +713,184 @@ Start earning and using G_COINS to supercharge your learning today!
             0%, 80%, 100% { opacity: 0.2; }
             40% { opacity: 1; }
           }
+          @keyframes slideUp {
+            0% { transform: translateY(100%); opacity: 0; }
+            100% { transform: translateY(0); opacity: 1; }
+          }
+          .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 20;
+          }
+          .bottom-nav-icon {
+            transition: transform 0.2s ease, color 0.2s ease;
+          }
+          .bottom-nav-icon:hover {
+            transform: scale(1.2);
+            color: #d1d5db;
+          }
+          .bottom-nav-enter {
+            animation: slideUp 0.3s ease-out forwards;
+          }
+          .active-nav {
+            color: #9333ea !important;
+            transform: scale(1.2);
+          }
         `}
       </style>
 
-      {/* Header */}
-      <header className="bg-gray-800 p-4 sm:p-6 flex justify-between items-center">
-        <div className="flex items-center">
-          <span className="text-xl sm:text-2xl font-bold">DwenLite Community Support</span>
-        </div>
-        <nav className="flex items-center gap-3">
-          <Link
-            to="/dashboard"
-            className="bg-purple-600 hover:bg-purple-700 text-white font-semibold px-3 py-2 rounded-lg transition-colors"
-          >
-          Dashboard
-          </Link>
-        </nav>
-      </header>
+      {/* Main Content */}
+      <div className="flex-1">
+        {/* Header */}
+        <header className="bg-gray-800 p-4 sm:p-6 flex justify-between items-center">
+          <div className="flex items-center">
+            <span className="text-xl sm:text-2xl font-bold">DwenLite Community Support</span>
+          </div>
+          <nav className="flex items-center gap-3">
+          </nav>
+        </header>
 
-      {/* Hero Section */}
-      <div className="relative bg-gray-800 p-8 sm:p-12 text-center min-h-[280px] sm:min-h-[360px] flex flex-col justify-center">
-        <h1 className="text-2xl sm:text-3xl font-bold mb-3 sm:mb-4 relative z-10">Explore Support Resources</h1>
-        <img src="/community.jpg" alt="Community" className="absolute inset-0 w-full h-full object-cover opacity-30 min-h-[280px] sm:min-h-[360px]" />
-        <div className="relative z-10">
-          <p className="text-gray-300 text-base sm:text-lg max-w-2xl mx-auto">Discover solutions and insights from the DwenLite Support team to enhance your experience.</p>
+        {/* Hero Section */}
+        <div className="relative bg-gray-800 p-8 sm:p-12 text-center min-h-[280px] sm:min-h-[360px] flex flex-col justify-center">
+          <h1 className="text-2xl sm:text-3xl font-bold mb-3 sm:mb-4 relative z-10">Explore Support Resources</h1>
+          <img src="/community.jpg" alt="Community" className="absolute inset-0 w-full h-full object-cover opacity-30 min-h-[280px] sm:min-h-[360px]" />
+          <div className="relative z-10">
+            <p className="text-gray-300 text-base sm:text-lg max-w-2xl mx-auto">Discover solutions and insights from the DwenLite Support team to enhance your experience.</p>
+          </div>
+        </div>
+
+        {/* Main Content */}
+        <div className="max-w-4xl mx-auto p-4 sm:p-8">
+          {/* Search Bar */}
+          <div className="mb-6 sm:mb-8">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search support articles..."
+              className="w-full p-3 sm:p-4 rounded-lg bg-gray-700 text-white text-base sm:text-lg border border-gray-600 focus:border-purple-500 focus:outline-none"
+            />
+          </div>
+
+          {/* Latest Blogs */}
+          <div className="bg-gray-800 p-4 sm:p-6 rounded-xl shadow-lg">
+            <div className="flex justify-between items-center mb-4 sm:mb-6">
+              <h2 className="text-lg sm:text-xl font-semibold">Support Articles</h2>
+            </div>
+            {filteredBlogs.length === 0 ? (
+              <p className="text-gray-400 text-base sm:text-lg">No articles found.</p>
+            ) : (
+              filteredBlogs.map(b => (
+                <div key={b.id} className="mb-4 sm:mb-6">
+                  <div
+                    onClick={() => toggleBlogContent(b.id)}
+                    className="bg-gray-700 p-4 sm:p-5 rounded-lg hover:bg-gray-600 transition-colors cursor-pointer"
+                  >
+                    <h3 className="text-base sm:text-lg font-semibold">{b.title}</h3>
+                    <p className="text-gray-400 text-sm sm:text-base">
+                      Posted by {b.author}
+                      <svg className="check-icon w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                      </svg> - {b.date}
+                    </p>
+                  </div>
+                  <div className={`dropdown-transition ${openBlogId === b.id ? 'open' : ''} bg-gray-700 p-4 sm:p-5 rounded-b-lg mt-1`}>
+                    <div
+                      className="text-gray-300 text-base sm:text-lg prose prose-invert max-w-none"
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(b.content) }}
+                    />
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="max-w-4xl mx-auto p-4 sm:p-8">
-        {/* Search Bar */}
-        <div className="mb-6 sm:mb-8">
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search support articles..."
-            className="w-full p-3 sm:p-4 rounded-lg bg-gray-700 text-white text-base sm:text-lg border border-gray-600 focus:border-purple-500 focus:outline-none"
-          />
-        </div>
-
-        {/* Latest Blogs */}
-        <div className="bg-gray-800 p-4 sm:p-6 rounded-xl shadow-lg">
-          <div className="flex justify-between items-center mb-4 sm:mb-6">
-            <h2 className="text-lg sm:text-xl font-semibold">Support Articles</h2>
-          </div>
-          {filteredBlogs.length === 0 ? (
-            <p className="text-gray-400 text-base sm:text-lg">No articles found.</p>
-          ) : (
-            filteredBlogs.map(b => (
-              <div key={b.id} className="mb-4 sm:mb-6">
-                <div
-                  onClick={() => toggleBlogContent(b.id)}
-                  className="bg-gray-700 p-4 sm:p-5 rounded-lg hover:bg-gray-600 transition-colors cursor-pointer"
-                >
-                  <h3 className="text-base sm:text-lg font-semibold">{b.title}</h3>
-                  <p className="text-gray-400 text-sm sm:text-base">
-                    Posted by {b.author}
-                    <svg className="check-icon w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                    </svg> - {b.date}
-                  </p>
-                </div>
-                <div className={`dropdown-transition ${openBlogId === b.id ? 'open' : ''} bg-gray-700 p-4 sm:p-5 rounded-b-lg mt-1`}>
-                  <div
-                    className="text-gray-300 text-base sm:text-lg prose prose-invert max-w-none"
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(b.content) }}
-                  />
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+      {/* Bottom Navigation for Mobile */}
+      <div className="md:hidden bottom-nav bg-gray-800 p-4 flex justify-around items-center bottom-nav-enter">
+        <Link
+          to="/dashboard"
+          className="text-purple-400 bottom-nav-icon"
+          title="Dashboard"
+        >
+          <svg
+            className="w-6 h-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+            />
+          </svg>
+        </Link>
+        <Link
+          to="/support"
+          className="text-purple-400 bottom-nav-icon active-nav"
+          title="Support"
+        >
+          <svg
+            className="w-6 h-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2m-4 0H7a2 2 0 01-2-2v-6a2 2 0 012-2h2m4 0V6a2 2 0 00-2-2H7a2 2 0 00-2 2v2m4 8h6m-6 4H7a2 2 0 01-2-2v-6a2 2 0 012-2h2"
+            />
+          </svg>
+        </Link>
+        <Link
+          to="/buy-coins"
+          className="text-purple-400 bottom-nav-icon"
+          title="Buy G_COINS"
+        >
+          <svg
+            className="w-6 h-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+        </Link>
+        <button
+          onClick={handleLogout}
+          className="text-purple-400 bottom-nav-icon"
+          title="Logout"
+        >
+          <svg
+            className="w-6 h-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M17 16l4-4m0 0l-4-4m4 4H7m5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h3a3 3 0 013 3v1"
+            />
+          </svg>
+        </button>
       </div>
 
       {/* Live Chat Bubble */}

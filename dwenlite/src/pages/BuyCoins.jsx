@@ -195,6 +195,24 @@ function BuyCoins() {
     handlePurchase(pkg.amount, pkg.gCoins, paystackEmail);
   };
 
+  const handleLogout = () => {
+    setLoading(true);
+    setTimeout(() => {
+      auth.signOut()
+        .then(() => {
+          toast.success('Logged out successfully!');
+          navigate('/login');
+        })
+        .catch((err) => {
+          toast.error('Failed to log out. Please try again.');
+          console.error('Logout error:', err);
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    }, 3000);
+  };
+
   if (!currentUser) return null;
 
   return (
@@ -209,6 +227,10 @@ function BuyCoins() {
           @keyframes coinSpin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
+          }
+          @keyframes slideUp {
+            0% { transform: translateY(100%); opacity: 0; }
+            100% { transform: translateY(0); opacity: 1; }
           }
           .pulse-glow {
             animation: pulseGlow 2s infinite;
@@ -232,12 +254,29 @@ function BuyCoins() {
           .hover-scale:hover {
             transform: scale(1.05);
           }
-          @keyframes fadeInScale {
-            0% { opacity: 0; transform: scale(0.8); }
-            100% { opacity: 1; transform: scale(1); }
-          }
           .animate-fade-in {
             animation: fadeInScale 0.3s ease-out forwards;
+          }
+          .bottom-nav-enter {
+            animation: slideUp 0.3s ease-out forwards;
+          }
+          .bottom-nav-icon {
+            transition: transform 0.2s ease, color 0.2s ease;
+          }
+          .bottom-nav-icon:hover {
+            transform: scale(1.2);
+            color: #d1d5db;
+          }
+          .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 20;
+          }
+          .active-nav {
+            color: #9333ea !important;
+            transform: scale(1.2);
           }
         `}
       </style>
@@ -245,12 +284,6 @@ function BuyCoins() {
       {/* Header */}
       <div className="flex justify-between items-center mb-6 md:mb-8">
         <h1 className="text-2xl md:text-3xl font-bold text-purple-400">Buy G_COINS</h1>
-        <button
-          onClick={() => navigate('/dashboard')}
-          className="text-gray-300 hover:text-purple-300 text-sm md:text-base"
-        >
-          Back to Dashboard
-        </button>
       </div>
 
       {/* Info Section */}
@@ -380,6 +413,110 @@ function BuyCoins() {
         <p className="text-gray-400 text-sm text-center">
           Payments are processed securely via Paystack in GHS using mobile money, bank account, or credit/debit card. Check rates for Supported Currencies <Link className='text-purple-300 hover:underline' to="/community-support">Here</Link>.
         </p>
+      </div>
+
+      {/* Bottom Navigation for Mobile */}
+      <div
+        className="md:hidden bottom-nav bg-gray-800 p-4 flex justify-around items-center bottom-nav-enter"
+      >
+        <Link
+          to="/dashboard"
+          className="text-purple-400 bottom-nav-icon"
+          title="Dashboard"
+        >
+          <svg
+            className="w-6 h-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+            />
+          </svg>
+        </Link>
+        <Link
+          to="/community-support"
+          className="text-purple-400 bottom-nav-icon"
+          title="Support"
+        >
+          <svg
+            className="w-6 h-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2m-4 0H7a2 2 0 01-2-2v-6a2 2 0 012-2h2m4 0V6a2 2 0 00-2-2H7a2 2 0 00-2 2v2m4 8h6m-6 4H7a2 2 0 01-2-2v-6a2 2 0 012-2h2"
+            />
+          </svg>
+        </Link>
+        <button
+          className="text-purple-400 bottom-nav-icon active-nav"
+          title="Buy G_COINS"
+        >
+          <svg
+            className="w-6 h-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+        </button>
+        <button
+          onClick={handleLogout}
+          disabled={loading}
+          className={`text-purple-400 bottom-nav-icon ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+          title="Logout"
+        >
+          {loading ? (
+            <svg
+              className="animate-spin h-6 w-6 text-white"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+                fill="none"
+              />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+          ) : (
+            <svg
+              className="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M17 16l4-4m0 0l-4-4m4 4H7m5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h3a3 3 0 013 3v1"
+              />
+            </svg>
+          )}
+        </button>
       </div>
 
       {/* Footer Note */}
