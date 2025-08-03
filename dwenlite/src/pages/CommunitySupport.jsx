@@ -198,6 +198,61 @@ Start earning and using G_COINS to supercharge your learning today!
       author: "DwenLite Support",
       date: "2025-08-01",
     },
+    {
+      id: 6,
+      title: "Available Versions of DwenLite: Android, PC, and Web",
+      content: `
+# Available Versions of DwenLite: Android, PC, and Web
+
+DwenLite is designed to support your learning journey across multiple platforms, ensuring flexibility and accessibility. Below, we outline the available versions of DwenLite—Android, PC, and Web—to help you choose the best platform for your needs.
+
+## DwenLite on Android
+The DwenLite Android app is available for devices running **Android 7.0 (Nougat) or higher**. It offers a mobile-optimized experience, allowing you to:
+- Create and manage folders for organizing study materials.
+- Upload audio, video, or documents to generate notes, quizzes, or flashcards using G_COINS.
+- Participate in the Exam Preparation Event (until July 31, 2025) to create custom quizzes and collaborate via DwenConnect.
+- Receive daily G_COINS drops and purchase additional coins via Paystack.
+
+**How to Get It**: Download the DwenLite app from the [Google Play Store](https://play.google.com/store/apps/details?id=co.median.android.pkmzbk). Or visit the Google Play Store, Search for "DwenLite" and install it on your Android phone or tablet.
+
+## DwenLite on PC
+DwenLite is accessible on PC through a web-based application, compatible with Windows, macOS, and Linux. The PC version provides a larger screen for managing complex study materials and is ideal for:
+- Generating detailed notes from uploaded content.
+- Creating and reviewing quizzes and flashcards.
+- Managing multiple folders with a clear, desktop-optimized interface.
+- Accessing DwenConnect for collaboration with peers.
+
+**System Requirements**:
+- A modern web browser (e.g., Chrome, Firefox, Edge, or Safari).
+- Internet connection for full functionality.
+- No specific hardware requirements beyond a standard PC or laptop.
+
+**How to Get It**: Visit [DwenLite's website](https://www.dwenlite.space/dwenlite-download) using your browser and download whichever version you prefer.
+
+## DwenLite on Web
+The web version of DwenLite is platform-agnostic, meaning it works on any device with a modern browser, including Chromebooks, tablets, or even smartphones. It mirrors the PC experience but offers additional flexibility:
+- Access DwenLite from any device without installing software.
+- Sync your folders, notes, quizzes, and flashcards across devices using your DwenLite account.
+- Purchase G_COINS via Paystack and use them for generating study materials.
+- Collaborate seamlessly with DwenConnect for group study sessions.
+
+**How to Get It**: Navigate to [DwenLite's website](https://www.dwenlite.space) on any browser, log in, and start studying. No downloads or installations are required.
+
+## Choosing the Right Version
+- **Android**: Best for mobile users who want to study on the go or upload content directly from their phone or tablet.
+- **PC**: Ideal for users who prefer a larger screen and more robust interface for managing study materials or creating detailed notes and quizzes.
+- **Web**: Perfect for users who need flexibility across multiple devices or don’t want to install an app.
+
+## Notes
+- **Cross-Platform Sync**: Your DwenLite account syncs your folders, G_COINS balance, and study materials across all versions (Android, PC, Web).
+- **Minimum Requirements**: Ensure your Android device runs at least Android 7.0. For PC and Web, a stable internet connection and modern browser are sufficient.
+- **Feature Parity**: All versions offer the same core features (folder management, content uploads, note/quiz/flashcard generation, DwenConnect), though the interface may vary slightly.
+
+For further assistance or to report issues with any version, contact our support team via the [Chat](/support) link. Start exploring DwenLite on your preferred platform today!
+`,
+      author: "DwenLite Support",
+      date: "2025-08-03",
+    },
   ]);
   const [searchQuery, setSearchQuery] = useState('');
   const [openBlogId, setOpenBlogId] = useState(null);
