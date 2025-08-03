@@ -6,6 +6,8 @@ import { arrayUnion } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import jsPDF from 'jspdf';
+import { marked } from 'marked'; // Add marked for markdown parsing
+import DOMPurify from 'dompurify'; // Add DOMPurify for sanitization
 
 function Notes() {
   const { folderId } = useParams();
@@ -25,6 +27,18 @@ function Notes() {
   const [reportLoading, setReportLoading] = useState(false);
   const [gCoins, setGCoins] = useState(0);
   const [gCoinsAnimating, setGCoinsAnimating] = useState(false);
+
+  // Configure marked to match CommunitySupport.jsx
+  marked.setOptions({
+    breaks: true, // Treat line breaks as <br>
+    gfm: true,   // Enable GitHub Flavored Markdown
+  });
+
+  // Render Markdown content with sanitization
+  const renderMarkdown = (content) => {
+    const html = marked(content);
+    return DOMPurify.sanitize(html);
+  };
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -47,7 +61,6 @@ function Notes() {
       if (userSnap.exists()) {
         setGCoins(userSnap.data().gCoins || 0);
       } else {
-        // Initialize user with 30 G_COINS
         await setDoc(userRef, { gCoins: 30 });
         setGCoins(30);
       }
@@ -71,7 +84,7 @@ function Notes() {
       await updateDoc(userRef, { gCoins: currentGCoins - amount });
       setGCoins(currentGCoins - amount);
       setGCoinsAnimating(true);
-      setTimeout(() => setGCoinsAnimating(false), 1000); // Animation duration
+      setTimeout(() => setGCoinsAnimating(false), 1000);
     } catch (err) {
       console.error('Deduct G_COINS error:', err);
       throw err;
@@ -384,7 +397,6 @@ function Notes() {
       return;
     }
 
-    // Check G_COINS balance
     if (gCoins < 3) {
       toast.error(
         <div>
@@ -407,7 +419,6 @@ function Notes() {
         notes: arrayUnion(newNote),
       });
 
-      // Deduct 3 G_COINS on successful generation
       await deductGCoins(auth.currentUser.uid, 3);
 
       setFolder(prev => ({
@@ -755,6 +766,92 @@ function Notes() {
             transform: scale(1.05);
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
           }
+          /* Prose styles from CommunitySupport.jsx */
+          .prose {
+            color: #d1d5db;
+          }
+          .prose h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            color: #ffffff;
+          }
+          .prose h2 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+            color: #e5e7eb;
+          }
+          .prose h3 {
+            font-size: 1.125rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: #e5e7eb;
+          }
+          .prose p {
+            margin-bottom: 0.75rem;
+          }
+          .prose a {
+            color: #a78bfa;
+            text-decoration: underline;
+          }
+          .prose a:hover {
+            color: #c4b5fd;
+          }
+          .prose table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1rem;
+          }
+          .prose th, .prose td {
+            border: 1px solid #4b5563;
+            padding: 0.5rem;
+            text-align: left;
+          }
+          .prose th {
+            background: #374151;
+            font-weight: 600;
+          }
+          .prose td {
+            background: #1f2937;
+          }
+          .prose ul,
+          .prose ol {
+            margin-bottom: 0.75rem;
+            padding-left: 1.5rem;
+          }
+          .prose li {
+            margin-bottom: 0.25rem;
+            list-style-type: disc;
+          }
+          .prose ol li {
+            list-style-type: decimal;
+          }
+          .prose strong {
+            font-weight: 700;
+            color: #ffffff;
+          }
+          .prose em {
+            font-style: italic;
+          }
+          .prose code {
+            background: #1f2937;
+            padding: 0.2rem 0.4rem;
+            border-radius: 0.25rem;
+            font-family: 'Courier New', Courier, monospace;
+          }
+          .prose pre {
+            background: #1f2937;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            overflow-x: auto;
+          }
+          .prose blockquote {
+            border-left: 4px solid #a78bfa;
+            padding-left: 1rem;
+            margin: 0.75rem 0;
+            font-style: italic;
+          }
         `}
       </style>
 
@@ -864,8 +961,11 @@ function Notes() {
                       </div>
                     </div>
                     {expandedGroups[note.id] && (
-                      <div className="mt-2">
-                        <p className="text-gray-300 text-sm md:text-base whitespace-pre-wrap">{note.content}</p>
+                      <div className="mt-2 prose prose-invert max-w-none">
+                        <div
+                          className="text-gray-300 text-sm md:text-base"
+                          dangerouslySetInnerHTML={{ __html: renderMarkdown(note.content) }}
+                        />
                       </div>
                     )}
                   </div>
