@@ -191,7 +191,7 @@ function Bundles() {
 
       // Send SMS notification
       try {
-        await axios.post('http://localhost:3001/send-sms', {
+        await axios.post('https://sms-backend.fly.dev/send-sms', {
           phoneNumber,
           bundleName: selectedBundle.name,
           network: selectedNetwork,
@@ -253,7 +253,7 @@ function Bundles() {
             box-shadow: 0 6px 20px rgba(108, 43, 217, 0.4);
           }
           .hover-scale {
-            transition isometric: transform 0.2s ease;
+            transition: transform 0.2s ease;
           }
           .hover-scale:hover {
             transform: scale(1.05);
