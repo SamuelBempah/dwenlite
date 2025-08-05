@@ -19,6 +19,7 @@ function Bundles() {
   const [isLoadingPurchases, setIsLoadingPurchases] = useState(true);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [isFireSale, setIsFireSale] = useState(false);
+  const [isClosed, setIsClosed] = useState(false);
 
   const bundleData = {
     MTN: [
@@ -69,11 +70,18 @@ function Bundles() {
     if (!isFireSale) return bundleData;
     const discountedData = JSON.parse(JSON.stringify(bundleData));
     Object.keys(discountedData).forEach(network => {
-      discountedData[network] = discountedData[network].map(bundle => ({
-        ...bundle,
-        cost: bundle.cost * 0.5,
-        gCoins: Math.ceil(bundle.gCoins * 0.5),
-      }));
+      discountedData[network] = discountedData[network].map(bundle => {
+        // Apply 50% discount only to bundles from 1GB to 5GB
+        const bundleSize = parseFloat(bundle.name);
+        if (bundleSize >= 1 && bundleSize <= 5) {
+          return {
+            ...bundle,
+            cost: bundle.cost * 0.5,
+            gCoins: Math.ceil(bundle.gCoins * 0.5),
+          };
+        }
+        return bundle;
+      });
     });
     return discountedData;
   };
@@ -81,14 +89,18 @@ function Bundles() {
   const displayedBundleData = getDiscountedBundleData();
 
   useEffect(() => {
-    const checkFireSale = () => {
+    const checkOperatingHours = () => {
       const now = new Date();
       const hours = now.getHours();
-      setIsFireSale(hours >= 20 && hours < 21);
+      const minutes = now.getMinutes();
+      // Closed at exactly 9:00 PM (21:00) until 8:00 AM (08:00)
+      setIsClosed((hours >= 21 || hours < 8));
+      // Fire sale from 8:00 PM to 9:00 PM
+      setIsFireSale(hours === 20 && minutes >= 0 && minutes <= 59);
     };
 
-    checkFireSale();
-    const interval = setInterval(checkFireSale, 60000); // Check every minute
+    checkOperatingHours();
+    const interval = setInterval(checkOperatingHours, 60000); // Check every minute
     return () => clearInterval(interval);
   }, []);
 
@@ -177,6 +189,10 @@ function Bundles() {
   };
 
   const handlePurchase = async () => {
+    if (isClosed) {
+      toast.error('We are closed for the day. Please come back at 8 AM.');
+      return;
+    }
     if (!phoneNumber || !selectedNetwork || !selectedBundle) {
       toast.error('Please fill in all fields and select a bundle.');
       return;
@@ -201,6 +217,11 @@ function Bundles() {
   };
 
   const confirmPurchase = async () => {
+    if (isClosed) {
+      toast.error('We are closed for the day. Please come back at 8 AM.');
+      setShowConfirmModal(false);
+      return;
+    }
     setShowConfirmModal(false);
     setLoading(true);
     try {
@@ -326,14 +347,14 @@ function Bundles() {
         `}
       </style>
 
-      {isFireSale && (
+      {isFireSale && !isClosed && (
         <div className="bg-red-900/50 border border-red-700 text-red-200 p-4 rounded-lg mb-6 flex items-center gap-3">
           <svg className="fire-icon h-6 w-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3c5.523 0 9 3.477 9 8s-3.477 6-9 6-9-6-9-6zm0 18c-5.523 0-9-3.477-9-8s3.477-9 9-9z"/>
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5c3.866 0 7 2.134 7 6s-2.134 4-7 4-7-4-7-6z"/>
           </svg>
           <p className="text-sm md:text-base">
-            🔥 FIRE SALE ALERT! Get 50% OFF all bundles from 8PM to 9PM daily! Don't miss out!
+            🔥 FIRE SALE ALERT! Get 50% OFF on 1GB to 5GB bundles from 8PM to 9PM daily! Don't miss out!
           </p>
         </div>
       )}
@@ -344,7 +365,9 @@ function Bundles() {
 
       <div className="max-w-4xl mx-auto bg-gray-800 p-6 md:p-8 rounded-xl shadow-lg pulse-glow animate-fade-in">
         <p className="text-gray-400 text-sm mb-4">
-          <strong>Notice:</strong> Ensure the phone number is correct and not a data SIM card. No refunds are allowed.
+          <strong>Notice:</strong> {isClosed ? 
+            'We are closed for the day. Please come back at 8 AM.' : 
+            'Ensure the phone number is correct and not a data SIM card. No refunds are allowed.'}
         </p>
 
         <div className="mb-6">
@@ -355,7 +378,7 @@ function Bundles() {
             onChange={(e) => setPhoneNumber(e.target.value)}
             placeholder="e.g., +233XXXXXXXXX"
             className="w-full p-3 rounded-lg bg-gray-700 text-white border border-gray-600 focus:border-purple-500 focus:outline-none text-sm md:text-base"
-            disabled={loading}
+            disabled={loading || isClosed}
           />
         </div>
 
@@ -364,29 +387,29 @@ function Bundles() {
           <div className="flex gap-4 mb-4">
             <button
               onClick={() => setSelectedNetwork('MTN')}
-              className={`px-4 py-2 rounded-lg ${selectedNetwork === 'MTN' ? 'bg-purple-600' : 'bg-gray-700'} hover:bg-purple-700 hover-scale`}
-              disabled={loading}
+              className={`px-4 py-2 rounded-lg ${selectedNetwork === 'MTN' ? 'bg-purple-600' : 'bg-gray-700'} ${isClosed ? 'opacity-50 cursor-not-allowed' : 'hover:bg-purple-700 hover-scale'}`}
+              disabled={loading || isClosed}
             >
               MTN
             </button>
             <button
               onClick={() => setSelectedNetwork('Telecel')}
-              className={`px-4 py-2 rounded-lg ${selectedNetwork === 'Telecel' ? 'bg-purple-600' : 'bg-gray-700'} hover:bg-purple-700 hover-scale`}
-              disabled={loading}
+              className={`px-4 py-2 rounded-lg ${selectedNetwork === 'Telecel' ? 'bg-purple-600' : 'bg-gray-700'} ${isClosed ? 'opacity-50 cursor-not-allowed' : 'hover:bg-purple-700 hover-scale'}`}
+              disabled={loading || isClosed}
             >
               Telecel
             </button>
             <button
               onClick={() => setSelectedNetwork('AirtelTigo')}
-              className={`px-4 py-2 rounded-lg ${selectedNetwork === 'AirtelTigo' ? 'bg-purple-600' : 'bg-gray-700'} hover:bg-purple-700 hover-scale`}
-              disabled={loading}
+              className={`px-4 py-2 rounded-lg ${selectedNetwork === 'AirtelTigo' ? 'bg-purple-600' : 'bg-gray-700'} ${isClosed ? 'opacity-50 cursor-not-allowed' : 'hover:bg-purple-700 hover-scale'}`}
+              disabled={loading || isClosed}
             >
               AirtelTigo
             </button>
           </div>
         </div>
 
-        {selectedNetwork && (
+        {selectedNetwork && !isClosed && (
           <div className="mb-6">
             <h3 className="text-base md:text-lg font-semibold text-purple-300 mb-3">Select Bundle</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -394,13 +417,13 @@ function Bundles() {
                 <div
                   key={bundle.name}
                   className="card p-4 text-center flex flex-col items-center justify-between h-32"
-                  onClick={() => setSelectedBundle(bundle)}
+                  onClick={() => !isClosed && setSelectedBundle(bundle)}
                 >
                   <h4 className="text-md md:text-lg font-semibold text-white">{bundle.name}</h4>
                   <p className="text-gray-400 text-sm">Cost: {bundle.gCoins} G_COINS</p>
                   <button
-                    className={`mt-2 ${selectedBundle?.name === bundle.name ? 'bg-purple-600' : 'bg-gray-600'} text-white py-2 px-4 rounded-lg hover:bg-purple-700 hover-scale`}
-                    disabled={loading || premiumGCoins < bundle.gCoins}
+                    className={`mt-2 ${selectedBundle?.name === bundle.name ? 'bg-purple-600' : 'bg-gray-600'} text-white py-2 px-4 rounded-lg ${isClosed || premiumGCoins < bundle.gCoins ? 'opacity-50 cursor-not-allowed' : 'hover:bg-purple-700 hover-scale'}`}
+                    disabled={loading || isClosed || premiumGCoins < bundle.gCoins}
                   >
                     Select
                   </button>
@@ -416,19 +439,19 @@ function Bundles() {
           </p>
           <button
             onClick={() => navigate('/buy-coins')}
-            className="mt-2 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 hover-scale text-sm md:text-base"
-            disabled={loading}
+            className={`mt-2 bg-purple-600 text-white py-2 px-4 rounded-lg ${isClosed ? 'opacity-50 cursor-not-allowed' : 'hover:bg-purple-700 hover-scale'} text-sm md:text-base`}
+            disabled={loading || isClosed}
           >
             Buy More G_COINS
           </button>
         </div>
 
-        {selectedBundle && (
+        {selectedBundle && !isClosed && (
           <div className="text-center mb-6">
             <button
               onClick={handlePurchase}
-              disabled={loading || !phoneNumber || !selectedNetwork || premiumGCoins < selectedBundle.gCoins}
-              className={`bg-purple-600 text-white py-3 px-6 rounded-lg hover:bg-purple-700 hover-scale text-sm md:text-base ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+              disabled={loading || !phoneNumber || !selectedNetwork || premiumGCoins < selectedBundle.gCoins || isClosed}
+              className={`bg-purple-600 text-white py-3 px-6 rounded-lg ${isClosed || !phoneNumber || !selectedNetwork || premiumGCoins < selectedBundle.gCoins ? 'opacity-50 cursor-not-allowed' : 'hover:bg-purple-700 hover-scale'} text-sm md:text-base`}
             >
               {loading ? (
                 <span className="flex items-center justify-center">
@@ -458,15 +481,15 @@ function Bundles() {
               <div className="flex justify-end gap-4">
                 <button
                   onClick={cancelPurchase}
-                  className="bg-gray-600 text-white py-2 px-4 rounded-lg hover:bg-gray-700 hover-scale text-sm md:text-base"
-                  disabled={loading}
+                  className={`bg-gray-600 text-white py-2 px-4 rounded-lg ${isClosed ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-700 hover-scale'} text-sm md:text-base`}
+                  disabled={loading || isClosed}
                 >
                   Cancel
                 </button>
                 <button
                   onClick={confirmPurchase}
-                  className={`bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 hover-scale text-sm md:text-base ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  disabled={loading}
+                  className={`bg-purple-600 text-white py-2 px-4 rounded-lg ${isClosed ? 'opacity-50 cursor-not-allowed' : 'hover:bg-purple-700 hover-scale'} text-sm md:text-base ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  disabled={loading || isClosed}
                 >
                   Confirm
                 </button>
