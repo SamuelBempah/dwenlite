@@ -354,7 +354,7 @@ function Bundles() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5c3.866 0 7 2.134 7 6s-2.134 4-7 4-7-4-7-6z"/>
           </svg>
           <p className="text-sm md:text-base">
-            🔥 FIRE SALE ALERT! Get 50% OFF on 1GB to 5GB bundles from 8PM to 9PM daily! Don't miss out!
+            🔥 FIRE SALE ALERT! Get 50% OFF on 1GB to 5GB non-expiry bundles from 8PM to 9PM. Don't miss out!
           </p>
         </div>
       )}
@@ -476,7 +476,7 @@ function Bundles() {
                 Are you sure you want to purchase <strong>{selectedBundle.name}</strong> ({selectedNetwork}) for <strong>{selectedBundle.gCoins} G_COINS</strong>?
               </p>
               <p className="text-gray-400 text-sm mb-4">
-                <strong>Note:</strong> No refunds are allowed. Bundles on MTN take approximately 30 minutes to an hour to reflect, while Telecel and AirtelTigo are instant.
+                <strong>Note:</strong> No refunds are allowed. Bundles on MTN take approximately 30 minutes to an hour to reflect, while Telecel and AirtelTigo are within minutes.
               </p>
               <div className="flex justify-end gap-4">
                 <button
