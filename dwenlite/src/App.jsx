@@ -22,6 +22,7 @@ import ExamsPreparation from './pages/ExamsPreparation';
 import BuyCoins from './pages/BuyCoins';
 import DwenliteHelpdesk from './pages/DwenliteHelpdesk';
 import CommunitySupport from './pages/CommunitySupport';
+import Bundles from './pages/Bundles';
 
 const isMaintenanceWindow = () => {
   const now = new Date();
@@ -74,6 +75,7 @@ function App() {
           <Route path="/reset-password" element={<MaintenanceRoute component={ResetPassword} />} />
           <Route path="/support" element={<MaintenanceRoute component={Support} />} />
           <Route path="/buy-coins" element={<MaintenanceRoute component={BuyCoins} />} />
+          <Route path="/buy-bundles" element={<MaintenanceRoute component={Bundles} />} />
           <Route path="/community-support" element={<MaintenanceRoute component={CommunitySupport} />} />
           <Route path="/dwenlite-helpdesk" element={<MaintenanceRoute component={DwenliteHelpdesk} />} />
           <Route path="/exams-preparation" element={<MaintenanceRoute component={ExamsPreparation} />} />

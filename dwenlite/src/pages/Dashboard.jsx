@@ -27,13 +27,24 @@ function Dashboard() {
   const [showAdNotice, setShowAdNotice] = useState(false);
   const [gCoins, setGCoins] = useState(0);
   const [gCoinsAnimating, setGCoinsAnimating] = useState(false);
+  const [isGhanaianUser, setIsGhanaianUser] = useState(false); // New state for Ghana check
+  const [currency, setCurrency] = useState({ symbol: '₵', code: 'GHS', rate: 1 }); // Default to GHS
 
   const folderInputRef = useRef(null);
   const createButtonRef = useRef(null);
   const sidebarRef = useRef(null);
   const uploadSectionRef = useRef(null);
   const foldersSectionRef = useRef(null);
-  const examEventRef = useRef(null);
+  const bundleEventRef = useRef(null);
+
+  // Static exchange rates (GHS to other currencies, approximate as of 2025)
+  const currencyMap = {
+    US: { symbol: '$', code: 'USD', rate: 0.064 }, // 1 GHS ≈ 0.064 USD
+    GB: { symbol: '£', code: 'GBP', rate: 0.049 }, // 1 GHS ≈ 0.049 GBP
+    EU: { symbol: '€', code: 'EUR', rate: 0.059 }, // 1 GHS ≈ 0.059 EUR
+    GH: { symbol: '₵', code: 'GHS', rate: 1 }, // 1 GHS = 1 GHS
+    NG: { symbol: '₦', code: 'NGN', rate: 103.45 }, // 1 GHS ≈ 103.45 NGN
+  };
 
   const tutorialSteps = [
     {
@@ -62,9 +73,9 @@ function Dashboard() {
       highlightRef: createButtonRef,
     },
     {
-      title: "Exam Preparation Event",
-      description: "Join our limited-time exam preparation event to get ready for your exams with custom quizzes and reviews!",
-      highlightRef: examEventRef,
+      title: "Educational Bundles",
+      description: "Check out our limited-time educational bundles to enhance your study experience with premium resources! (Available for Ghanaian users only)",
+      highlightRef: isGhanaianUser ? bundleEventRef : null, // Only highlight if in Ghana
     },
     {
       title: "Manage Folders",
@@ -92,6 +103,22 @@ function Dashboard() {
           setShowAdNotice(true);
           sessionStorage.setItem('adNoticeShown', 'true');
         }
+        // Detect user's country
+        fetch('https://ipapi.co/json/')
+          .then(response => response.json())
+          .then(data => {
+            console.log('Geolocation data:', data);
+            const countryCode = data.country_code || 'GH'; // Fallback to Ghana
+            const currencyInfo = currencyMap[countryCode] || currencyMap['GH']; // Default to GHS
+            setCurrency(currencyInfo);
+            setIsGhanaianUser(countryCode === 'GH'); // Set Ghanaian user flag
+            console.log('Currency set:', currencyInfo, 'Is Ghanaian:', countryCode === 'GH');
+          })
+          .catch(err => {
+            console.error('Geolocation error:', err);
+            setCurrency(currencyMap['GH']); // Fallback to GHS
+            setIsGhanaianUser(true); // Default to Ghana for safety
+          });
       } else {
         navigate('/login');
       }
@@ -133,14 +160,14 @@ function Dashboard() {
     }
   };
 
-  // Countdown timer for exam season (set to end on July 31, 2025)
+  // Countdown timer for educational bundles (set to end on August 31, 2025)
   useEffect(() => {
-    const endDate = new Date('2025-07-31T23:59:59Z');
+    const endDate = new Date('2025-08-31T23:59:59Z');
     const updateCountdown = () => {
       const now = new Date();
       const timeLeft = endDate - now;
       if (timeLeft <= 0) {
-        setCountdown('Event Ended');
+        setCountdown('Offer Ended');
         return;
       }
       const days = Math.floor(timeLeft / (1000 * 60 * 60 * 24));
@@ -771,29 +798,23 @@ function Dashboard() {
           </div>
         </div>
 
-        {/* Examination Preparation Event */}
-        {countdown !== 'Event Ended' && (
-          <div ref={examEventRef} className={`mb-6 md:mb-8 pulse-glow ${tutorialStep === 5 ? 'ring-4 ring-purple-500' : ''}`}>
-            <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4 text-purple-400">🏆 Limited-Time Exam Season Event!</h2>
+        {/* Educational Bundles Promotion */}
+        {isGhanaianUser && countdown !== 'Offer Ended' && (
+          <div ref={bundleEventRef} className={`mb-6 md:mb-8 pulse-glow ${tutorialStep === 5 ? 'ring-4 ring-purple-500' : ''}`}>
+            <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4 text-purple-400">📚 Limited-Time Educational Bundles Available! (Ghana Only)</h2>
             <div className="bg-gray-800 p-4 md:p-6 rounded-lg">
               <p className="text-gray-300 text-sm md:text-base mb-3">
-                It's examination season! Prepare for your exams with our new Exam Preparation feature. Upload your notes, tackle custom quizzes, reviews, and practice questions to excel in your tests. You can also set up meetings with your colleagues through <em><strong>DwenConnect</strong></em> to collaborate and discuss strategies for this exam season.
+                Boost your learning with our exclusive educational bundles by purchasing them using your G_COINS. Available only in Ghana.
               </p>
               <p className="text-yellow-400 text-sm md:text-base font-semibold mb-3">
-                Event Expires In: {countdown}
+                Offer Expires In: {countdown}
               </p>
-              {folders.length > 0 ? (
-                <Link
-                  to="/exams-preparation"
-                  className="inline-block bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 hover-scale text-sm md:text-base"
-                >
-                  Start Exam Preparation
-                </Link>
-              ) : (
-                <p className="text-gray-400 text-sm md:text-base">
-                  Create a folder to start your exam preparation!
-                </p>
-              )}
+              <Link
+                to="/buy-bundles"
+                className="inline-block bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 hover-scale text-sm md:text-base"
+              >
+                Explore Educational Bundles
+              </Link>
             </div>
           </div>
         )}

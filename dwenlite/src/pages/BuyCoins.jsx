@@ -96,8 +96,13 @@ function BuyCoins() {
       if (!userSnap.exists()) {
         throw new Error('User document not found.');
       }
-      const currentGCoins = userSnap.data().gCoins || 0;
-      await updateDoc(userRef, { gCoins: currentGCoins + additionalCoins });
+      const currentData = userSnap.data();
+      const currentGCoins = currentData.gCoins || 0;
+      const currentPurchasedGCoins = currentData.purchasedGCoins || 0; // Ensure field exists
+      await updateDoc(userRef, { 
+        gCoins: currentGCoins + additionalCoins,
+        purchasedGCoins: currentPurchasedGCoins + additionalCoins // Increment purchased G_COINS
+      });
       console.log('G_COINS updated successfully');
     } catch (err) {
       console.error('Update G_COINS error:', err);
@@ -327,9 +332,7 @@ function BuyCoins() {
                 <button
                   onClick={() => handlePredefinedPurchase(pkg)}
                   disabled={loading || !paystackReady}
-                  className={`mt-2 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 hover-scale text-sm md:text-base ${
-                    loading || !paystackReady ? 'opacity-50 cursor-not-allowed' : ''
-                  }`}
+                  className={`mt-2 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 hover-scale text-sm md:text-base ${loading || !paystackReady ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                   {loading && selectedAmount === pkg.amount ? (
                     <span className="flex items-center justify-center">
@@ -376,9 +379,7 @@ function BuyCoins() {
             <button
               onClick={handleCustomPurchase}
               disabled={loading || !paystackReady}
-              className={`bg-purple-600 text-white py-2 px-6 rounded-lg hover:bg-purple-700 hover-scale text-sm md:text-base ${
-                loading || !paystackReady ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
+              className={`bg-purple-600 text-white py-2 px-6 rounded-lg hover:bg-purple-700 hover-scale text-sm md:text-base ${loading || !paystackReady ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               {loading && selectedAmount === parseFloat(gCoinsAmount) / currency.rate ? (
                 <span className="flex items-center justify-center">
