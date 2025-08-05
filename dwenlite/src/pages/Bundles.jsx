@@ -18,6 +18,7 @@ function Bundles() {
   const [purchases, setPurchases] = useState([]);
   const [isLoadingPurchases, setIsLoadingPurchases] = useState(true);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [isFireSale, setIsFireSale] = useState(false);
 
   const bundleData = {
     MTN: [
@@ -63,6 +64,33 @@ function Bundles() {
       { name: '50GB', cost: 185.0, gCoins: 185 },
     ],
   };
+
+  const getDiscountedBundleData = () => {
+    if (!isFireSale) return bundleData;
+    const discountedData = JSON.parse(JSON.stringify(bundleData));
+    Object.keys(discountedData).forEach(network => {
+      discountedData[network] = discountedData[network].map(bundle => ({
+        ...bundle,
+        cost: bundle.cost * 0.5,
+        gCoins: Math.ceil(bundle.gCoins * 0.5),
+      }));
+    });
+    return discountedData;
+  };
+
+  const displayedBundleData = getDiscountedBundleData();
+
+  useEffect(() => {
+    const checkFireSale = () => {
+      const now = new Date();
+      const hours = now.getHours();
+      setIsFireSale(hours >= 20 && hours < 21);
+    };
+
+    checkFireSale();
+    const interval = setInterval(checkFireSale, 60000); // Check every minute
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged(user => {
@@ -158,7 +186,7 @@ function Bundles() {
       return;
     }
 
-    const bundle = bundleData[selectedNetwork].find(b => b.name === selectedBundle.name);
+    const bundle = displayedBundleData[selectedNetwork].find(b => b.name === selectedBundle.name);
     if (premiumGCoins === 0) {
       toast.error('Free G_COINS cannot be used for bundles. Please buy premium G_COINS.');
       navigate('/buy-coins');
@@ -176,7 +204,7 @@ function Bundles() {
     setShowConfirmModal(false);
     setLoading(true);
     try {
-      const bundle = bundleData[selectedNetwork].find(b => b.name === selectedBundle.name);
+      const bundle = displayedBundleData[selectedNetwork].find(b => b.name === selectedBundle.name);
       const purchaseRef = await addDoc(collection(db, 'purchases'), {
         userId: currentUser.uid,
         phoneNumber,
@@ -235,6 +263,11 @@ function Bundles() {
             0% { opacity: 0; transform: scale(0.8); }
             100% { opacity: 1; transform: scale(1); }
           }
+          @keyframes fireFlicker {
+            0% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.2); opacity: 1; }
+            100% { transform: scale(1); opacity: 0.8; }
+          }
           .pulse-glow {
             animation: pulseGlow 2s infinite;
           }
@@ -287,8 +320,23 @@ function Bundles() {
             box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
             animation: fadeInScale 0.3s ease;
           }
+          .fire-icon {
+            animation: fireFlicker 0.5s infinite;
+          }
         `}
       </style>
+
+      {isFireSale && (
+        <div className="bg-red-900/50 border border-red-700 text-red-200 p-4 rounded-lg mb-6 flex items-center gap-3">
+          <svg className="fire-icon h-6 w-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 3c5.523 0 9 3.477 9 8s-3.477 6-9 6-9-6-9-6zm0 18c-5.523 0-9-3.477-9-8s3.477-9 9-9z"/>
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5c3.866 0 7 2.134 7 6s-2.134 4-7 4-7-4-7-6z"/>
+          </svg>
+          <p className="text-sm md:text-base">
+            🔥 FIRE SALE ALERT! Get 50% OFF all bundles from 8PM to 9PM daily! Don't miss out!
+          </p>
+        </div>
+      )}
 
       <div className="flex justify-between items-center mb-6 md:mb-8">
         <h1 className="text-2xl md:text-3xl font-bold text-purple-400">Buy Bundles</h1>
@@ -342,7 +390,7 @@ function Bundles() {
           <div className="mb-6">
             <h3 className="text-base md:text-lg font-semibold text-purple-300 mb-3">Select Bundle</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {bundleData[selectedNetwork].map((bundle) => (
+              {displayedBundleData[selectedNetwork].map((bundle) => (
                 <div
                   key={bundle.name}
                   className="card p-4 text-center flex flex-col items-center justify-between h-32"
