@@ -344,6 +344,9 @@ function Bundles() {
           .fire-icon {
             animation: fireFlicker 0.5s infinite;
           }
+          .closed-icon {
+            animation: fireFlicker 0.5s infinite;
+          }
         `}
       </style>
 
@@ -354,7 +357,7 @@ function Bundles() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5c3.866 0 7 2.134 7 6s-2.134 4-7 4-7-4-7-6z"/>
           </svg>
           <p className="text-sm md:text-base">
-            🔥 FIRE SALE ALERT! Get 50% OFF on 1GB to 5GB non-expiry bundles from 8PM to 9PM. Don't miss out!
+            🔥 FIRE SALE ALERT! Get 50% OFF on 1GB to 5GB bundles from 8PM to 9PM daily! Don't miss out!
           </p>
         </div>
       )}
@@ -364,11 +367,25 @@ function Bundles() {
       </div>
 
       <div className="max-w-4xl mx-auto bg-gray-800 p-6 md:p-8 rounded-xl shadow-lg pulse-glow animate-fade-in">
-        <p className="text-gray-400 text-sm mb-4">
-          <strong>Notice:</strong> {isClosed ? 
-            'We are closed for the day. Please come back at 8 AM.' : 
-            'Ensure the phone number is correct and not a data SIM card. No refunds are allowed.'}
-        </p>
+        {isClosed ? (
+          <div className="bg-red-900/50 border border-red-700 text-red-200 p-4 rounded-lg mb-6 flex items-center gap-3">
+            <svg className="closed-icon h-6 w-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l2 2m-2-10a9 9 0 100 18 9 9 0 000-18z"/>
+            </svg>
+            <p className="text-sm md:text-base">
+              <strong>Notice:</strong> We are closed for the day. Please come back at 8 AM.
+            </p>
+          </div>
+        ) : (
+          <div className="bg-gray-900/50 border border-gray-700 text-gray-200 p-4 rounded-lg mb-6 flex items-center gap-3">
+            <svg className="h-6 w-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            <p className="text-sm md:text-base">
+              <strong>Notice:</strong> Ensure the phone number is correct and not a data SIM card. No refunds are allowed.
+            </p>
+          </div>
+        )}
 
         <div className="mb-6">
           <h3 className="text-base md:text-lg font-semibold text-purple-300 mb-3">Enter Phone Number</h3>
@@ -476,7 +493,7 @@ function Bundles() {
                 Are you sure you want to purchase <strong>{selectedBundle.name}</strong> ({selectedNetwork}) for <strong>{selectedBundle.gCoins} G_COINS</strong>?
               </p>
               <p className="text-gray-400 text-sm mb-4">
-                <strong>Note:</strong> No refunds are allowed. Bundles on MTN take approximately 30 minutes to an hour to reflect, while Telecel and AirtelTigo are within minutes.
+                <strong>Note:</strong> No refunds are allowed. Bundles on MTN take approximately 30 minutes to an hour to reflect, while Telecel and AirtelTigo are instant.
               </p>
               <div className="flex justify-end gap-4">
                 <button
