@@ -1,7 +1,8 @@
+
 import { useState, useEffect } from 'react';
 import { auth, db } from '../firebase';
 import { doc, getDoc, updateDoc, collection, addDoc, onSnapshot, query, where, getDocs } from 'firebase/firestore';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 
@@ -547,6 +548,16 @@ function Bundles() {
             <p className="text-gray-400 text-sm">No purchases found.</p>
           )}
         </div>
+      </div>
+      
+      {/* Footer Note */}
+      <div className="text-center mt-8 text-gray-400 text-sm">
+        <p>
+          Need help?{' '}
+          <Link to="/community-support" className="text-purple-300 hover:underline">
+            Contact Support
+          </Link>
+        </p>
       </div>
     </div>
   );
