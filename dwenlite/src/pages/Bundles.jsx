@@ -199,7 +199,6 @@ function Bundles() {
         });
       } catch (smsError) {
         console.error('SMS notification error:', smsError);
-        toast.error('Failed to send SMS notification.');
       }
 
       toast.success(`Purchase successful! ${selectedBundle.name} will be credited to ${phoneNumber}. Processing time: ${selectedNetwork === 'MTN' ? '30 min - 1 hour' : 'instant'}.`);
