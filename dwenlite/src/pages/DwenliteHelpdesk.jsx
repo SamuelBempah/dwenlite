@@ -17,6 +17,8 @@ function DwenliteHelpdesk() {
   const [isAgentTyping, setIsAgentTyping] = useState(false);
   const [isUserTyping, setIsUserTyping] = useState(false);
   const [isRewriting, setIsRewriting] = useState(false);
+  const [purchases, setPurchases] = useState([]);
+  const [isLoadingPurchases, setIsLoadingPurchases] = useState(false);
   const chatDisplayRef = useRef(null);
   const typingTimeoutRef = useRef(null);
 
@@ -104,75 +106,103 @@ function DwenliteHelpdesk() {
 
   useEffect(() => {
     if (isAuthenticated) {
+      // Check if where is defined
+      if (typeof where !== 'function') {
+        console.error('Firestore "where" function is undefined. Check Firebase imports and SDK version.');
+        toast.error('Firestore configuration error. Please contact support.');
+        return;
+      }
+
       // Fetch all active chats
-      const activeChatsQuery = query(collection(db, 'chats'), where('status', '==', 'active'));
-      const unsubscribeActiveChats = onSnapshot(activeChatsQuery, (snapshot) => {
-        const chatList = snapshot.docs.map(doc => ({
-          chatId: doc.id,
-          ...doc.data(),
-        }));
-        setChats(chatList);
-        console.log('Active chats fetched:', chatList);
-        if (chatList.length === 0) {
-          toast('No active chats available.', { icon: 'ℹ️' });
-        }
-      }, (error) => {
-        console.error('Error fetching active chats:', error.code, error.message);
-        toast.error(`Failed to load active chats: ${error.message}`);
-      });
+      try {
+        const activeChatsQuery = query(collection(db, 'chats'), where('status', '==', 'active'));
+        const unsubscribeActiveChats = onSnapshot(activeChatsQuery, (snapshot) => {
+          const chatList = snapshot.docs.map(doc => ({
+            chatId: doc.id,
+            ...doc.data(),
+          }));
+          setChats(chatList);
+          console.log('Active chats fetched:', chatList);
+          if (chatList.length === 0) {
+            toast('No active chats available.', { icon: 'ℹ️' });
+          }
+        }, (error) => {
+          console.error('Error fetching active chats:', error.code, error.message);
+          toast.error(`Failed to load active chats: ${error.message}`);
+        });
 
-      // Fetch chat history
-      const historyQuery = query(collection(db, 'chat_history'));
-      const unsubscribeHistory = onSnapshot(historyQuery, (snapshot) => {
-        const historyList = snapshot.docs.map(doc => ({
-          chatId: doc.id,
-          ...doc.data(),
-        }));
-        // Deduplicate by chatId
-        const uniqueHistory = Array.from(
-          new Map(historyList.map(chat => [chat.chatId, chat])).values()
-        );
-        setChatHistory(uniqueHistory);
-        console.log('Chat history fetched (deduplicated):', uniqueHistory);
-      }, (error) => {
-        console.error('Error fetching chat history:', error.code, error.message);
-        toast.error(`Failed to load chat history: ${error.message}`);
-      });
+        // Fetch chat history
+        const historyQuery = query(collection(db, 'chat_history'));
+        const unsubscribeHistory = onSnapshot(historyQuery, (snapshot) => {
+          const historyList = snapshot.docs.map(doc => ({
+            chatId: doc.id,
+            ...doc.data(),
+          }));
+          const uniqueHistory = Array.from(
+            new Map(historyList.map(chat => [chat.chatId, chat])).values()
+          );
+          setChatHistory(uniqueHistory);
+          console.log('Chat history fetched (deduplicated):', uniqueHistory);
+        }, (error) => {
+          console.error('Error fetching chat history:', error.code, error.message);
+          toast.error(`Failed to load chat history: ${error.message}`);
+        });
 
-      // Fetch ratings for all chats
-      const ratingsQuery = query(collection(db, 'ratings'));
-      const unsubscribeRatings = onSnapshot(ratingsQuery, (snapshot) => {
-        const ratings = snapshot.docs.reduce((acc, doc) => ({
-          ...acc,
-          [doc.id]: doc.data().rating,
-        }), {});
-        console.log('Ratings fetched:', ratings);
-        setChats(prev => prev.map(chat => ({
-          ...chat,
-          rating: ratings[chat.chatId] || null,
-        })));
-        setChatHistory(prev => {
-          const updatedHistory = prev.map(chat => ({
+        // Fetch ratings for all chats
+        const ratingsQuery = query(collection(db, 'ratings'));
+        const unsubscribeRatings = onSnapshot(ratingsQuery, (snapshot) => {
+          const ratings = snapshot.docs.reduce((acc, doc) => ({
+            ...acc,
+            [doc.id]: doc.data().rating,
+          }), {});
+          console.log('Ratings fetched:', ratings);
+          setChats(prev => prev.map(chat => ({
             ...chat,
             rating: ratings[chat.chatId] || null,
-          }));
-          // Deduplicate by chatId
-          const uniqueHistory = Array.from(
-            new Map(updatedHistory.map(chat => [chat.chatId, chat])).values()
-          );
-          console.log('Updated chat history with ratings (deduplicated):', uniqueHistory);
-          return uniqueHistory;
+          })));
+          setChatHistory(prev => {
+            const updatedHistory = prev.map(chat => ({
+              ...chat,
+              rating: ratings[chat.chatId] || null,
+            }));
+            const uniqueHistory = Array.from(
+              new Map(updatedHistory.map(chat => [chat.chatId, chat])).values()
+            );
+            console.log('Updated chat history with ratings (deduplicated):', uniqueHistory);
+            return uniqueHistory;
+          });
+        }, (error) => {
+          console.error('Error fetching ratings:', error.code, error.message);
+          toast.error(`Failed to load ratings: ${error.message}`);
         });
-      }, (error) => {
-        console.error('Error fetching ratings:', error.code, error.message);
-        toast.error(`Failed to load ratings: ${error.message}`);
-      });
 
-      return () => {
-        unsubscribeActiveChats();
-        unsubscribeHistory();
-        unsubscribeRatings();
-      };
+        // Fetch all purchases
+        const purchasesQuery = query(collection(db, 'purchases'));
+        const unsubscribePurchases = onSnapshot(purchasesQuery, (snapshot) => {
+          setIsLoadingPurchases(true);
+          const allPurchases = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setPurchases(allPurchases);
+          console.log('All purchases fetched:', allPurchases);
+          setIsLoadingPurchases(false);
+          if (allPurchases.length === 0) {
+            toast('No purchases available.', { icon: 'ℹ️' });
+          }
+        }, (error) => {
+          console.error('Error fetching all purchases:', error.code, error.message);
+          toast.error(`Failed to load purchases: ${error.message}`);
+          setIsLoadingPurchases(false);
+        });
+
+        return () => {
+          unsubscribeActiveChats();
+          unsubscribeHistory();
+          unsubscribeRatings();
+          unsubscribePurchases();
+        };
+      } catch (error) {
+        console.error('Error setting up Firestore listeners:', error.message);
+        toast.error('Failed to initialize helpdesk data. Please try again.');
+      }
     }
   }, [isAuthenticated]);
 
@@ -194,7 +224,11 @@ function DwenliteHelpdesk() {
         console.error('Error fetching messages:', error.code, error.message);
         toast.error(`Failed to load chat messages: ${error.message}`);
       });
+
       return () => unsubscribeMessages();
+    } else {
+      setMessages([]);
+      setIsUserTyping(false);
     }
   }, [selectedChat]);
 
@@ -205,7 +239,6 @@ function DwenliteHelpdesk() {
   };
 
   const handleJoinChat = async (chat) => {
-    // Check if chat has an agent assigned
     const chatDocRef = doc(db, 'chats', chat.chatId);
     const chatDoc = await getDoc(chatDocRef);
     if (!chatDoc.exists() || chatDoc.data().agentId) {
@@ -215,7 +248,7 @@ function DwenliteHelpdesk() {
 
     setSelectedChat(chat);
     setMessages(chat.messages || []);
-    setRewrittenText(''); // Clear rewritten text when joining a new chat
+    setRewrittenText('');
     scrollToBottom();
     try {
       await updateDoc(chatDocRef, {
@@ -393,6 +426,20 @@ function DwenliteHelpdesk() {
     }
   };
 
+  const handleStatusChange = async (purchaseId, newStatus) => {
+    try {
+      await updateDoc(doc(db, 'purchases', purchaseId), {
+        status: newStatus,
+        lastUpdated: serverTimestamp(),
+      });
+      console.log(`Purchase ${purchaseId} status updated to ${newStatus}`);
+      toast.success(`Purchase status updated to ${newStatus}.`);
+    } catch (err) {
+      console.error('Error updating purchase status:', err.code, err.message);
+      toast.error(`Failed to update purchase status: ${err.message}`);
+    }
+  };
+
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
@@ -418,10 +465,26 @@ function DwenliteHelpdesk() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col">
+      <style>
+        {`
+          .animate-blink {
+            animation: blink 1s step-end infinite;
+          }
+          .animate-blink.delay-200 {
+            animation-delay: 0.2s;
+          }
+          .animate-blink.delay-400 {
+            animation-delay: 0.4s;
+          }
+          @keyframes blink {
+            50% { opacity: 0; }
+          }
+        `}
+      </style>
       <div className="p-8">
         <h1 className="text-3xl font-bold mb-8">Dwenlite Helpdesk</h1>
         <div className="flex flex-col md:flex-row gap-6">
-          {/* Chat List */}
+          {/* Chat List and Purchases */}
           <div className="w-full md:w-1/3 bg-gray-800 p-6 rounded-lg">
             <h2 className="text-xl font-semibold mb-4">Active Chats</h2>
             {chats.length === 0 && <p className="text-gray-400">No active chats available.</p>}
@@ -464,6 +527,37 @@ function DwenliteHelpdesk() {
                 </button>
               </div>
             ))}
+            <h2 className="text-xl font-semibold mb-4 mt-8">All Purchases</h2>
+            {isLoadingPurchases ? (
+              <p className="text-gray-400">Loading purchases...</p>
+            ) : purchases.length === 0 ? (
+              <p className="text-gray-400">No purchases available.</p>
+            ) : (
+              purchases.map(purchase => (
+                <div
+                  key={purchase.id}
+                  className="p-4 bg-gray-700 rounded-lg mb-2"
+                >
+                  <p><strong>User ID:</strong> {purchase.userId}</p>
+                  <p><strong>Bundle:</strong> {purchase.bundleName} ({purchase.network})</p>
+                  <p><strong>Phone:</strong> {purchase.phoneNumber}</p>
+                  <p><strong>Cost:</strong> {purchase.gCoins} G_COINS</p>
+                  <p><strong>Purchased:</strong> {new Date(purchase.timestamp.toDate()).toLocaleString()}</p>
+                  <div className="flex items-center mt-2">
+                    <strong>Status:</strong>
+                    <select
+                      value={purchase.status}
+                      onChange={(e) => handleStatusChange(purchase.id, e.target.value)}
+                      className="ml-2 p-1 bg-gray-600 text-white rounded-lg text-sm"
+                    >
+                      <option value="Pending">Pending</option>
+                      <option value="Processing">Processing</option>
+                      <option value="Completed">Completed</option>
+                    </select>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
           {/* Chat Window */}
           <div className="w-full md:w-2/3 bg-gray-800 p-6 rounded-lg">
