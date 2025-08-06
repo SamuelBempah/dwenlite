@@ -384,12 +384,12 @@ function Bundles() {
             </p>
           </div>
         ) : (
-          <div className="bg-gray-900/50 border border-rose-700 text-gray-200 p-4 rounded-lg mb-6 flex items-center gap-3">
+          <div className="bg-gray-900/50 border border-gray-700 text-gray-200 p-4 rounded-lg mb-6 flex items-center gap-3">
             <svg className="h-6 w-6 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
             </svg>
             <p className="text-sm md:text-base">
-              <strong>Notice:</strong> MTN bundle deliveries are currently delayed. All orders will be delivered shortly.
+              <strong>Notice:</strong> Ensure the phone number is correct and not a data SIM card. No refunds are allowed.
             </p>
           </div>
         )}
