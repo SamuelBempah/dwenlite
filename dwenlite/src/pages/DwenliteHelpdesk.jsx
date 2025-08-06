@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
 import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp, deleteDoc, addDoc, getDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
+import axios from 'axios';
 
 function DwenliteHelpdesk() {
   const navigate = useNavigate();
@@ -21,6 +22,7 @@ function DwenliteHelpdesk() {
   const [isLoadingPurchases, setIsLoadingPurchases] = useState(false);
   const chatDisplayRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+  const prevChatsRef = useRef([]);
 
   const handlePasscodeSubmit = () => {
     if (passcode === '10203339') {
@@ -94,6 +96,32 @@ function DwenliteHelpdesk() {
     }
   };
 
+  // Function to send SMS when chat status changes to Awaiting Agent
+  const sendAwaitingAgentSMS = async (chat) => {
+    try {
+      console.log('Sending SMS for chat:', { chatId: chat.chatId, username: chat.username });
+      const message = `A new chat is awaiting an agent for user ${chat.username || 'Unknown'}.`;
+      const response = await axios.post('https://sms-backend.fly.dev/send-sms', {
+        message,
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        timeout: 10000, // 10-second timeout
+      });
+      console.log('Awaiting Agent SMS sent for chat:', chat.chatId, 'Response:', response.data);
+      toast.success('Awaiting Agent SMS sent successfully.');
+    } catch (error) {
+      const errorMessage = error.response
+        ? `Server responded with status ${error.response.status}: ${JSON.stringify(error.response.data)}`
+        : error.request
+        ? 'No response received from server. Check if server is running on http://localhost:3001.'
+        : error.message;
+      console.error('Error sending Awaiting Agent SMS for chat:', chat.chatId, 'Error:', errorMessage);
+      toast.error(`Failed to send Awaiting Agent SMS: ${errorMessage}`);
+    }
+  };
+
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
       if (!user) {
@@ -121,8 +149,17 @@ function DwenliteHelpdesk() {
             chatId: doc.id,
             ...doc.data(),
           }));
+          console.log('Active chats fetched:', chatList.map(c => ({ chatId: c.chatId, username: c.username })));
+          // Detect chats that newly transitioned to needsAgent: true and agentId: null
+          const prevChats = prevChatsRef.current;
+          chatList.forEach(chat => {
+            const prevChat = prevChats.find(c => c.chatId === chat.chatId);
+            if (chat.needsAgent && !chat.agentId && (!prevChat || !prevChat.needsAgent || prevChat.agentId)) {
+              sendAwaitingAgentSMS(chat);
+            }
+          });
+          prevChatsRef.current = chatList;
           setChats(chatList);
-          console.log('Active chats fetched:', chatList);
           if (chatList.length === 0) {
             toast('No active chats available.', { icon: 'ℹ️' });
           }
@@ -142,7 +179,7 @@ function DwenliteHelpdesk() {
             new Map(historyList.map(chat => [chat.chatId, chat])).values()
           );
           setChatHistory(uniqueHistory);
-          console.log('Chat history fetched (deduplicated):', uniqueHistory);
+          console.log('Chat history fetched (deduplicated):', uniqueHistory.map(c => ({ chatId: c.chatId, username: c.username })));
         }, (error) => {
           console.error('Error fetching chat history:', error.code, error.message);
           toast.error(`Failed to load chat history: ${error.message}`);
@@ -168,7 +205,7 @@ function DwenliteHelpdesk() {
             const uniqueHistory = Array.from(
               new Map(updatedHistory.map(chat => [chat.chatId, chat])).values()
             );
-            console.log('Updated chat history with ratings (deduplicated):', uniqueHistory);
+            console.log('Updated chat history with ratings (deduplicated):', uniqueHistory.map(c => ({ chatId: c.chatId, username: c.username })));
             return uniqueHistory;
           });
         }, (error) => {
@@ -293,6 +330,7 @@ function DwenliteHelpdesk() {
         lastMessageTime: serverTimestamp(),
         isAgentTyping: false,
       });
+      await sendAwaitingAgentSMS(selectedChat);
       setSelectedChat(null);
       setMessages([]);
       setIsUserTyping(false);
@@ -401,6 +439,7 @@ function DwenliteHelpdesk() {
         isAgentTyping: false,
         isUserTyping: false,
       });
+      await sendAwaitingAgentSMS(selectedChat);
       setChats(prev => prev.filter(chat => chat.chatId !== selectedChat.chatId));
       setSelectedChat(null);
       setMessages([]);
