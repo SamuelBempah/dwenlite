@@ -365,7 +365,14 @@ function Bundles() {
       <div className="flex justify-between items-center mb-6 md:mb-8">
         <h1 className="text-2xl md:text-3xl font-bold text-purple-400">Buy Bundles</h1>
       </div>
-
+      <div className="mb-6">
+      <Link
+        to="/dashboard"
+        className="inline-block bg-purple-600 text-white py-1 px-3 rounded hover:bg-purple-700 text-xs"
+      >
+        Back to Dashboard
+      </Link>
+      </div>
       <div className="max-w-4xl mx-auto bg-gray-800 p-6 md:p-8 rounded-xl shadow-lg pulse-glow animate-fade-in">
         {isClosed ? (
           <div className="bg-red-900/50 border border-red-700 text-red-200 p-4 rounded-lg mb-6 flex items-center gap-3">
