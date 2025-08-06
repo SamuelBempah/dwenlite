@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from 'react';
 import { auth, db } from '../firebase';
 import { doc, getDoc, updateDoc, collection, addDoc, onSnapshot, query, where, getDocs } from 'firebase/firestore';
@@ -229,7 +228,7 @@ function Bundles() {
       const bundle = displayedBundleData[selectedNetwork].find(b => b.name === selectedBundle.name);
       const purchaseRef = await addDoc(collection(db, 'purchases'), {
         userId: currentUser.uid,
-        phoneNumber,
+        phoneNumber, // Store user's phone number for the bundle credit
         network: selectedNetwork,
         bundleName: selectedBundle.name,
         gCoins: bundle.gCoins,
@@ -239,10 +238,10 @@ function Bundles() {
 
       await updateUserGCoins(currentUser.uid, bundle.gCoins);
 
-      // Send SMS notification
+      // Send SMS notification to admin
       try {
         await axios.post('https://sms-backend.fly.dev/send-sms', {
-          phoneNumber,
+          phoneNumber: '+233532095500', // Fixed admin phone number for notification
           bundleName: selectedBundle.name,
           network: selectedNetwork,
           gCoins: bundle.gCoins,
