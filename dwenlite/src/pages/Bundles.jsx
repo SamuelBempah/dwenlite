@@ -95,8 +95,8 @@ function Bundles() {
       const minutes = now.getMinutes();
       // Closed at exactly 9:00 PM (21:00) until 8:00 AM (08:00)
       setIsClosed((hours >= 21 || hours < 8));
-      // Fire sale from 8:00 PM to 9:00 PM
-      setIsFireSale(hours === 20 && minutes >= 0 && minutes <= 59);
+      // Fire sale from 8:00 PM (20:00) to 8:30 PM (20:30)
+      setIsFireSale(hours === 20 && minutes >= 0 && minutes <= 30);
     };
 
     checkOperatingHours();
@@ -357,7 +357,7 @@ function Bundles() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 5c3.866 0 7 2.134 7 6s-2.134 4-7 4-7-4-7-6z"/>
           </svg>
           <p className="text-sm md:text-base">
-            🔥 FIRE SALE ALERT! Get 50% OFF on 1GB to 5GB bundles from 8PM to 9PM daily! Don't miss out!
+            🔥 FIRE SALE ALERT! Get 50% OFF on 1GB to 5GB Non-Expiry bundles from now till 8:30PM. Don't miss out!
           </p>
         </div>
       )}
