@@ -253,6 +253,54 @@ For further assistance or to report issues with any version, contact our support
       author: "DwenLite Support",
       date: "2025-08-03",
     },
+        {
+      id: 7,
+      title: "Buying Data Bundles with G_COINS",
+      content: `
+# Buying Data Bundles with G_COINS
+
+This guide explains how to purchase data bundles using G_COINS on DwenLite, including selecting networks, choosing bundles, and understanding the Fire Sale event.
+
+## Overview
+DwenLite allows users to buy non-expiry data bundles for MTN, AirtelTigo, and Telecel networks using premium G_COINS. These bundles can be credited to a Ghanaian phone number of your choice, provided it’s not a data-only SIM.
+
+## How to Buy Data Bundles
+1. **Navigate to Bundles**: From the Dashboard, click the “Buy Bundles” link to access the Bundles page.
+2. **Enter Phone Number**: Input a valid Ghanaian phone number (e.g., +233XXXXXXXXX) in the provided field. Ensure it’s correct, as no refunds are allowed.
+3. **Select Network**: Choose your network (MTN, AirtelTigo, or Telecel) by clicking the corresponding button.
+4. **Select Bundle**: Pick a bundle from the list (e.g., 1GB, 5GB, etc.). The cost in premium G_COINS is displayed. Ensure you have enough premium G_COINS in your balance.
+5. **Confirm Purchase**: Click “Buy Bundle” to open a confirmation modal. Verify the details (bundle, network, G_COINS cost) and click “Confirm” to complete the purchase.
+6. **Processing Time**:
+   - MTN: 30 minutes to 1 hour.
+   - AirtelTigo and Telecel: Instant.
+
+## Fire Sale Event
+- **What is it?**: From 8:00 PM to 8:30 PM daily, DwenLite offers a 50% discount on 1GB to 5GB bundles across all networks.
+- **How to Spot It**: A “FIRE SALE ALERT” banner appears at the top of the Bundles page during this time.
+- **Example**: A 1GB MTN bundle, normally 5 G_COINS, costs 3 G_COINS during the Fire Sale.
+
+## Operating Hours
+- **Open**: 8:00 AM to 9:00 PM daily.
+- **Closed**: 9:00 PM to 8:00 AM. During this time, purchases are disabled, and a “Closed” notice is displayed.
+
+## Important Notes
+- **Premium G_COINS Required**: Only premium G_COINS (purchased via Paystack) can be used for bundles. Free G_COINS from daily drops are not eligible.
+- **No Refunds**: Ensure the phone number and bundle details are correct before confirming.
+- **Purchase History**: View your past purchases, including bundle details and status (Pending, Processing, Completed), in the “Purchase History” section on the Bundles page.
+- **Insufficient G_COINS**: If you lack premium G_COINS, click “Buy More G_COINS” to purchase more via Paystack.
+
+## Troubleshooting
+- **Invalid Phone Number**: Ensure the number starts with +233 and has 9 digits (e.g., +233123456789).
+- **Purchase Failed**: Check your premium G_COINS balance and internet connection. Try again or contact support.
+- **Bundle Not Credited**: Wait for the processing time (up to 1 hour for MTN). If it’s still not credited, contact support.
+
+For further assistance, reach out to our team via the [Chat](/support) link or check the [Community Support](/community-support) page for more articles.
+
+Happy browsing with DwenLite!
+`,
+      author: "DwenLite Support",
+      date: "2025-08-01",
+    },
   ]);
   const [searchQuery, setSearchQuery] = useState('');
   const [openBlogId, setOpenBlogId] = useState(null);

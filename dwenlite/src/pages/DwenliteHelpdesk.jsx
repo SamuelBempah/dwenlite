@@ -20,6 +20,8 @@ function DwenliteHelpdesk() {
   const [isRewriting, setIsRewriting] = useState(false);
   const [purchases, setPurchases] = useState([]);
   const [isLoadingPurchases, setIsLoadingPurchases] = useState(false);
+  const [reports, setReports] = useState([]);
+  const [isLoadingReports, setIsLoadingReports] = useState(false);
   const chatDisplayRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const prevChatsRef = useRef([]);
@@ -107,7 +109,7 @@ function DwenliteHelpdesk() {
         headers: {
           'Content-Type': 'application/json',
         },
-        timeout: 10000, // 10-second timeout
+        timeout: 10000,
       });
       console.log('Awaiting Agent SMS sent for chat:', chat.chatId, 'Response:', response.data);
       toast.success('Awaiting Agent SMS sent successfully.');
@@ -230,11 +232,29 @@ function DwenliteHelpdesk() {
           setIsLoadingPurchases(false);
         });
 
+        // Fetch all data reports
+        const reportsQuery = query(collection(db, 'data_reports'));
+        const unsubscribeReports = onSnapshot(reportsQuery, (snapshot) => {
+          setIsLoadingReports(true);
+          const allReports = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setReports(allReports);
+          console.log('All data reports fetched:', allReports);
+          setIsLoadingReports(false);
+          if (allReports.length === 0) {
+            toast('No data reports available.', { icon: 'ℹ️' });
+          }
+        }, (error) => {
+          console.error('Error fetching data reports:', error.code, error.message);
+          toast.error(`Failed to load data reports: ${error.message}`);
+          setIsLoadingReports(false);
+        });
+
         return () => {
           unsubscribeActiveChats();
           unsubscribeHistory();
           unsubscribeRatings();
           unsubscribePurchases();
+          unsubscribeReports();
         };
       } catch (error) {
         console.error('Error setting up Firestore listeners:', error.message);
@@ -479,6 +499,20 @@ function DwenliteHelpdesk() {
     }
   };
 
+  const handleReportStatusChange = async (reportId, newStatus) => {
+    try {
+      await updateDoc(doc(db, 'data_reports', reportId), {
+        status: newStatus,
+        lastUpdated: serverTimestamp(),
+      });
+      console.log(`Report ${reportId} status updated to ${newStatus}`);
+      toast.success(`Report status updated to ${newStatus}.`);
+    } catch (err) {
+      console.error('Error updating report status:', err.code, err.message);
+      toast.error(`Failed to update report status: ${err.message}`);
+    }
+  };
+
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
@@ -523,7 +557,7 @@ function DwenliteHelpdesk() {
       <div className="p-8">
         <h1 className="text-3xl font-bold mb-8">Dwenlite Helpdesk</h1>
         <div className="flex flex-col md:flex-row gap-6">
-          {/* Chat List and Purchases */}
+          {/* Chat List, Purchases, and Reports */}
           <div className="w-full md:w-1/3 bg-gray-800 p-6 rounded-lg">
             <h2 className="text-xl font-semibold mb-4">Active Chats</h2>
             {chats.length === 0 && <p className="text-gray-400">No active chats available.</p>}
@@ -587,6 +621,40 @@ function DwenliteHelpdesk() {
                     <select
                       value={purchase.status}
                       onChange={(e) => handleStatusChange(purchase.id, e.target.value)}
+                      className="ml-2 p-1 bg-gray-600 text-white rounded-lg text-sm"
+                    >
+                      <option value="Pending">Pending</option>
+                      <option value="Processing">Processing</option>
+                      <option value="Completed">Completed</option>
+                    </select>
+                  </div>
+                </div>
+              ))
+            )}
+            <h2 className="text-xl font-semibold mb-4 mt-8">Data Bundle Reports</h2>
+            {isLoadingReports ? (
+              <p className="text-gray-400">Loading reports...</p>
+            ) : reports.length === 0 ? (
+              <p className="text-gray-400">No data reports available.</p>
+            ) : (
+              reports.map(report => (
+                <div
+                  key={report.id}
+                  className="p-4 bg-gray-700 rounded-lg mb-2"
+                >
+                  <p><strong>User:</strong> {report.userName || report.userId}</p>
+                  <p><strong>Network:</strong> {report.reportType}</p>
+                  <p><strong>Bundle:</strong> {report.gig}</p>
+                  <p><strong>Phone:</strong> {report.phoneNumber}</p>
+                  <p><strong>Date:</strong> {report.date}</p>
+                  <p><strong>Time:</strong> {report.time}</p>
+                  <p><strong>Screenshot:</strong> <a href={report.screenshotURL} target="_blank" rel="noopener noreferrer" className="text-purple-300 hover:underline">View</a></p>
+                  <p><strong>Submitted:</strong> {new Date(report.timestamp.toDate()).toLocaleString()}</p>
+                  <div className="flex items-center mt-2">
+                    <strong>Status:</strong>
+                    <select
+                      value={report.status}
+                      onChange={(e) => handleReportStatusChange(report.id, e.target.value)}
                       className="ml-2 p-1 bg-gray-600 text-white rounded-lg text-sm"
                     >
                       <option value="Pending">Pending</option>

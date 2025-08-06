@@ -23,6 +23,7 @@ import BuyCoins from './pages/BuyCoins';
 import DwenliteHelpdesk from './pages/DwenliteHelpdesk';
 import CommunitySupport from './pages/CommunitySupport';
 import Bundles from './pages/Bundles';
+import Reports from './pages/Reports';
 
 const isMaintenanceWindow = () => {
   const now = new Date();
@@ -79,6 +80,7 @@ function App() {
           <Route path="/community-support" element={<MaintenanceRoute component={CommunitySupport} />} />
           <Route path="/dwenlite-helpdesk" element={<MaintenanceRoute component={DwenliteHelpdesk} />} />
           <Route path="/exams-preparation" element={<MaintenanceRoute component={ExamsPreparation} />} />
+          <Route path="/reports" element={<MaintenanceRoute component={Reports} />} />
           <Route path="/maintenance" element={<Maintenance />} />
           <Route path="*" element={isMaintenanceWindow() ? <Maintenance /> : <NotFound />} />
         </Routes>

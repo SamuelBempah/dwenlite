@@ -559,9 +559,9 @@ function Bundles() {
       {/* Footer Note */}
       <div className="text-center mt-8 text-gray-400 text-sm">
         <p>
-          Need help?{' '}
-          <Link to="/community-support" className="text-purple-300 hover:underline">
-            Contact Support
+          Haven't received your bundle yet?{' '}
+          <Link to="/reports" className="text-purple-300 hover:underline">
+            Report Your Case
           </Link>
         </p>
       </div>
