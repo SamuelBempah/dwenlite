@@ -801,10 +801,10 @@ function Dashboard() {
         {/* Educational Bundles Promotion */}
         {isGhanaianUser && countdown !== 'Offer Ended' && (
           <div ref={bundleEventRef} className={`mb-6 md:mb-8 pulse-glow ${tutorialStep === 5 ? 'ring-4 ring-purple-500' : ''}`}>
-            <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4 text-purple-400">📚 Limited-Time Educational Bundles Available! (Ghana Only)</h2>
+            <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4 text-purple-400">📚 Limited-Time Educational Bundles Available!</h2>
             <div className="bg-gray-800 p-4 md:p-6 rounded-lg">
               <p className="text-gray-300 text-sm md:text-base mb-3">
-                Boost your learning with our exclusive educational bundles by purchasing them using your G_COINS. Available only in Ghana.
+                Boost your learning with our exclusive educational bundles by purchasing them using your G_COINS.
               </p>
               <p className="text-yellow-400 text-sm md:text-base font-semibold mb-3">
                 Offer Expires In: {countdown}

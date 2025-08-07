@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Welcome from './pages/Welcome';
 import Login from './pages/Login';
@@ -32,7 +33,25 @@ const isMaintenanceWindow = () => {
   return day === 6 && hour >= 12 && hour < 15;
 };
 
-const MaintenanceRoute = ({ component: Component, ...rest }) => {
+const MaintenanceRoute = ({ component: Component, isGhana, ...rest }) => {
+  if (!isGhana) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-4xl font-bold mb-4">Region Not Supported</h1>
+          <p className="text-gray-400 mb-6">
+            This application is currently available only in Ghana. We're working hard to scale globally soon!
+          </p>
+          <a
+            href="https://sbmindtechnologies.com"
+            className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700"
+          >
+            Visit Our Website
+          </a>
+        </div>
+      </div>
+    );
+  }
   return isMaintenanceWindow() ? <Maintenance /> : <Component {...rest} />;
 };
 
@@ -54,33 +73,60 @@ function NotFound() {
 }
 
 function App() {
+  const [isGhana, setIsGhana] = useState(true);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchLocation = async () => {
+      try {
+        const response = await fetch('https://ipapi.co/json/');
+        const data = await response.json();
+        setIsGhana(data.country_name === 'Ghana');
+      } catch (error) {
+        console.error('Error fetching location:', error);
+        setIsGhana(false); // Default to restricted access on error
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchLocation();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <p>Loading...</p>
+      </div>
+    );
+  }
+
   return (
     <ErrorBoundary>
       <Router>
         <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
         <Routes>
-          <Route path="/" element={<MaintenanceRoute component={Welcome} />} />
-          <Route path="/login" element={<MaintenanceRoute component={Login} />} />
-          <Route path="/signup" element={<MaintenanceRoute component={Signup} />} />
-          <Route path="/verify-email" element={<MaintenanceRoute component={VerifyEmail} />} />
-          <Route path="/dashboard" element={<MaintenanceRoute component={Dashboard} />} />
-          <Route path="/folder/:folderId" element={<MaintenanceRoute component={ViewFolder} />} />
-          <Route path="/folder/:folderId/notes" element={<MaintenanceRoute component={Notes} />} />
-          <Route path="/folder/:folderId/quizzes" element={<MaintenanceRoute component={Quizzes} />} />
-          <Route path="/folder/:folderId/flashcards" element={<MaintenanceRoute component={Flashcards} />} />
-          <Route path="/folder/:folderId/podcast" element={<MaintenanceRoute component={Podcast} />} />
-          <Route path="/delete-account" element={<MaintenanceRoute component={DeleteAccount} />} />
-          <Route path="/support-me" element={<MaintenanceRoute component={SupportMe} />} />
-          <Route path="/dwenlite-download" element={<MaintenanceRoute component={DwenLiteDownload} />} />
-          <Route path="/terms" element={<MaintenanceRoute component={Terms} />} />
-          <Route path="/reset-password" element={<MaintenanceRoute component={ResetPassword} />} />
-          <Route path="/support" element={<MaintenanceRoute component={Support} />} />
-          <Route path="/buy-coins" element={<MaintenanceRoute component={BuyCoins} />} />
-          <Route path="/buy-bundles" element={<MaintenanceRoute component={Bundles} />} />
-          <Route path="/community-support" element={<MaintenanceRoute component={CommunitySupport} />} />
-          <Route path="/dwenlite-helpdesk" element={<MaintenanceRoute component={DwenliteHelpdesk} />} />
-          <Route path="/exams-preparation" element={<MaintenanceRoute component={ExamsPreparation} />} />
-          <Route path="/reports" element={<MaintenanceRoute component={Reports} />} />
+          <Route path="/" element={<MaintenanceRoute component={Welcome} isGhana={isGhana} />} />
+          <Route path="/login" element={<MaintenanceRoute component={Login} isGhana={isGhana} />} />
+          <Route path="/signup" element={<MaintenanceRoute component={Signup} isGhana={isGhana} />} />
+          <Route path="/verify-email" element={<MaintenanceRoute component={VerifyEmail} isGhana={isGhana} />} />
+          <Route path="/dashboard" element={<MaintenanceRoute component={Dashboard} isGhana={isGhana} />} />
+          <Route path="/folder/:folderId" element={<MaintenanceRoute component={ViewFolder} isGhana={isGhana} />} />
+          <Route path="/folder/:folderId/notes" element={<MaintenanceRoute component={Notes} isGhana={isGhana} />} />
+          <Route path="/folder/:folderId/quizzes" element={<MaintenanceRoute component={Quizzes} isGhana={isGhana} />} />
+          <Route path="/folder/:folderId/flashcards" element={<MaintenanceRoute component={Flashcards} isGhana={isGhana} />} />
+          <Route path="/folder/:folderId/podcast" element={<MaintenanceRoute component={Podcast} isGhana={isGhana} />} />
+          <Route path="/delete-account" element={<MaintenanceRoute component={DeleteAccount} isGhana={isGhana} />} />
+          <Route path="/support-me" element={<MaintenanceRoute component={SupportMe} isGhana={isGhana} />} />
+          <Route path="/dwenlite-download" element={<MaintenanceRoute component={DwenLiteDownload} isGhana={isGhana} />} />
+          <Route path="/terms" element={<MaintenanceRoute component={Terms} isGhana={isGhana} />} />
+          <Route path="/reset-password" element={<MaintenanceRoute component={ResetPassword} isGhana={isGhana} />} />
+          <Route path="/support" element={<MaintenanceRoute component={Support} isGhana={isGhana} />} />
+          <Route path="/buy-coins" element={<MaintenanceRoute component={BuyCoins} isGhana={isGhana} />} />
+          <Route path="/buy-bundles" element={<MaintenanceRoute component={Bundles} isGhana={isGhana} />} />
+          <Route path="/community-support" element={<MaintenanceRoute component={CommunitySupport} isGhana={isGhana} />} />
+          <Route path="/dwenlite-helpdesk" element={<MaintenanceRoute component={DwenliteHelpdesk} isGhana={isGhana} />} />
+          <Route path="/exams-preparation" element={<MaintenanceRoute component={ExamsPreparation} isGhana={isGhana} />} />
+          <Route path="/reports" element={<MaintenanceRoute component={Reports} isGhana={isGhana} />} />
           <Route path="/maintenance" element={<Maintenance />} />
           <Route path="*" element={isMaintenanceWindow() ? <Maintenance /> : <NotFound />} />
         </Routes>
