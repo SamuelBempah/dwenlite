@@ -74,7 +74,6 @@ function NotFound() {
 
 function App() {
   const [isGhana, setIsGhana] = useState(true);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchLocation = async () => {
@@ -85,20 +84,10 @@ function App() {
       } catch (error) {
         console.error('Error fetching location:', error);
         setIsGhana(false); // Default to restricted access on error
-      } finally {
-        setLoading(false);
       }
     };
     fetchLocation();
   }, []);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
-        <p>Loading...</p>
-      </div>
-    );
-  }
 
   return (
     <ErrorBoundary>
