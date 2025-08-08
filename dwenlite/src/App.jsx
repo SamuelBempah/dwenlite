@@ -33,7 +33,7 @@ const isMaintenanceWindow = () => {
   return day === 6 && hour >= 12 && hour < 15;
 };
 
-const MaintenanceRoute = ({ component: Component, isGhana, ...rest }) => {
+const MaintenanceRoute = ({ component: Component, isGhana, setShowBanPopup, ...rest }) => {
   if (!isGhana) {
     return (
       <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
@@ -52,8 +52,34 @@ const MaintenanceRoute = ({ component: Component, isGhana, ...rest }) => {
       </div>
     );
   }
-  return isMaintenanceWindow() ? <Maintenance /> : <Component {...rest} />;
+  return isMaintenanceWindow() ? <Maintenance /> : <Component {...rest} setShowBanPopup={setShowBanPopup} />;
 };
+
+function BanPopup({ isOpen, onClose }) {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full text-center">
+        <h2 className="text-xl font-bold text-gray-800 mb-4">Account Banned</h2>
+        <p className="text-gray-600 mb-6">
+          This account has been banned for inappropriate behavior. If you think this is a mistake, please appeal by sending an email to{' '}
+          <a
+            href="mailto:info@dwenlite.space"
+            className="text-purple-600 hover:underline"
+          >
+            info@dwenlite.space
+          </a>.
+        </p>
+        <button
+          onClick={onClose}
+          className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function NotFound() {
   return (
@@ -74,6 +100,7 @@ function NotFound() {
 
 function App() {
   const [isGhana, setIsGhana] = useState(true);
+  const [showBanPopup, setShowBanPopup] = useState(false);
 
   useEffect(() => {
     const fetchLocation = async () => {
@@ -93,29 +120,30 @@ function App() {
     <ErrorBoundary>
       <Router>
         <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
+        <BanPopup isOpen={showBanPopup} onClose={() => setShowBanPopup(false)} />
         <Routes>
-          <Route path="/" element={<MaintenanceRoute component={Welcome} isGhana={isGhana} />} />
-          <Route path="/login" element={<MaintenanceRoute component={Login} isGhana={isGhana} />} />
-          <Route path="/signup" element={<MaintenanceRoute component={Signup} isGhana={isGhana} />} />
-          <Route path="/verify-email" element={<MaintenanceRoute component={VerifyEmail} isGhana={isGhana} />} />
-          <Route path="/dashboard" element={<MaintenanceRoute component={Dashboard} isGhana={isGhana} />} />
-          <Route path="/folder/:folderId" element={<MaintenanceRoute component={ViewFolder} isGhana={isGhana} />} />
-          <Route path="/folder/:folderId/notes" element={<MaintenanceRoute component={Notes} isGhana={isGhana} />} />
-          <Route path="/folder/:folderId/quizzes" element={<MaintenanceRoute component={Quizzes} isGhana={isGhana} />} />
-          <Route path="/folder/:folderId/flashcards" element={<MaintenanceRoute component={Flashcards} isGhana={isGhana} />} />
-          <Route path="/folder/:folderId/podcast" element={<MaintenanceRoute component={Podcast} isGhana={isGhana} />} />
-          <Route path="/delete-account" element={<MaintenanceRoute component={DeleteAccount} isGhana={isGhana} />} />
-          <Route path="/support-me" element={<MaintenanceRoute component={SupportMe} isGhana={isGhana} />} />
-          <Route path="/dwenlite-download" element={<MaintenanceRoute component={DwenLiteDownload} isGhana={isGhana} />} />
-          <Route path="/terms" element={<MaintenanceRoute component={Terms} isGhana={isGhana} />} />
-          <Route path="/reset-password" element={<MaintenanceRoute component={ResetPassword} isGhana={isGhana} />} />
-          <Route path="/support" element={<MaintenanceRoute component={Support} isGhana={isGhana} />} />
-          <Route path="/buy-coins" element={<MaintenanceRoute component={BuyCoins} isGhana={isGhana} />} />
-          <Route path="/buy-bundles" element={<MaintenanceRoute component={Bundles} isGhana={isGhana} />} />
-          <Route path="/community-support" element={<MaintenanceRoute component={CommunitySupport} isGhana={isGhana} />} />
-          <Route path="/dwenlite-helpdesk" element={<MaintenanceRoute component={DwenliteHelpdesk} isGhana={isGhana} />} />
-          <Route path="/exams-preparation" element={<MaintenanceRoute component={ExamsPreparation} isGhana={isGhana} />} />
-          <Route path="/reports" element={<MaintenanceRoute component={Reports} isGhana={isGhana} />} />
+          <Route path="/" element={<MaintenanceRoute component={Welcome} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
+          <Route path="/login" element={<MaintenanceRoute component={Login} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
+          <Route path="/signup" element={<MaintenanceRoute component={Signup} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
+          <Route path="/verify-email" element={<MaintenanceRoute component={VerifyEmail} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
+          <Route path="/dashboard" element={<MaintenanceRoute component={Dashboard} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
+          <Route path="/folder/:folderId" element={<MaintenanceRoute component={ViewFolder} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
+          <Route path="/folder/:folderId/notes" element={<MaintenanceRoute component={Notes} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
+          <Route path="/folder/:folderId/quizzes" element={<MaintenanceRoute component={Quizzes} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
+          <Route path="/folder/:folderId/flashcards" element={<MaintenanceRoute component={Flashcards} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
+          <Route path="/folder/:folderId/podcast" element={<MaintenanceRoute component={Podcast} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
+          <Route path="/delete-account" element={<MaintenanceRoute component={DeleteAccount} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
+          <Route path="/support-me" element={<MaintenanceRoute component={SupportMe} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
+          <Route path="/dwenlite-download" element={<MaintenanceRoute component={DwenLiteDownload} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
+          <Route path="/terms" element={<MaintenanceRoute component={Terms} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
+          <Route path="/reset-password" element={<MaintenanceRoute component={ResetPassword} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
+          <Route path="/support" element={<MaintenanceRoute component={Support} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
+          <Route path="/buy-coins" element={<MaintenanceRoute component={BuyCoins} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
+          <Route path="/buy-bundles" element={<MaintenanceRoute component={Bundles} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
+          <Route path="/community-support" element={<MaintenanceRoute component={CommunitySupport} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
+          <Route path="/dwenlite-helpdesk" element={<MaintenanceRoute component={DwenliteHelpdesk} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
+          <Route path="/exams-preparation" element={<MaintenanceRoute component={ExamsPreparation} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
+          <Route path="/reports" element={<MaintenanceRoute component={Reports} isGhana={isGhana} setShowBanPopup={setShowBanPopup} />} />
           <Route path="/maintenance" element={<Maintenance />} />
           <Route path="*" element={isMaintenanceWindow() ? <Maintenance /> : <NotFound />} />
         </Routes>
