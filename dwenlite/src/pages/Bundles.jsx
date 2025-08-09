@@ -93,10 +93,11 @@ function Bundles() {
       const now = new Date();
       const hours = now.getHours();
       const minutes = now.getMinutes();
-      // Closed at exactly 9:00 PM (21:00) until 8:00 AM (08:00)
-      setIsClosed((hours >= 21 || hours < 8));
-      // Fire sale from 8:00 PM (20:00) to 8:30 PM (20:30)
-      setIsFireSale(hours === 20 && minutes >= 0 && minutes <= 29);
+      const isSunday = now.getDay() === 0; // 0 represents Sunday
+      // Closed on Sundays or at exactly 9:00 PM (21:00) until 8:00 AM (08:00)
+      setIsClosed(isSunday || hours >= 21 || hours < 8);
+      // Fire sale from 8:00 PM (20:00) to 8:30 PM (20:30), not on Sundays
+      setIsFireSale(!isSunday && hours === 20 && minutes >= 0 && minutes <= 29);
     };
 
     checkOperatingHours();
@@ -190,7 +191,7 @@ function Bundles() {
 
   const handlePurchase = async () => {
     if (isClosed) {
-      toast.error('We are closed for the day. Please come back at 8 AM.');
+      toast.error('We are closed for the day. Please come back at 8 AM (Monday to Saturday).');
       return;
     }
     if (!phoneNumber || !selectedNetwork || !selectedBundle) {
@@ -218,7 +219,7 @@ function Bundles() {
 
   const confirmPurchase = async () => {
     if (isClosed) {
-      toast.error('We are closed for the day. Please come back at 8 AM.');
+      toast.error('We are closed for the day. Please come back at 8 AM (Monday to Saturday).');
       setShowConfirmModal(false);
       return;
     }
@@ -380,7 +381,7 @@ function Bundles() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l2 2m-2-10a9 9 0 100 18 9 9 0 000-18z"/>
             </svg>
             <p className="text-sm md:text-base">
-              <strong>Notice:</strong> We are closed for the day. Please come back at 8 AM.
+              <strong>Notice:</strong> We are closed for the day. Please come back at 8 AM (Monday to Saturday).
             </p>
           </div>
         ) : (

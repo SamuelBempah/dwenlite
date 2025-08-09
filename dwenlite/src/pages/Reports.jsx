@@ -24,11 +24,13 @@ function Reports() {
     const checkOperatingHours = () => {
       const now = new Date();
       const hours = now.getHours();
-      setIsClosed(hours >= 21 || hours < 8);
+      const isSunday = now.getDay() === 0; // 0 represents Sunday
+      // Closed on Sundays or at exactly 9:00 PM (21:00) until 8:00 AM (08:00)
+      setIsClosed(isSunday || hours >= 21 || hours < 8);
     };
 
     checkOperatingHours();
-    const interval = setInterval(checkOperatingHours, 60000);
+    const interval = setInterval(checkOperatingHours, 60000); // Check every minute
     return () => clearInterval(interval);
   }, []);
 
@@ -77,7 +79,7 @@ function Reports() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (isClosed) {
-      toast.error('We are closed for the day. Please come back at 8 AM.');
+      toast.error('We are closed for the day. Please come back at 8 AM (Monday to Saturday).');
       return;
     }
     if (!reportType) {
@@ -190,7 +192,7 @@ function Reports() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l2 2m-2-10a9 9 0 100 18 9 9 0 000-18z"/>
           </svg>
           <p className="text-sm md:text-base">
-            <strong>Notice:</strong> We are closed for the day. Please come back at 8 AM.
+            <strong>Notice:</strong> We are closed for the day. Please come back at 8 AM (Monday to Saturday).
           </p>
         </div>
       )}
