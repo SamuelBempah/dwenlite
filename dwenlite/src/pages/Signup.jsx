@@ -22,7 +22,13 @@ function Signup({ setShowBanPopup }) {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       console.log('onAuthStateChanged:', user ? user.uid : null); // Debug log
       if (user) {
-        navigate('/dashboard');
+        if (user.emailVerified || user.providerData.some(provider => provider.providerId === 'google.com')) {
+          // Redirect to dashboard only if email is verified or user signed up with Google
+          navigate('/dashboard');
+        } else {
+          // For email/password users, stay on current page or navigate to verify-email
+          console.log('User email not verified, staying on signup or verify-email page');
+        }
       }
       setCheckingStatus(false);
     });
@@ -85,6 +91,15 @@ function Signup({ setShowBanPopup }) {
             // Send email verification
             sendEmailVerification(user)
               .then(() => {
+                // Trigger Google Analytics conversion event
+                if (window.gtag) {
+                  window.gtag('event', 'conversion', {
+                    'send_to': 'AW-16618305484/42k9CKaioL0aEMzvnPQ9'
+                  });
+                } else {
+                  console.warn('Google Analytics gtag is not defined.');
+                }
+
                 setTimeout(() => {
                   toast.success('Sign-up successful! Please verify your email.');
                   triggerConfetti();
@@ -135,6 +150,16 @@ function Signup({ setShowBanPopup }) {
       console.log('Attempting Google sign-up with popup'); // Debug log
       const result = await signInWithPopup(auth, googleProvider);
       console.log('signInWithPopup:', result.user.uid); // Debug log
+
+      // Trigger Google Analytics conversion event
+      if (window.gtag) {
+        window.gtag('event', 'conversion', {
+          'send_to': 'AW-16618305484/42k9CKaioL0aEMzvnPQ9'
+        });
+      } else {
+        console.warn('Google Analytics gtag is not defined.');
+      }
+
       setTimeout(() => {
         toast.success('Successfully signed up with Google!');
         triggerConfetti();
