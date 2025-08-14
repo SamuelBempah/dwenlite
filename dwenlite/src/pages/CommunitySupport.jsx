@@ -253,7 +253,7 @@ For further assistance or to report issues with any version, contact our support
       author: "DwenLite Support",
       date: "2025-08-03",
     },
-        {
+    {
       id: 7,
       title: "Buying Data Bundles with G_COINS",
       content: `
@@ -294,7 +294,7 @@ DwenLite allows users to buy non-expiry data bundles for MTN, AirtelTigo, and Te
 - **Purchase Failed**: Check your premium G_COINS balance and internet connection. Try again or contact support.
 - **Bundle Not Credited**: Wait for the processing time (up to 1 hour for MTN). If it’s still not credited, contact support.
 
-For further assistance, reach out to our team via the [Chat](/support) link or check the [Community Support](/community-support) page for more articles.
+For further assistance, reach out to our team via the [Chat](/support] link or check the [Community Support](/community-support) page for more articles.
 
 Happy browsing with DwenLite!
 `,
@@ -304,7 +304,7 @@ Happy browsing with DwenLite!
   ]);
   const [searchQuery, setSearchQuery] = useState('');
   const [openBlogId, setOpenBlogId] = useState(null);
-  const [hasNewMessage, setHasNewMessage] = useState(false); // New state for message highlight
+  const [hasNewMessage, setHasNewMessage] = useState(false);
 
   const filteredBlogs = blogs.filter(blog =>
     blog.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -315,19 +315,17 @@ Happy browsing with DwenLite!
     setOpenBlogId(openBlogId === blogId ? null : blogId);
   };
 
-  // Configure marked to ensure proper rendering
   marked.setOptions({
-    breaks: true, // Treat line breaks as <br>
-    gfm: true,   // Enable GitHub Flavored Markdown
+    breaks: true,
+    gfm: true,
   });
 
-  // Render Markdown content with sanitization
   const renderMarkdown = (content) => {
     const html = marked(content);
     return DOMPurify.sanitize(html);
   };
 
-  // Live Chat Bubble State and Logic (from Support.jsx, minimal version)
+  // Chat State
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -344,7 +342,6 @@ Happy browsing with DwenLite!
   const typingTimeoutRef = useRef(null);
   const prevMessagesRef = useRef([]);
 
-  // Predefined responses for Dwenlite features
   const predefinedResponses = {
     folder: 'In Dwenlite, you can create folders to organize your study materials. Go to the dashboard, enter a folder name in the "New folder name" field, and click "Create Folder" to get started. Is that all?',
     upload: 'You can upload PDF, PPTX, TXT, DOCX, audio, or video files to a folder. On the dashboard, select a folder, then use the "Audio Upload", "Video Upload", or "Document Upload" buttons to add your files. Is that all?',
@@ -414,7 +411,7 @@ Happy browsing with DwenLite!
           if (newMessages.length > prevMessages.length) {
             const latestMessage = newMessages[newMessages.length - 1];
             if (latestMessage.sender === 'dwenlite' || latestMessage.sender === 'agent') {
-              setHasNewMessage(true); // Set highlight for new message
+              setHasNewMessage(true);
               playAlertSound();
               scrollToBottom();
             }
@@ -809,16 +806,66 @@ Happy browsing with DwenLite!
           .prose td {
             background: #1f2937;
           }
-          .animate-blink {
-            animation: blink 1.4s infinite both;
+          /* Chat Animations */
+          @keyframes pulse {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.7); }
+            50% { transform: scale(1.1); box-shadow: 0 0 15px 5px rgba(139, 92, 246, 0.5); }
           }
-          @keyframes blink {
-            0%, 80%, 100% { opacity: 0.2; }
-            40% { opacity: 1; }
-          }
-          @keyframes slideUp {
+          @keyframes slideIn {
             0% { transform: translateY(100%); opacity: 0; }
             100% { transform: translateY(0); opacity: 1; }
+          }
+          @keyframes bounceIn {
+            0% { transform: translateY(10px); opacity: 0; }
+            60% { transform: translateY(-5px); opacity: 1; }
+            100% { transform: translateY(0); }
+          }
+          @keyframes typingDot {
+            0% { transform: translateY(0); background: #a78bfa; }
+            50% { transform: translateY(-5px); background: #c4b5fd; }
+            100% { transform: translateY(0); background: #a78bfa; }
+          }
+          @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            100% { background-position: 200% 50%; }
+          }
+          .chat-bubble {
+            animation: pulse 2s infinite;
+          }
+          .chat-bubble:hover .chat-tooltip {
+            opacity: 1;
+            transform: translateY(-10px);
+          }
+          .chat-tooltip {
+            opacity: 0;
+            transform: translateY(0);
+            transition: opacity 0.3s ease, transform 0.3s ease;
+          }
+          .chat-window {
+            animation: slideIn 0.4s ease-out;
+            background: linear-gradient(45deg, #1f2937, #374151, #1f2937);
+            background-size: 200% 200%;
+            animation: gradientShift 10s ease infinite;
+          }
+          .message-bubble {
+            animation: bounceIn 0.3s ease-out;
+            transition: transform 0.2s ease, background 0.2s ease;
+          }
+          .message-bubble:hover {
+            transform: scale(1.02);
+            background: #4b5563 !important;
+          }
+          .typing-dot {
+            animation: typingDot 1s infinite;
+          }
+          .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+          .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+          .button-interact {
+            transition: transform 0.2s ease, background 0.2s ease;
+          }
+          .button-interact:hover {
+            transform: scale(1.05);
+            background: #a78bfa !important;
           }
           .bottom-nav {
             position: fixed;
@@ -835,7 +882,7 @@ Happy browsing with DwenLite!
             color: #d1d5db;
           }
           .bottom-nav-enter {
-            animation: slideUp 0.3s ease-out forwards;
+            animation: slideIn 0.3s ease-out forwards;
           }
           .active-nav {
             color: #9333ea !important;
@@ -899,7 +946,7 @@ Happy browsing with DwenLite!
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search support articles..."
-              className="w-full p-3 sm:p-4 rounded-lg bg-gray-700 text-white text-base sm:text-lg border border-gray-600 focus:border-purple-500 focus:outline-none"
+              className="w-full p-3 sm:p-4 rounded-lg bg-gray-700 text-white text-base sm:text-lg border border-gray-600 focus:border-purple-500 focus:outline-none transition-all duration-300"
             />
           </div>
 
@@ -1026,39 +1073,39 @@ Happy browsing with DwenLite!
       <button
         onClick={() => {
           setIsChatOpen(!isChatOpen);
-          setHasNewMessage(false); // Remove highlight when chat is opened
+          setHasNewMessage(false);
           if (!isChatOpen) {
             playAlertSound();
             setTimeout(scrollToBottom, 0);
           }
         }}
-        className={`fixed bottom-4 right-4 w-12 h-12 sm:w-14 sm:h-14 bg-gradient-to-r from-yellow-400 to-red-500 rounded-full flex items-center justify-center shadow-lg hover:bg-gradient-to-l transition-all duration-1000 z-50 ${hasNewMessage ? 'border-2 border-purple-500 shadow-[0_0_10px_rgba(139,92,246,0.7)]' : ''}`}
+        className={`fixed bottom-4 right-4 w-14 h-14 sm:w-16 sm:h-16 bg-gradient-to-r from-yellow-400 to-red-500 rounded-full flex items-center justify-center shadow-lg chat-bubble z-50 ${hasNewMessage ? 'border-2 border-purple-500 shadow-[0_0_15px_rgba(139,92,246,0.9)]' : ''}`}
       >
-        <svg className="w-5 h-5 sm:w-6 sm:h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+        <svg className="w-6 h-6 sm:w-7 sm:h-7 text-white" fill="currentColor" viewBox="0 0 24 24">
           <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/>
         </svg>
-        <span className="absolute top-[-40px] opacity-0 bg-orange-400 text-white text-xs px-2 py-1 rounded-lg transition-opacity duration-500 pointer-events-none">
-          Chat
+        <span className="absolute top-[-40px] bg-orange-400 text-white text-xs px-3 py-1 rounded-lg chat-tooltip pointer-events-none">
+          Chat with Support
         </span>
       </button>
 
       {/* Chat Window */}
       {isChatOpen && (
-        <div className="fixed bottom-16 right-2 sm:right-5 w-[calc(100%-1rem)] sm:max-w-sm bg-gray-800 rounded-lg shadow-lg overflow-hidden z-50">
-          <div className="flex flex-col h-[70vh] sm:h-[400px]">
-            <div className="px-3 sm:px-4 py-2 sm:py-3 border-b border-gray-700">
+        <div className="fixed bottom-20 right-2 sm:right-5 w-[calc(100%-1rem)] sm:max-w-md bg-gray-800 rounded-xl shadow-2xl overflow-hidden chat-window z-50">
+          <div className="flex flex-col h-[80vh] sm:h-[500px]">
+            <div className="px-4 py-3 border-b border-gray-700 bg-gray-900/50">
               <div className="flex justify-between items-center">
-                <h2 className="text-base sm:text-lg font-semibold text-white">Dwenlite Support</h2>
-                <div className="bg-green-500 text-white text-xs px-2 py-1 rounded-full">
-                  {agentJoined ? 'Agent Online' : 'Online'}
+                <h2 className="text-lg sm:text-xl font-semibold text-white">DwenLite Support</h2>
+                <div className={`text-xs px-3 py-1 rounded-full ${agentJoined ? 'bg-green-500' : 'bg-blue-500'} text-white animate-pulse`}>
+                  {agentJoined ? 'Agent Online' : 'AI Online'}
                 </div>
               </div>
             </div>
-            <div ref={chatDisplayRef} className="flex-1 p-3 overflow-y-auto flex flex-col space-y-2">
+            <div ref={chatDisplayRef} className="flex-1 p-4 overflow-y-auto flex flex-col space-y-3 scrollbar-thin scrollbar-thumb-purple-500 scrollbar-track-gray-900">
               {messages.map(msg => (
                 <div
                   key={msg.id}
-                  className={`max-w-[80%] rounded-lg px-2 sm:px-3 py-1 sm:py-1.5 text-xs sm:text-sm ${
+                  className={`max-w-[80%] rounded-xl px-3 py-2 text-sm sm:text-base message-bubble ${
                     msg.sender === 'user'
                       ? 'self-end bg-purple-600 text-white'
                       : msg.sender === 'agent'
@@ -1067,35 +1114,35 @@ Happy browsing with DwenLite!
                   }`}
                 >
                   <strong>{msg.sender === 'user' ? 'You' : msg.sender === 'agent' ? 'Agent' : 'DwenLite Support AI'}:</strong> {msg.content}
-                  <small className="block text-xs opacity-75">{msg.timestamp}</small>
+                  <small className="block text-xs opacity-75 mt-1">{msg.timestamp}</small>
                 </div>
               ))}
               {(isTyping && agentJoined) && (
-                <div className="flex items-center px-2 sm:px-3 py-1 sm:py-2 text-gray-400 text-xs">
+                <div className="flex items-center px-3 py-2 text-gray-400 text-sm">
                   <span>Agent is typing</span>
-                  <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-gray-400 rounded-full mx-1 animate-blink"></span>
-                  <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-200"></span>
-                  <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-400"></span>
+                  <span className="w-2 h-2 bg-purple-500 rounded-full mx-1 typing-dot"></span>
+                  <span className="w-2 h-2 bg-purple-500 rounded-full mx-1 typing-dot"></span>
+                  <span className="w-2 h-2 bg-purple-500 rounded-full mx-1 typing-dot"></span>
                 </div>
               )}
               {(isTyping && !agentJoined) && (
-                <div className="flex items-center px-2 sm:px-3 py-1 sm:py-2 text-gray-400 text-xs">
+                <div className="flex items-center px-3 py-2 text-gray-400 text-sm">
                   <span>DwenLite Support AI is typing</span>
-                  <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-gray-400 rounded-full mx-1 animate-blink"></span>
-                  <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-200"></span>
-                  <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-400"></span>
+                  <span className="w-2 h-2 bg-purple-500 rounded-full mx-1 typing-dot"></span>
+                  <span className="w-2 h-2 bg-purple-500 rounded-full mx-1 typing-dot"></span>
+                  <span className="w-2 h-2 bg-purple-500 rounded-full mx-1 typing-dot"></span>
                 </div>
               )}
             </div>
             {showRating && !ratingSubmitted && (
-              <div className="px-2 sm:px-3 py-2 border-t border-gray-700">
-                <div className="text-white text-xs sm:text-sm mb-2">Rate your experience:</div>
-                <div className="flex gap-1">
+              <div className="px-4 py-3 border-t border-gray-700 bg-gray-900/50">
+                <div className="text-white text-sm mb-2">Rate your experience:</div>
+                <div className="flex gap-2">
                   {[1, 2, 3, 4, 5].map(star => (
                     <button
                       key={star}
                       onClick={() => setRating(star)}
-                      className={`text-xl sm:text-2xl ${rating >= star ? 'text-yellow-400' : 'text-gray-400'}`}
+                      className={`text-2xl sm:text-3xl transition-transform duration-200 ${rating >= star ? 'text-yellow-400 scale-110' : 'text-gray-400'}`}
                     >
                       ★
                     </button>
@@ -1103,7 +1150,7 @@ Happy browsing with DwenLite!
                 </div>
                 <button
                   onClick={handleRatingSubmit}
-                  className="bg-purple-600 text-white py-1 px-3 rounded-lg hover:bg-purple-700 text-xs sm:text-sm mt-2"
+                  className="bg-purple-600 text-white py-2 px-4 rounded-lg button-interact mt-3 w-full"
                   disabled={rating === 0}
                 >
                   Submit Rating
@@ -1111,32 +1158,32 @@ Happy browsing with DwenLite!
               </div>
             )}
             {ratingSubmitted && (
-              <div className="px-2 sm:px-3 py-2 border-t border-gray-700">
+              <div className="px-4 py-3 border-t border-gray-700 bg-gray-900/50">
                 <button
                   onClick={handleStartNewChat}
-                  className="bg-purple-600 text-white py-1 px-3 rounded-lg hover:bg-purple-700 text-xs sm:text-sm"
+                  className="bg-purple-600 text-white py-2 px-4 rounded-lg button-interact w-full"
                 >
                   Start New Chat
                 </button>
               </div>
             )}
             {!showRating && !ratingSubmitted && (
-              <div className="px-2 sm:px-3 py-2 border-t border-gray-700">
-                <div className="flex gap-2">
+              <div className="px-4 py-3 border-t border-gray-700 bg-gray-900/50">
+                <div className="flex gap-3">
                   <input
                     type="text"
                     value={input}
                     onChange={(e) => handleTyping(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
                     placeholder="Type your message..."
-                    className={`flex-1 p-2 rounded-lg bg-gray-700 text-white text-xs sm:text-sm border border-gray-600 ${
+                    className={`flex-1 p-2 rounded-lg bg-gray-700 text-white text-sm border border-gray-600 focus:border-purple-500 focus:outline-none transition-all duration-300 ${
                       isConversationEnded ? 'opacity-50 cursor-not-allowed' : ''
                     }`}
                     disabled={isConversationEnded}
                   />
                   <button
                     onClick={handleSendMessage}
-                    className={`bg-purple-600 text-white py-1.5 px-3 rounded-lg hover:bg-purple-700 text-xs sm:text-sm ${
+                    className={`bg-purple-600 text-white py-2 px-4 rounded-lg button-interact ${
                       isConversationEnded ? 'opacity-50 cursor-not-allowed' : ''
                     }`}
                     disabled={isConversationEnded}
