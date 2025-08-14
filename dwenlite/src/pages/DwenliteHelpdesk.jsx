@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
-import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp, deleteDoc, addDoc, getDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp, deleteDoc, addDoc, getDoc, getDocs } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
+import { motion, AnimatePresence } from 'framer-motion';
 
 function DwenliteHelpdesk() {
   const navigate = useNavigate();
@@ -22,6 +23,10 @@ function DwenliteHelpdesk() {
   const [isLoadingPurchases, setIsLoadingPurchases] = useState(false);
   const [reports, setReports] = useState([]);
   const [isLoadingReports, setIsLoadingReports] = useState(false);
+  const [users, setUsers] = useState([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [userActivityLogs, setUserActivityLogs] = useState([]);
   const chatDisplayRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const prevChatsRef = useRef([]);
@@ -34,7 +39,6 @@ function DwenliteHelpdesk() {
     }
   };
 
-  // Function to rewrite text using DeepSeek API
   const rewriteText = async (text) => {
     const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
     if (!apiKey) {
@@ -98,7 +102,6 @@ function DwenliteHelpdesk() {
     }
   };
 
-  // Function to send SMS when chat status changes to Awaiting Agent
   const sendAwaitingAgentSMS = async (chat) => {
     try {
       console.log('Sending SMS for chat:', { chatId: chat.chatId, username: chat.username });
@@ -117,16 +120,125 @@ function DwenliteHelpdesk() {
       const errorMessage = error.response
         ? `Server responded with status ${error.response.status}: ${JSON.stringify(error.response.data)}`
         : error.request
-        ? 'No response received from server. Check if server is running on http://localhost:3001.'
+        ? 'No response received from server. Check if server is running.'
         : error.message;
       console.error('Error sending Awaiting Agent SMS for chat:', chat.chatId, 'Error:', errorMessage);
       toast.error(`Failed to send Awaiting Agent SMS: ${errorMessage}`);
     }
   };
 
+  const fetchUserDetails = async (userId) => {
+    try {
+      console.log('Fetching user details for userId:', userId);
+      const userDocRef = doc(db, 'users', userId);
+      const userDoc = await getDoc(userDocRef);
+      let userData = { username: 'Unknown' };
+      if (userDoc.exists()) {
+        userData = userDoc.data();
+        console.log('User data from users collection:', userData);
+      } else {
+        console.log('User document not found in users collection for userId:', userId);
+      }
+
+      const foldersQuery = query(collection(db, 'folders'), where('user_id', '==', userId));
+      const foldersSnapshot = await getDocs(foldersQuery);
+      const folders = foldersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      console.log('Folders fetched for userId:', userId, 'Folders:', folders);
+
+      let username = userData.username || 'Unknown';
+      if (username === 'Unknown') {
+        console.log('No username in users collection, checking chats collection for userId:', userId);
+        const chatsQuery = query(collection(db, 'chats'), where('userId', '==', userId));
+        const chatsSnapshot = await getDocs(chatsQuery);
+        if (!chatsSnapshot.empty) {
+          const chatData = chatsSnapshot.docs[0].data();
+          username = chatData.username || 'Unknown';
+          console.log('Username from chats collection:', username);
+        } else {
+          console.log('No chats found for userId:', userId);
+        }
+      }
+
+      if (username === 'Unknown' && auth.currentUser && auth.currentUser.uid === userId) {
+        username = auth.currentUser.displayName || 'Unknown';
+        console.log('Username from Firebase Auth displayName:', username);
+      }
+
+      return { ...userData, folders, id: userId, username };
+    } catch (error) {
+      console.error('Error fetching user details for userId:', userId, 'Error:', error.message);
+      toast.error(`Failed to fetch user details: ${error.message}`);
+      return null;
+    }
+  };
+
+  const handleSelectUser = async (userId) => {
+    const userDetails = await fetchUserDetails(userId);
+    if (userDetails) {
+      setSelectedUser(userDetails);
+      const logsQuery = query(collection(db, 'user_activity_logs'), where('userId', '==', userId));
+      const unsubscribeLogs = onSnapshot(logsQuery, (snapshot) => {
+        const logs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setUserActivityLogs(logs);
+        console.log('User activity logs fetched for userId:', userId, 'Logs:', logs);
+      }, (error) => {
+        console.error('Error fetching user activity logs for userId:', userId, 'Error:', error.message);
+        toast.error(`Failed to load user activity logs: ${error.message}`);
+      });
+      return () => unsubscribeLogs();
+    }
+  };
+
+  const handleUpdateUser = async (userId, updatedData) => {
+    try {
+      console.log('Updating user:', userId, 'with data:', updatedData);
+      await updateDoc(doc(db, 'users', userId), {
+        ...updatedData,
+        lastUpdated: serverTimestamp(),
+      });
+      console.log(`User ${userId} updated successfully`);
+      toast.success('User details updated successfully.');
+      setSelectedUser(prev => ({ ...prev, ...updatedData }));
+    } catch (err) {
+      console.error('Error updating user:', userId, 'Error:', err.code, err.message);
+      toast.error(`Failed to update user: ${err.message}`);
+    }
+  };
+
+  const handleDeleteUser = async (userId) => {
+    try {
+      console.log('Deleting user:', userId);
+      await deleteDoc(doc(db, 'users', userId));
+      setUsers(prev => prev.filter(user => user.id !== userId));
+      setSelectedUser(null);
+      console.log(`User ${userId} deleted successfully`);
+      toast.success('User deleted successfully.');
+    } catch (err) {
+      console.error('Error deleting user:', userId, 'Error:', err.code, err.message);
+      toast.error(`Failed to delete user: ${err.message}`);
+    }
+  };
+
+  const handleUserStatusChange = async (userId, newStatus) => {
+    try {
+      console.log('Updating user status for userId:', userId, 'New status:', newStatus);
+      await updateDoc(doc(db, 'users', userId), {
+        status: newStatus,
+        lastUpdated: serverTimestamp(),
+      });
+      console.log(`User ${userId} status updated to ${newStatus}`);
+      toast.success(`User status updated to ${newStatus}.`);
+      setSelectedUser(prev => ({ ...prev, status: newStatus }));
+    } catch (err) {
+      console.error('Error updating user status for userId:', userId, 'Error:', err.code, err.message);
+      toast.error(`Failed to update user status: ${err.message}`);
+    }
+  };
+
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
       if (!user) {
+        console.log('No authenticated user, redirecting to login');
         toast.error('Please log in to access the helpdesk.');
         navigate('/login');
       }
@@ -136,14 +248,44 @@ function DwenliteHelpdesk() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      // Check if where is defined
-      if (typeof where !== 'function') {
-        console.error('Firestore "where" function is undefined. Check Firebase imports and SDK version.');
-        toast.error('Firestore configuration error. Please contact support.');
-        return;
-      }
+      const usersQuery = query(collection(db, 'users'));
+      const unsubscribeUsers = onSnapshot(usersQuery, async (snapshot) => {
+        setIsLoadingUsers(true);
+        const allUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        console.log('Raw users fetched from users collection:', allUsers);
+        
+        const updatedUsers = await Promise.all(allUsers.map(async user => {
+          let username = user.username || 'Unknown';
+          if (username === 'Unknown') {
+            console.log('No username for userId:', user.id, 'Checking chats collection');
+            const chatsQuery = query(collection(db, 'chats'), where('userId', '==', user.id));
+            const chatsSnapshot = await getDocs(chatsQuery);
+            if (!chatsSnapshot.empty) {
+              const chatData = chatsSnapshot.docs[0].data();
+              username = chatData.username || 'Unknown';
+              console.log('Username from chats for userId:', user.id, 'Username:', username);
+            } else {
+              console.log('No chats found for userId:', user.id);
+            }
+          }
+          if (username === 'Unknown' && auth.currentUser && auth.currentUser.uid === user.id) {
+            username = auth.currentUser.displayName || 'Unknown';
+            console.log('Username from Firebase Auth for userId:', user.id, 'Username:', username);
+          }
+          return { ...user, username };
+        }));
+        setUsers(updatedUsers);
+        console.log('Updated users with usernames:', updatedUsers);
+        setIsLoadingUsers(false);
+        if (updatedUsers.length === 0) {
+          toast('No users available.', { icon: 'ℹ️' });
+        }
+      }, (error) => {
+        console.error('Error fetching users:', error.code, error.message);
+        toast.error(`Failed to load users: ${error.message}`);
+        setIsLoadingUsers(false);
+      });
 
-      // Fetch all active chats
       try {
         const activeChatsQuery = query(collection(db, 'chats'), where('status', '==', 'active'));
         const unsubscribeActiveChats = onSnapshot(activeChatsQuery, (snapshot) => {
@@ -152,7 +294,6 @@ function DwenliteHelpdesk() {
             ...doc.data(),
           }));
           console.log('Active chats fetched:', chatList.map(c => ({ chatId: c.chatId, username: c.username })));
-          // Detect chats that newly transitioned to needsAgent: true and agentId: null
           const prevChats = prevChatsRef.current;
           chatList.forEach(chat => {
             const prevChat = prevChats.find(c => c.chatId === chat.chatId);
@@ -170,7 +311,6 @@ function DwenliteHelpdesk() {
           toast.error(`Failed to load active chats: ${error.message}`);
         });
 
-        // Fetch chat history
         const historyQuery = query(collection(db, 'chat_history'));
         const unsubscribeHistory = onSnapshot(historyQuery, (snapshot) => {
           const historyList = snapshot.docs.map(doc => ({
@@ -187,7 +327,6 @@ function DwenliteHelpdesk() {
           toast.error(`Failed to load chat history: ${error.message}`);
         });
 
-        // Fetch ratings for all chats
         const ratingsQuery = query(collection(db, 'ratings'));
         const unsubscribeRatings = onSnapshot(ratingsQuery, (snapshot) => {
           const ratings = snapshot.docs.reduce((acc, doc) => ({
@@ -215,7 +354,6 @@ function DwenliteHelpdesk() {
           toast.error(`Failed to load ratings: ${error.message}`);
         });
 
-        // Fetch all purchases
         const purchasesQuery = query(collection(db, 'purchases'));
         const unsubscribePurchases = onSnapshot(purchasesQuery, (snapshot) => {
           setIsLoadingPurchases(true);
@@ -232,7 +370,6 @@ function DwenliteHelpdesk() {
           setIsLoadingPurchases(false);
         });
 
-        // Fetch all data reports
         const reportsQuery = query(collection(db, 'data_reports'));
         const unsubscribeReports = onSnapshot(reportsQuery, (snapshot) => {
           setIsLoadingReports(true);
@@ -250,6 +387,7 @@ function DwenliteHelpdesk() {
         });
 
         return () => {
+          unsubscribeUsers();
           unsubscribeActiveChats();
           unsubscribeHistory();
           unsubscribeRatings();
@@ -475,18 +613,20 @@ function DwenliteHelpdesk() {
 
   const handleDeleteChat = async (chatId) => {
     try {
+      console.log('Deleting chat from history:', chatId);
       await deleteDoc(doc(db, 'chat_history', chatId));
       setChatHistory(prev => prev.filter(chat => chat.chatId !== chatId));
       console.log('Chat deleted from history:', chatId);
       toast.success('Chat deleted successfully.');
     } catch (err) {
-      console.error('Error deleting chat:', err.code, err.message);
+      console.error('Error deleting chat:', chatId, 'Error:', err.code, err.message);
       toast.error(`Failed to delete chat: ${err.message}`);
     }
   };
 
   const handleStatusChange = async (purchaseId, newStatus) => {
     try {
+      console.log('Updating purchase status for purchaseId:', purchaseId, 'New status:', newStatus);
       await updateDoc(doc(db, 'purchases', purchaseId), {
         status: newStatus,
         lastUpdated: serverTimestamp(),
@@ -494,13 +634,14 @@ function DwenliteHelpdesk() {
       console.log(`Purchase ${purchaseId} status updated to ${newStatus}`);
       toast.success(`Purchase status updated to ${newStatus}.`);
     } catch (err) {
-      console.error('Error updating purchase status:', err.code, err.message);
+      console.error('Error updating purchase status:', purchaseId, 'Error:', err.code, err.message);
       toast.error(`Failed to update purchase status: ${err.message}`);
     }
   };
 
   const handleReportStatusChange = async (reportId, newStatus) => {
     try {
+      console.log('Updating report status for reportId:', reportId, 'New status:', newStatus);
       await updateDoc(doc(db, 'data_reports', reportId), {
         status: newStatus,
         lastUpdated: serverTimestamp(),
@@ -508,255 +649,440 @@ function DwenliteHelpdesk() {
       console.log(`Report ${reportId} status updated to ${newStatus}`);
       toast.success(`Report status updated to ${newStatus}.`);
     } catch (err) {
-      console.error('Error updating report status:', err.code, err.message);
+      console.error('Error updating report status:', reportId, 'Error:', err.code, err.message);
       toast.error(`Failed to update report status: ${err.message}`);
     }
   };
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
-        <div className="bg-gray-800 p-6 rounded-lg">
-          <h2 className="text-xl font-semibold mb-4">Enter Admin Passcode</h2>
+      <div className="min-h-screen bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center p-4">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="bg-white bg-opacity-10 backdrop-blur-lg p-8 rounded-xl shadow-2xl w-full max-w-md"
+        >
+          <h2 className="text-2xl font-bold text-white mb-6 text-center">Admin Login</h2>
           <input
             type="password"
             value={passcode}
             onChange={(e) => setPasscode(e.target.value)}
             placeholder="Enter passcode"
-            className="p-2 rounded-lg bg-gray-700 text-white text-sm border border-gray-600 mb-4 w-full"
+            className="w-full p-3 rounded-lg bg-gray-700 bg-opacity-50 text-white border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all"
           />
-          <button
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
             onClick={handlePasscodeSubmit}
-            className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700"
+            className="mt-4 w-full bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 transition-colors"
           >
             Submit
-          </button>
-        </div>
+          </motion.button>
+        </motion.div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col">
-      <style>
-        {`
-          .animate-blink {
-            animation: blink 1s step-end infinite;
-          }
-          .animate-blink.delay-200 {
-            animation-delay: 0.2s;
-          }
-          .animate-blink.delay-400 {
-            animation-delay: 0.4s;
-          }
-          @keyframes blink {
-            50% { opacity: 0; }
-          }
-        `}
-      </style>
-      <div className="p-8">
-        <h1 className="text-3xl font-bold mb-8">Dwenlite Helpdesk</h1>
-        <div className="flex flex-col md:flex-row gap-6">
-          {/* Chat List, Purchases, and Reports */}
-          <div className="w-full md:w-1/3 bg-gray-800 p-6 rounded-lg">
-            <h2 className="text-xl font-semibold mb-4">Active Chats</h2>
+    <div className="min-h-screen bg-gradient-to-br from-gray-800 to-gray-900 text-white flex flex-col">
+      <div className="p-4 md:p-8">
+        <motion.h1
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5 }}
+          className="text-3xl md:text-4xl font-bold mb-8 text-center"
+        >
+          Dwenlite Admin Dashboard
+        </motion.h1>
+        <div className="flex flex-col lg:flex-row gap-6">
+          {/* Left Panel */}
+          <motion.div
+            initial={{ x: -20, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            transition={{ duration: 0.5 }}
+            className="w-full lg:w-1/3 bg-white bg-opacity-10 backdrop-blur-lg p-6 rounded-xl shadow-xl overflow-y-auto max-h-[calc(100vh-120px)]"
+          >
+            <h2 className="text-xl font-semibold mb-4">Users ({users.length})</h2>
+            {isLoadingUsers ? (
+              <p className="text-gray-400">Loading users...</p>
+            ) : users.length === 0 ? (
+              <p className="text-gray-400">No users available.</p>
+            ) : (
+              <AnimatePresence>
+                {users.map(user => (
+                  <motion.div
+                    key={user.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="p-4 bg-white bg-opacity-5 rounded-lg mb-3 cursor-pointer hover:bg-opacity-10 transition-all"
+                    onClick={() => handleSelectUser(user.id)}
+                  >
+                    <p className="text-sm"><strong>User ID:</strong> {user.id.slice(0, 8)}...</p>
+                    <p className="text-sm"><strong>Username:</strong> {user.username || 'Unknown'}</p>
+                    <p className="text-sm"><strong>G_COINS:</strong> {user.gCoins || 0}</p>
+                    <p className="text-sm"><strong>Status:</strong> {user.status || 'Active'}</p>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            )}
+            <h2 className="text-xl font-semibold mb-4 mt-8">Active Chats</h2>
             {chats.length === 0 && <p className="text-gray-400">No active chats available.</p>}
-            {chats.map(chat => (
-              <div
-                key={chat.chatId}
-                className={`p-4 bg-gray-700 rounded-lg mb-2 ${
-                  !chat.agentId ? 'cursor-pointer hover:bg-gray-600' : 'cursor-not-allowed opacity-50'
-                }`}
-                onClick={() => !chat.agentId && handleJoinChat(chat)}
-              >
-                <p><strong>User:</strong> {chat.username || 'Unknown'}</p>
-                <p><small>Last Message: {chat.lastMessageTime?.toDate().toLocaleString() || 'N/A'}</small></p>
-                {chat.needsAgent && !chat.agentId && <p><strong>Status:</strong> Awaiting Agent</p>}
-                {!chat.needsAgent && chat.agentId && <p><strong>Status:</strong> Agent Assigned</p>}
-                {chat.rating && <p><strong>Rating:</strong> {chat.rating}/5</p>}
-              </div>
-            ))}
+            <AnimatePresence>
+              {chats.map(chat => (
+                <motion.div
+                  key={chat.chatId}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className={`p-4 bg-white bg-opacity-5 rounded-lg mb-3 ${
+                    !chat.agentId ? 'cursor-pointer hover:bg-opacity-10' : 'opacity-50 cursor-not-allowed'
+                  } transition-all`}
+                  onClick={() => !chat.agentId && handleJoinChat(chat)}
+                >
+                  <p className="text-sm"><strong>User:</strong> {chat.username || 'Unknown'}</p>
+                  <p className="text-xs text-gray-400">Last: {chat.lastMessageTime?.toDate().toLocaleString() || 'N/A'}</p>
+                  {chat.needsAgent && !chat.agentId && <p className="text-sm text-yellow-400"><strong>Status:</strong> Awaiting Agent</p>}
+                  {!chat.needsAgent && chat.agentId && <p className="text-sm text-green-400"><strong>Status:</strong> Agent Assigned</p>}
+                  {chat.rating && <p className="text-sm"><strong>Rating:</strong> {chat.rating}/5</p>}
+                </motion.div>
+              ))}
+            </AnimatePresence>
             <h2 className="text-xl font-semibold mb-4 mt-8">Chat History</h2>
             {chatHistory.length === 0 && <p className="text-gray-400">No chat history available.</p>}
-            {chatHistory.map(chat => (
-              <div
-                key={chat.chatId}
-                className="p-4 bg-gray-700 rounded-lg mb-2 flex justify-between items-center"
-              >
-                <div>
-                  <p><strong>User:</strong> {chat.username || 'Unknown'}</p>
-                  <p>
-                    <small>
+            <AnimatePresence>
+              {chatHistory.map(chat => (
+                <motion.div
+                  key={chat.chatId}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  className="p-4 bg-white bg-opacity-5 rounded-lg mb-3 flex justify-between items-center"
+                >
+                  <div>
+                    <p className="text-sm"><strong>User:</strong> {chat.username || 'Unknown'}</p>
+                    <p className="text-xs text-gray-400">
                       Closed: {chat.closedAt?.toDate().toLocaleString() || 'N/A'}
                       {typeof chat.rating === 'number' && `, ${chat.rating}/5`}
-                    </small>
-                  </p>
-                </div>
-                <button
-                  onClick={() => handleDeleteChat(chat.chatId)}
-                  className="bg-red-600 text-white py-1 px-2 rounded-lg hover:bg-red-700 text-sm"
-                >
-                  Delete
-                </button>
-              </div>
-            ))}
-            <h2 className="text-xl font-semibold mb-4 mt-8">All Purchases</h2>
+                    </p>
+                  </div>
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={() => handleDeleteChat(chat.chatId)}
+                    className="bg-red-500 text-white py-1 px-2 rounded-lg text-sm"
+                  >
+                    Delete
+                  </motion.button>
+                </motion.div>
+              ))}
+            </AnimatePresence>
+            <h2 className="text-xl font-semibold mb-4 mt-8">Purchases</h2>
             {isLoadingPurchases ? (
               <p className="text-gray-400">Loading purchases...</p>
             ) : purchases.length === 0 ? (
               <p className="text-gray-400">No purchases available.</p>
             ) : (
-              purchases.map(purchase => (
-                <div
-                  key={purchase.id}
-                  className="p-4 bg-gray-700 rounded-lg mb-2"
-                >
-                  <p><strong>User ID:</strong> {purchase.userId}</p>
-                  <p><strong>Bundle:</strong> {purchase.bundleName} ({purchase.network})</p>
-                  <p><strong>Phone:</strong> {purchase.phoneNumber}</p>
-                  <p><strong>Cost:</strong> {purchase.gCoins} G_COINS</p>
-                  <p><strong>Purchased:</strong> {new Date(purchase.timestamp.toDate()).toLocaleString()}</p>
-                  <div className="flex items-center mt-2">
-                    <strong>Status:</strong>
-                    <select
-                      value={purchase.status}
-                      onChange={(e) => handleStatusChange(purchase.id, e.target.value)}
-                      className="ml-2 p-1 bg-gray-600 text-white rounded-lg text-sm"
-                    >
-                      <option value="Pending">Pending</option>
-                      <option value="Processing">Processing</option>
-                      <option value="Completed">Completed</option>
-                    </select>
-                  </div>
-                </div>
-              ))
+              <AnimatePresence>
+                {purchases.map(purchase => (
+                  <motion.div
+                    key={purchase.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="p-4 bg-white bg-opacity-5 rounded-lg mb-3"
+                  >
+                    <p className="text-sm"><strong>User ID:</strong> {purchase.userId.slice(0, 8)}...</p>
+                    <p className="text-sm"><strong>Bundle:</strong> {purchase.bundleName} ({purchase.network})</p>
+                    <p className="text-sm"><strong>Phone:</strong> {purchase.phoneNumber}</p>
+                    <p className="text-sm"><strong>Cost:</strong> {purchase.gCoins} G_COINS</p>
+                    <p className="text-sm"><strong>Purchased:</strong> {new Date(purchase.timestamp.toDate()).toLocaleString()}</p>
+                    <div className="flex items-center mt-2">
+                      <strong className="text-sm">Status:</strong>
+                      <select
+                        value={purchase.status}
+                        onChange={(e) => handleStatusChange(purchase.id, e.target.value)}
+                        className="ml-2 p-1 bg-gray-700 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      >
+                        <option value="Pending">Pending</option>
+                        <option value="Processing">Processing</option>
+                        <option value="Completed">Completed</option>
+                      </select>
+                    </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
             )}
-            <h2 className="text-xl font-semibold mb-4 mt-8">Data Bundle Reports</h2>
+            <h2 className="text-xl font-semibold mb-4 mt-8">Data Reports</h2>
             {isLoadingReports ? (
               <p className="text-gray-400">Loading reports...</p>
             ) : reports.length === 0 ? (
               <p className="text-gray-400">No data reports available.</p>
             ) : (
-              reports.map(report => (
-                <div
-                  key={report.id}
-                  className="p-4 bg-gray-700 rounded-lg mb-2"
+              <AnimatePresence>
+                {reports.map(report => (
+                  <motion.div
+                    key={report.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="p-4 bg-white bg-opacity-5 rounded-lg mb-3"
+                  >
+                    <p className="text-sm"><strong>User:</strong> {report.userName || report.userId}</p>
+                    <p className="text-sm"><strong>Network:</strong> {report.reportType}</p>
+                    <p className="text-sm"><strong>Bundle:</strong> {report.gig}</p>
+                    <p className="text-sm"><strong>Phone:</strong> {report.phoneNumber}</p>
+                    <p className="text-sm"><strong>Date:</strong> {report.date}</p>
+                    <p className="text-sm"><strong>Time:</strong> {report.time}</p>
+                    <p className="text-sm"><strong>Screenshot:</strong> <a href={report.screenshotURL} target="_blank" rel="noopener noreferrer" className="text-purple-300 hover:underline">View</a></p>
+                    <p className="text-sm"><strong>Submitted:</strong> {new Date(report.timestamp.toDate()).toLocaleString()}</p>
+                    <div className="flex items-center mt-2">
+                      <strong className="text-sm">Status:</strong>
+                      <select
+                        value={report.status}
+                        onChange={(e) => handleReportStatusChange(report.id, e.target.value)}
+                        className="ml-2 p-1 bg-gray-700 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      >
+                        <option value="Pending">Pending</option>
+                        <option value="Processing">Processing</option>
+                        <option value="Completed">Completed</option>
+                      </select>
+                    </div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            )}
+          </motion.div>
+          {/* Right Panel */}
+          <motion.div
+            initial={{ x: 20, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            transition={{ duration: 0.5 }}
+            className="w-full lg:w-2/3 bg-white bg-opacity-10 backdrop-blur-lg p-6 rounded-xl shadow-xl"
+          >
+            {selectedUser ? (
+              <AnimatePresence>
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
                 >
-                  <p><strong>User:</strong> {report.userName || report.userId}</p>
-                  <p><strong>Network:</strong> {report.reportType}</p>
-                  <p><strong>Bundle:</strong> {report.gig}</p>
-                  <p><strong>Phone:</strong> {report.phoneNumber}</p>
-                  <p><strong>Date:</strong> {report.date}</p>
-                  <p><strong>Time:</strong> {report.time}</p>
-                  <p><strong>Screenshot:</strong> <a href={report.screenshotURL} target="_blank" rel="noopener noreferrer" className="text-purple-300 hover:underline">View</a></p>
-                  <p><strong>Submitted:</strong> {new Date(report.timestamp.toDate()).toLocaleString()}</p>
-                  <div className="flex items-center mt-2">
-                    <strong>Status:</strong>
-                    <select
-                      value={report.status}
-                      onChange={(e) => handleReportStatusChange(report.id, e.target.value)}
-                      className="ml-2 p-1 bg-gray-600 text-white rounded-lg text-sm"
-                    >
-                      <option value="Pending">Pending</option>
-                      <option value="Processing">Processing</option>
-                      <option value="Completed">Completed</option>
-                    </select>
+                  <h2 className="text-xl font-semibold mb-4">User Details: {selectedUser.username || 'Unknown'}</h2>
+                  <div className="p-4 bg-white bg-opacity-5 rounded-lg mb-4">
+                    <p className="text-sm"><strong>User ID:</strong> {selectedUser.id}</p>
+                    <p className="text-sm"><strong>Username:</strong> {selectedUser.username || 'Unknown'}</p>
+                    <p className="text-sm"><strong>Email:</strong> {selectedUser.email || 'N/A'}</p>
+                    <div className="flex items-center mt-2">
+                      <strong className="text-sm">G_COINS:</strong>
+                      <input
+                        type="number"
+                        value={selectedUser.gCoins || 0}
+                        onChange={(e) => handleUpdateUser(selectedUser.id, { gCoins: parseInt(e.target.value) || 0 })}
+                        className="ml-2 p-1 bg-gray-700 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      />
+                    </div>
+                    <div className="flex items-center mt-2">
+                      <strong className="text-sm">Status:</strong>
+                      <select
+                        value={selectedUser.status || 'Active'}
+                        onChange={(e) => handleUserStatusChange(selectedUser.id, e.target.value)}
+                        className="ml-2 p-1 bg-gray-700 text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      >
+                        <option value="Active">Active</option>
+                        <option value="Suspended">Suspended</option>
+                      </select>
+                    </div>
+                    <p className="text-sm mt-2"><strong>Folders:</strong></p>
+                    {selectedUser.folders && selectedUser.folders.length > 0 ? (
+                      selectedUser.folders.map(folder => (
+                        <div key={folder.id} className="ml-4 text-sm">
+                          <p><strong>Name:</strong> {folder.name}</p>
+                          <p><strong>Files:</strong> {folder.files?.length || 0}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="ml-4 text-gray-400 text-sm">No folders available.</p>
+                    )}
+                    <div className="flex gap-2 mt-4">
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => handleDeleteUser(selectedUser.id)}
+                        className="bg-red-500 text-white py-1.5 px-3 rounded-lg text-sm"
+                      >
+                        Delete User
+                      </motion.button>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setSelectedUser(null)}
+                        className="bg-gray-600 text-white py-1.5 px-3 rounded-lg text-sm"
+                      >
+                        Back to Chat
+                      </motion.button>
+                    </div>
                   </div>
-                </div>
-              ))
-            )}
-          </div>
-          {/* Chat Window */}
-          <div className="w-full md:w-2/3 bg-gray-800 p-6 rounded-lg">
-            {selectedChat ? (
-              <>
-                <h2 className="text-xl font-semibold mb-4">Chat with {selectedChat.username || 'Unknown'}</h2>
-                <div ref={chatDisplayRef} className="flex-1 p-3 overflow-y-auto flex flex-col space-y-2 h-[400px] border border-gray-700 rounded-lg">
-                  {messages.map(msg => (
-                    <div
-                      key={msg.id}
-                      className={`max-w-xs rounded-lg px-3 py-1.5 text-sm ${
-                        msg.sender === 'user'
-                          ? 'self-end bg-purple-600 text-white'
-                          : msg.sender === 'agent'
-                          ? 'self-start bg-blue-600 text-white'
-                          : 'self-start bg-gray-700 text-white'
-                      }`}
-                    >
-                      <strong>{msg.sender === 'user' ? selectedChat.username || 'User' : msg.sender === 'agent' ? 'You' : 'DwenLite Support AI'}:</strong> {msg.content}
-                      <small className="block text-xs opacity-75">{msg.timestamp || 'N/A'}</small>
-                    </div>
-                  ))}
-                  {isAgentTyping && (
-                    <div className="flex items-center px-3 py-2 text-gray-400 text-sm">
-                      <span>Agent is typing</span>
-                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink"></span>
-                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-200"></span>
-                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-400"></span>
-                    </div>
+                  <h2 className="text-xl font-semibold mb-4">User Activity Logs</h2>
+                  {userActivityLogs.length === 0 ? (
+                    <p className="text-gray-400">No activity logs available.</p>
+                  ) : (
+                    <AnimatePresence>
+                      {userActivityLogs.map(log => (
+                        <motion.div
+                          key={log.id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          className="p-4 bg-white bg-opacity-5 rounded-lg mb-2"
+                        >
+                          <p className="text-sm"><strong>Action:</strong> {log.action}</p>
+                          <p className="text-sm"><strong>Timestamp:</strong> {new Date(log.timestamp.toDate()).toLocaleString()}</p>
+                          <p className="text-sm"><strong>Details:</strong> {log.details || 'N/A'}</p>
+                        </motion.div>
+                      ))}
+                    </AnimatePresence>
                   )}
-                  {isUserTyping && (
-                    <div className="flex items-center px-3 py-2 text-gray-400 text-sm">
-                      <span>User is typing</span>
-                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink"></span>
-                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-200"></span>
-                      <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-blink delay-400"></span>
-                    </div>
-                  )}
-                </div>
-                {rewrittenText && (
-                  <div className="mt-4 p-3 bg-gray-700 rounded-lg">
-                    <p className="text-sm"><strong>Rewritten Message Preview:</strong> {rewrittenText}</p>
-                    <button
-                      onClick={() => setRewrittenText('')}
-                      className="mt-2 bg-gray-600 text-white py-1 px-2 rounded-lg hover:bg-gray-500 text-sm"
-                    >
-                      Clear Preview
-                    </button>
+                </motion.div>
+              </AnimatePresence>
+            ) : selectedChat ? (
+              <AnimatePresence>
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                >
+                  <h2 className="text-xl font-semibold mb-4">Chat with {selectedChat.username || 'Unknown'}</h2>
+                  <div
+                    ref={chatDisplayRef}
+                    className="flex-1 p-4 overflow-y-auto flex flex-col space-y-3 h-[500px] bg-white bg-opacity-5 rounded-lg"
+                  >
+                    <AnimatePresence>
+                      {messages.map(msg => (
+                        <motion.div
+                          key={msg.id}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0 }}
+                          className={`max-w-[70%] rounded-lg px-3 py-2 text-sm ${
+                            msg.sender === 'user'
+                              ? 'self-end bg-purple-500 text-white'
+                              : msg.sender === 'agent'
+                              ? 'self-start bg-blue-500 text-white'
+                              : 'self-start bg-gray-600 text-white'
+                          }`}
+                        >
+                          <strong>{msg.sender === 'user' ? selectedChat.username || 'User' : msg.sender === 'agent' ? 'You' : 'DwenLite Support AI'}:</strong> {msg.content}
+                          <small className="block text-xs opacity-75">{msg.timestamp || 'N/A'}</small>
+                        </motion.div>
+                      ))}
+                    </AnimatePresence>
+                    {(isAgentTyping || isUserTyping) && (
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="flex items-center px-3 py-2 text-gray-400 text-sm"
+                      >
+                        <span>{isAgentTyping ? 'Agent is typing' : 'User is typing'}</span>
+                        <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-pulse"></span>
+                        <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-pulse delay-200"></span>
+                        <span className="w-1.5 h-1.5 bg-gray-400 rounded-full mx-1 animate-pulse delay-400"></span>
+                      </motion.div>
+                    )}
                   </div>
-                )}
-                <div className="flex gap-2 mt-4">
-                  <input
-                    type="text"
-                    value={input}
-                    onChange={(e) => handleTyping(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                    placeholder="Type your message..."
-                    className="flex-1 p-2 rounded-lg bg-gray-700 text-white text-sm border border-gray-600"
-                  />
-                  <button
-                    onClick={handleRewriteText}
-                    disabled={isRewriting}
-                    className={`bg-yellow-600 text-white py-1.5 px-3 rounded-lg text-sm ${
-                      isRewriting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-700'
-                    }`}
-                  >
-                    {isRewriting ? 'Rewriting...' : 'Rewrite Text'}
-                  </button>
-                  <button
-                    onClick={handleSendMessage}
-                    className="bg-purple-600 text-white py-1.5 px-3 rounded-lg hover:bg-purple-700 text-sm"
-                  >
-                    Send
-                  </button>
-                  <button
-                    onClick={handleLeaveChat}
-                    className="bg-orange-600 text-white py-1.5 px-3 rounded-lg hover:bg-orange-700 text-sm"
-                  >
-                    Leave Chat
-                  </button>
-                  <button
-                    onClick={handleCloseChat}
-                    className="bg-red-600 text-white py-1.5 px-3 rounded-lg hover:bg-red-700 text-sm"
-                  >
-                    Close Chat
-                  </button>
-                </div>
-              </>
+                  {rewrittenText && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="mt-4 p-3 bg-white bg-opacity-5 rounded-lg"
+                    >
+                      <p className="text-sm"><strong>Rewritten Message:</strong> {rewrittenText}</p>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={() => setRewrittenText('')}
+                        className="mt-2 bg-gray-600 text-white py-1 px-2 rounded-lg text-sm"
+                      >
+                        Clear Preview
+                      </motion.button>
+                    </motion.div>
+                  )}
+                  <div className="flex flex-col sm:flex-row gap-2 mt-4">
+                    <input
+                      type="text"
+                      value={input}
+                      onChange={(e) => handleTyping(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                      placeholder="Type your message..."
+                      className="flex-1 p-3 rounded-lg bg-gray-700 text-white text-sm border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                    <div className="flex gap-2">
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={handleRewriteText}
+                        disabled={isRewriting}
+                        className={`bg-yellow-500 text-white py-2 px-3 rounded-lg text-sm ${isRewriting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      >
+                        {isRewriting ? 'Rewriting...' : 'Rewrite'}
+                      </motion.button>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={handleSendMessage}
+                        className="bg-purple-500 text-white py-2 px-3 rounded-lg text-sm"
+                      >
+                        Send
+                      </motion.button>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={handleLeaveChat}
+                        className="bg-orange-500 text-white py-2 px-3 rounded-lg text-sm"
+                      >
+                        Leave
+                      </motion.button>
+                      <motion.button
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        onClick={handleCloseChat}
+                        className="bg-red-500 text-white py-2 px-3 rounded-lg text-sm"
+                      >
+                        Close
+                      </motion.button>
+                    </div>
+                  </div>
+                </motion.div>
+              </AnimatePresence>
             ) : (
-              <p className="text-gray-400">Select a chat to start.</p>
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.5 }}
+                className="text-center"
+              >
+                <h2 className="text-xl font-semibold mb-4">Select a User</h2>
+                {isLoadingUsers ? (
+                  <p className="text-gray-400">Loading users...</p>
+                ) : users.length === 0 ? (
+                  <p className="text-gray-400">No users available.</p>
+                ) : (
+                  <motion.select
+                    onChange={(e) => handleSelectUser(e.target.value)}
+                    className="w-full max-w-md p-3 rounded-lg bg-gray-700 text-white text-sm border border-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value="">Select a user</option>
+                    {users.map(user => (
+                      <option key={user.id} value={user.id}>
+                        {user.username || 'Unknown'} ({user.id.slice(0, 8)}...)
+                      </option>
+                    ))}
+                  </motion.select>
+                )}
+              </motion.div>
             )}
-          </div>
+          </motion.div>
         </div>
       </div>
     </div>
