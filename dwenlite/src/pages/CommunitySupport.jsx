@@ -25,22 +25,37 @@ The following table shows approximate conversion rates from GHS to other currenc
 
 | Currency | Code | Symbol | Rate (1 GHS =) |
 |----------|------|--------|----------------|
-| US Dollar | USD | $ | 0.057 USD |
-| British Pound | GBP | £ | 0.043 GBP |
-| Euro | EUR | € | 0.052 EUR |
-| Nigerian Naira | NGN | ₦ | 105.00 NGN |
+| US Dollar | USD | $ | 0.064 USD |
+| British Pound | GBP | £ | 0.049 GBP |
+| Euro | EUR | € | 0.059 EUR |
+| Nigerian Naira | NGN | ₦ | 103.45 NGN |
+| Australian Dollar | AUD | $ | 0.096 AUD |
+| Canadian Dollar | CAD | $ | 0.087 CAD |
+| Japanese Yen | JPY | ¥ | 9.50 JPY |
+| Indian Rupee | INR | ₹ | 5.36 INR |
+| South African Rand | ZAR | R | 1.15 ZAR |
 
 ### Examples
 - To buy 5 G_COINS (equivalent to ₵5 GHS):
-  - In USD: ₵5 × 0.057 = ~$0.29
-  - In GBP: ₵5 × 0.043 = ~£0.22
-  - In EUR: ₵5 × 0.052 = ~€0.26
-  - In NGN: ₵5 × 105.00 = ~₦525.00
+  - In USD: ₵5 × 0.064 = ~$0.32
+  - In GBP: ₵5 × 0.049 = ~£0.25
+  - In EUR: ₵5 × 0.059 = ~€0.30
+  - In NGN: ₵5 × 103.45 = ~₦517.25
+  - In AUD: ₵5 × 0.096 = ~$0.48
+  - In CAD: ₵5 × 0.087 = ~$0.44
+  - In JPY: ₵5 × 9.50 = ~¥47.50
+  - In INR: ₵5 × 5.36 = ~₹26.80
+  - In ZAR: ₵5 × 1.15 = ~R5.75
 - For a custom purchase of ₵50 GHS (~50 G_COINS):
-  - In USD: ₵50 × 0.057 = ~$2.85
-  - In GBP: ₵50 × 0.043 = ~£2.15
-  - In EUR: ₵50 × 0.052 = ~€2.60
-  - In NGN: ₵50 × 105.00 = ~₦5,250.00
+  - In USD: ₵50 × 0.064 = ~$3.20
+  - In GBP: ₵50 × 0.049 = ~£2.45
+  - In EUR: ₵50 × 0.059 = ~€2.95
+  - In NGN: ₵50 × 103.45 = ~₦5,172.50
+  - In AUD: ₵50 × 0.096 = ~$4.80
+  - In CAD: ₵50 × 0.087 = ~$4.35
+  - In JPY: ₵50 × 9.50 = ~¥475.00
+  - In INR: ₵50 × 5.36 = ~₹268.00
+  - In ZAR: ₵50 × 1.15 = ~R57.50
 
 ## Using G_COINS for Study Materials
 Once purchased, G_COINS can be used within DwenLite to:

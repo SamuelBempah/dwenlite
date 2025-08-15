@@ -29,6 +29,11 @@ function BuyCoins() {
     EU: { symbol: '€', code: 'EUR', rate: 0.059 }, // 1 GHS ≈ 0.059 EUR
     GH: { symbol: '₵', code: 'GHS', rate: 1 }, // 1 GHS = 1 GHS
     NG: { symbol: '₦', code: 'NGN', rate: 103.45 }, // 1 GHS ≈ 103.45 NGN
+    AU: { symbol: '$', code: 'AUD', rate: 0.096 }, // 1 GHS ≈ 0.096 AUD
+    CA: { symbol: '$', code: 'CAD', rate: 0.087 }, // 1 GHS ≈ 0.087 CAD
+    JP: { symbol: '¥', code: 'JPY', rate: 9.50 }, // 1 GHS ≈ 9.50 JPY
+    IN: { symbol: '₹', code: 'INR', rate: 5.36 }, // 1 GHS ≈ 5.36 INR
+    ZA: { symbol: 'R', code: 'ZAR', rate: 1.15 }, // 1 GHS ≈ 1.15 ZAR
   };
 
   // Load Paystack script, auth state, and detect user country
