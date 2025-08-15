@@ -665,7 +665,7 @@ function Dashboard() {
                 <h2 className="text-lg font-semibold">Limited-Time Offer!</h2>
                 <p className="text-gray-300">
                   Get our Educational Bundles for All Networks Starting from {currency.symbol}
-                  {(5 * currency.rate).toFixed(2)} {currency.code}. Offer ends in{' '}
+                  {(4 * currency.rate).toFixed(2)} {currency.code}. Offer ends in{' '}
                   <span className="text-purple-400">{countdown}</span>.
                 </p>
               </div>
