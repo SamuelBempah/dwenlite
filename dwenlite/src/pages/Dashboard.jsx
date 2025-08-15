@@ -100,10 +100,6 @@ function Dashboard() {
         if (!localStorage.getItem('tutorialCompleted')) {
           setShowTutorial(true);
         }
-        if (!sessionStorage.getItem('adNoticeShown')) {
-          setShowAdNotice(true);
-          sessionStorage.setItem('adNoticeShown', 'true');
-        }
         fetch('https://ipapi.co/json/')
           .then(response => response.json())
           .then(data => {
@@ -111,13 +107,18 @@ function Dashboard() {
             const countryCode = data.country_code || 'GH';
             const currencyInfo = currencyMap[countryCode] || currencyMap['GH'];
             setCurrency(currencyInfo);
-            setIsGhanaianUser(countryCode === 'GH');
-            console.log('Currency set:', currencyInfo, 'Is Ghanaian:', countryCode === 'GH');
+            const isGhanaian = countryCode === 'GH';
+            setIsGhanaianUser(isGhanaian);
+            console.log('Currency set:', currencyInfo, 'Is Ghanaian:', isGhanaian);
+            if (isGhanaian) {
+              setShowAdNotice(true);
+            }
           })
           .catch(err => {
             console.error('Geolocation error:', err);
             setCurrency(currencyMap['GH']);
             setIsGhanaianUser(true);
+            setShowAdNotice(true);
           });
       } else {
         navigate('/login');
@@ -343,6 +344,14 @@ function Dashboard() {
     }, 1000);
   };
 
+  const handleBuyBundle = () => {
+    setUpgradeLoading(true);
+    navigate('/buy-bundles');
+    setTimeout(() => {
+      setUpgradeLoading(false);
+    }, 1000);
+  };
+
   const handleLogout = () => {
     setLogoutLoading(true);
     setTimeout(() => {
@@ -402,10 +411,6 @@ function Dashboard() {
     if (tutorialStep > 0) {
       setTutorialStep(tutorialStep - 1);
     }
-  };
-
-  const handleCloseAdNotice = () => {
-    setShowAdNotice(false);
   };
 
   if (!currentUser) return null;
@@ -659,16 +664,16 @@ function Dashboard() {
               <div>
                 <h2 className="text-lg font-semibold">Limited-Time Offer!</h2>
                 <p className="text-gray-300">
-                  Get our Educational Bundles at 50% off! Only {currency.symbol}
-                  {(99.99 * currency.rate).toFixed(2)} {currency.code}. Offer ends in{' '}
+                  Get our Educational Bundles for All Networks Starting from {currency.symbol}
+                  {(5 * currency.rate).toFixed(2)} {currency.code}. Offer ends in{' '}
                   <span className="text-purple-400">{countdown}</span>.
                 </p>
               </div>
               <button
-                onClick={handleCloseAdNotice}
-                className="text-gray-400 hover:text-white"
+                onClick={handleBuyBundle}
+                className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 hover-scale"
               >
-                ✕
+                Buy Now
               </button>
             </div>
           </div>
