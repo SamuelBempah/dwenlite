@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { db, auth } from '../firebase';
-import { doc, getDoc, updateDoc, addDoc, collection, setDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, addDoc, collection, setDoc, query, where, getDocs } from 'firebase/firestore';
 import { arrayUnion } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import jsPDF from 'jspdf';
-import { marked } from 'marked'; // Add marked for markdown parsing
-import DOMPurify from 'dompurify'; // Add DOMPurify for sanitization
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 
 function Notes() {
   const { folderId } = useParams();
@@ -27,11 +27,14 @@ function Notes() {
   const [reportLoading, setReportLoading] = useState(false);
   const [gCoins, setGCoins] = useState(0);
   const [gCoinsAnimating, setGCoinsAnimating] = useState(false);
+  const [ratings, setRatings] = useState({}); // State to track user ratings for notes
+  const [ratingLoading, setRatingLoading] = useState({}); // State to track loading status for ratings
+  const [hasRated, setHasRated] = useState({}); // State to track if user has rated a note
 
   // Configure marked to match CommunitySupport.jsx
   marked.setOptions({
-    breaks: true, // Treat line breaks as <br>
-    gfm: true,   // Enable GitHub Flavored Markdown
+    breaks: true,
+    gfm: true,
   });
 
   // Render Markdown content with sanitization
@@ -47,9 +50,10 @@ function Notes() {
         navigate('/login');
         return;
       }
-      setGCoins(0); // Reset G_COINS state
+      setGCoins(0);
       fetchFolder(user.uid);
       fetchUserGCoins(user.uid);
+      fetchUserRatings(user.uid);
     });
     return () => unsubscribe();
   }, [navigate, folderId]);
@@ -67,6 +71,29 @@ function Notes() {
     } catch (err) {
       console.error('Fetch user G_COINS error:', err);
       toast.error('Failed to fetch G_COINS. Please try again.');
+    }
+  };
+
+  const fetchUserRatings = async (userId) => {
+    try {
+      const ratingsQuery = query(
+        collection(db, 'ratings'),
+        where('userId', '==', userId),
+        where('folderId', '==', folderId)
+      );
+      const ratingsSnap = await getDocs(ratingsQuery);
+      const userRatings = {};
+      const hasRatedNotes = {};
+      ratingsSnap.forEach(doc => {
+        const data = doc.data();
+        userRatings[data.noteId] = data.rating;
+        hasRatedNotes[data.noteId] = true;
+      });
+      setRatings(userRatings);
+      setHasRated(hasRatedNotes);
+    } catch (err) {
+      console.error('Fetch user ratings error:', err);
+      toast.error('Failed to fetch user ratings. Please try again.');
     }
   };
 
@@ -377,13 +404,13 @@ function Notes() {
         throw new Error('Invalid DwenLite API response: No generated content found.');
       }
 
-      // Replace asterisks used as bullet points with a bullet symbol (•)
       generatedText = generatedText.replace(/^\* /gm, '• ');
 
       return { 
         id: Date.now().toString(), 
         content: generatedText,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        rating: 0 // Initialize rating for new note
       };
     } catch (err) {
       console.error('Error generating notes:', err);
@@ -425,6 +452,14 @@ function Notes() {
         ...prev,
         notes: [...prev.notes, newNote],
       }));
+      setRatings(prev => ({
+        ...prev,
+        [newNote.id]: newNote.rating,
+      }));
+      setHasRated(prev => ({
+        ...prev,
+        [newNote.id]: false,
+      }));
       toast.success('Notes generated successfully! 3 G_COINS deducted.');
     } catch (err) {
       toast.error(err.message);
@@ -445,11 +480,73 @@ function Notes() {
         ...prev,
         notes: updatedNotes,
       }));
+      setRatings(prev => {
+        const newRatings = { ...prev };
+        delete newRatings[noteId];
+        return newRatings;
+      });
+      setHasRated(prev => {
+        const newHasRated = { ...prev };
+        delete newHasRated[noteId];
+        return newHasRated;
+      });
 
       toast.success('Note deleted successfully!');
     } catch (err) {
       console.error('Delete note error:', err);
       toast.error('Failed to delete note. Please try again.');
+    }
+  };
+
+  const handleRateNote = async (noteId, rating) => {
+    if (!auth.currentUser) {
+      toast.error('Please log in to rate notes.');
+      return;
+    }
+
+    if (hasRated[noteId]) {
+      toast.error('You have already rated this note.');
+      return;
+    }
+
+    setRatingLoading(prev => ({ ...prev, [noteId]: true }));
+    try {
+      const folderRef = doc(db, 'folders', folderId);
+      const updatedNotes = folder.notes.map(note => 
+        note.id === noteId ? { ...note, rating } : note
+      );
+
+      await updateDoc(folderRef, {
+        notes: updatedNotes,
+      });
+
+      setFolder(prev => ({
+        ...prev,
+        notes: updatedNotes,
+      }));
+      setRatings(prev => ({
+        ...prev,
+        [noteId]: rating,
+      }));
+      setHasRated(prev => ({
+        ...prev,
+        [noteId]: true,
+      }));
+
+      await addDoc(collection(db, 'ratings'), {
+        userId: auth.currentUser.uid,
+        folderId,
+        noteId,
+        rating,
+        createdAt: new Date().toISOString(),
+      });
+
+      toast.success('Rating submitted successfully!');
+    } catch (err) {
+      console.error('Rate note error:', err);
+      toast.error('Failed to submit rating. Please try again.');
+    } finally {
+      setRatingLoading(prev => ({ ...prev, [noteId]: false }));
     }
   };
 
@@ -766,7 +863,25 @@ function Notes() {
             transform: scale(1.05);
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
           }
-          /* Prose styles from CommunitySupport.jsx */
+          .star-rating {
+            display: inline-flex;
+            cursor: pointer;
+          }
+          .star {
+            color: #d1d5db;
+            transition: color 0.2s ease;
+          }
+          .star.filled {
+            color: #facc15;
+          }
+          .star:hover,
+          .star.filled:hover {
+            color: #eab308;
+          }
+          .star-rating.disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+          }
           .prose {
             color: #d1d5db;
           }
@@ -940,6 +1055,41 @@ function Notes() {
                         Note {index + 1} (Created: {new Date(note.createdAt).toLocaleDateString()})
                       </button>
                       <div className="flex items-center space-x-2">
+                        <div className={`star-rating ${hasRated[note.id] ? 'disabled' : ''}`}>
+                          {[1, 2, 3, 4, 5].map(star => (
+                            <svg
+                              key={star}
+                              onClick={() => !hasRated[note.id] && handleRateNote(note.id, star)}
+                              className={`w-5 h-5 star ${ratings[note.id] >= star ? 'filled' : ''}`}
+                              fill="currentColor"
+                              viewBox="0 0 20 20"
+                              xmlns="http://www.w3.org/2000/svg"
+                            >
+                              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                            </svg>
+                          ))}
+                        </div>
+                        {ratingLoading[note.id] && (
+                          <svg
+                            className="animate-spin h-4 w-4 text-white"
+                            viewBox="0 0 24 24"
+                          >
+                            <circle
+                              className="opacity-25"
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                              fill="none"
+                            />
+                            <path
+                              className="opacity-75"
+                              fill="currentColor"
+                              d="M4 12a8 8 0 018-8v8H4z"
+                            />
+                          </svg>
+                        )}
                         <button
                           onClick={() => handleToggleGroup(note.id)}
                           className="text-gray-400 hover:text-white"

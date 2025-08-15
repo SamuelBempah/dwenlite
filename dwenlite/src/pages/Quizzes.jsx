@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { db, auth } from '../firebase';
-import { doc, getDoc, updateDoc, addDoc, collection, setDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, addDoc, collection, setDoc, query, where, getDocs } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 
@@ -27,6 +27,9 @@ function Quizzes() {
   const [reportLoading, setReportLoading] = useState(false);
   const [gCoins, setGCoins] = useState(0);
   const [gCoinsAnimating, setGCoinsAnimating] = useState(false);
+  const [ratings, setRatings] = useState({});
+  const [ratingLoading, setRatingLoading] = useState({});
+  const [hasRated, setHasRated] = useState({});
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -35,9 +38,10 @@ function Quizzes() {
         navigate('/login');
         return;
       }
-      setGCoins(0); // Reset G_COINS state
+      setGCoins(0);
       fetchFolder(user.uid);
       fetchUserGCoins(user.uid);
+      fetchUserRatings(user.uid);
     });
     return () => unsubscribe();
   }, [navigate, folderId]);
@@ -49,13 +53,35 @@ function Quizzes() {
       if (userSnap.exists()) {
         setGCoins(userSnap.data().gCoins || 0);
       } else {
-        // Initialize user with 30 G_COINS
         await setDoc(userRef, { gCoins: 30 });
         setGCoins(30);
       }
     } catch (err) {
       console.error('Fetch user G_COINS error:', err);
       toast.error('Failed to fetch G_COINS. Please try again.');
+    }
+  };
+
+  const fetchUserRatings = async (userId) => {
+    try {
+      const ratingsQuery = query(
+        collection(db, 'ratings'),
+        where('userId', '==', userId),
+        where('folderId', '==', folderId)
+      );
+      const ratingsSnap = await getDocs(ratingsQuery);
+      const userRatings = {};
+      const hasRatedGroups = {};
+      ratingsSnap.forEach(doc => {
+        const data = doc.data();
+        userRatings[data.quizGroupId] = data.rating;
+        hasRatedGroups[data.quizGroupId] = true;
+      });
+      setRatings(userRatings);
+      setHasRated(hasRatedGroups);
+    } catch (err) {
+      console.error('Fetch user ratings error:', err);
+      toast.error('Failed to fetch user ratings. Please try again.');
     }
   };
 
@@ -73,7 +99,7 @@ function Quizzes() {
       await updateDoc(userRef, { gCoins: currentGCoins - amount });
       setGCoins(currentGCoins - amount);
       setGCoinsAnimating(true);
-      setTimeout(() => setGCoinsAnimating(false), 1000); // Animation duration
+      setTimeout(() => setGCoinsAnimating(false), 1000);
     } catch (err) {
       console.error('Deduct G_COINS error:', err);
       throw err;
@@ -102,6 +128,10 @@ function Quizzes() {
 
       folderData.quizGroups = folderData.quizGroups || [];
       folderData.documents = folderData.documents || [];
+      folderData.quizGroups = folderData.quizGroups.map(group => ({
+        ...group,
+        rating: group.rating || 0
+      }));
       setFolder(folderData);
       setLoading(false);
     } catch (err) {
@@ -205,7 +235,7 @@ function Quizzes() {
         throw new Error('AssemblyAI API key not found. Please set VITE_ASSEMBLYAI_API_KEY in your .env file.');
       }
 
-      console.log('Transcribing URL:', videoUrl);
+      console.log('Transcribing video URL:', videoUrl);
 
       const response = await axios.post(
         'https://api.assemblyai.com/v2/transcript',
@@ -303,8 +333,8 @@ function Quizzes() {
         throw new Error('DwenLite API key not found. Please set VITE_DWENLITE_API_KEY in your .env file.');
       }
 
-      const latestDocument = folder.documents.length > 0 ?
-        folder.documents.reduce((latest, doc) => {
+      const latestDocument = folder.documents.length > 0
+        ? folder.documents.reduce((latest, doc) => {
             return new Date(doc.uploadedAt) > new Date(latest.uploadedAt) ? doc : latest;
           }, folder.documents[0])
         : null;
@@ -320,10 +350,10 @@ function Quizzes() {
         }
       }
 
-      let prompt = `Generate 40 multiple-choice quiz questions based on the following content: "${context}". For each question, provide the question, four options (labeled a, b, c, d), and the correct answer. Format as a JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }], ...]. Return only the JSON array string, without any markdown, code block markers (like \`\`\`json), or additional text. Ensure the output is valid JSON.`;
+      let prompt = `Generate 40 multiple-choice quiz questions based on the following content: "${context}". For each question, provide the question, four options (labeled a, b, c, d), and the correct answer. Format as a JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }], ...]. Return only the JSON array string, without any markdown, code block markers (like \`\`\`json), or additional text. Ensure the output is valid JSON and that correctAnswer matches one of the options exactly (e.g., "a. ...").`;
 
       if (retry) {
-        prompt = `You previously failed to return valid JSON. Generate 40 multiple-choice quiz questions based on the following content: "${context}". For each question, provide the question, four options (labeled a, b, c, d), and the correct answer. Format as a JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }, ...]. Return ONLY the JSON array string. Do NOT include markdown, code block markers (like \`\`\`json), or any additional text before or after the JSON. The output MUST be valid JSON, parsable by JSON.parse().`;
+        prompt = `You previously failed to return valid JSON. Generate 40 multiple-choice quiz questions based on the following content: "${context}". For each question, provide the question, four options (labeled a, b, c, d), and the correct answer. Format as a JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }, ...]. Return ONLY the JSON array string. Do NOT include markdown, code block markers (like \`\`\`json), or any additional text before or after the JSON. The output MUST be valid JSON, parsable by JSON.parse(), and correctAnswer must match one of the options exactly (e.g., "a. ...").`;
       }
 
       const response = await axios.post(
@@ -339,13 +369,13 @@ function Quizzes() {
         },
         {
           headers: {
-            'Authorization': `Bearer ${apiKey}`,
+            Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
           },
         }
       ).catch(err => {
         console.error('DwenLite API error:', {
-          error: err.response?.status,
+          status: err.response?.status,
           statusText: err.response?.statusText,
           data: err.response?.data,
           message: err.message,
@@ -409,10 +439,15 @@ function Quizzes() {
 
       quizzes = quizzes.slice(0, 40);
 
-      return quizzes.map(quiz => ({
-        id: Date.now().toString() + Math.random().toString(36).substring(2),
-        ...quiz,
-      }));
+      return quizzes.map(quiz => {
+        const validCorrectAnswer = quiz.options.find(opt => opt.startsWith(quiz.correctAnswer)) || quiz.correctAnswer;
+        return {
+          id: Date.now().toString() + Math.random().toString(36).substring(2),
+          question: quiz.question,
+          options: quiz.options,
+          correctAnswer: validCorrectAnswer,
+        };
+      });
     } catch (err) {
       console.error('Error generating quizzes:', err);
       throw new Error(err.message || 'Failed to generate quizzes.');
@@ -425,7 +460,6 @@ function Quizzes() {
       return;
     }
 
-    // Check G_COINS balance
     if (gCoins < 5) {
       toast.error(
         <div>
@@ -447,6 +481,7 @@ function Quizzes() {
         id: Date.now().toString(),
         quizzes: newQuizzes,
         createdAt: new Date().toISOString(),
+        rating: 0
       };
 
       const folderRef = doc(db, 'folders', folderId);
@@ -456,12 +491,19 @@ function Quizzes() {
         quizGroups: updatedQuizGroups,
       });
 
-      // Deduct 5 G_COINS on successful generation
       await deductGCoins(auth.currentUser.uid, 5);
 
       setFolder(prev => ({
         ...prev,
         quizGroups: updatedQuizGroups,
+      }));
+      setRatings(prev => ({
+        ...prev,
+        [newQuizGroup.id]: newQuizGroup.rating,
+      }));
+      setHasRated(prev => ({
+        ...prev,
+        [newQuizGroup.id]: false,
       }));
       toast.success('New quiz group generated successfully! 5 G_COINS deducted.');
       setSelectedQuizGroup(newQuizGroup);
@@ -489,6 +531,17 @@ function Quizzes() {
         quizGroups: updatedQuizGroups,
       }));
 
+      setRatings(prev => {
+        const newRatings = { ...prev };
+        delete newRatings[groupId];
+        return newRatings;
+      });
+      setHasRated(prev => {
+        const newHasRated = { ...prev };
+        delete newHasRated[groupId];
+        return newHasRated;
+      });
+
       if (selectedQuizGroup?.id === groupId) {
         setSelectedQuizGroup(null);
         setCurrentQuizIndex(0);
@@ -500,6 +553,58 @@ function Quizzes() {
     } catch (err) {
       console.error('Error deleting quiz group:', err);
       toast.error('Failed to delete quiz group. Please try again.');
+    }
+  };
+
+  const handleRateQuizGroup = async (groupId, rating) => {
+    if (!auth.currentUser) {
+      toast.error('Please log in to rate quiz groups.');
+      return;
+    }
+
+    if (hasRated[groupId]) {
+      toast.error('You have already rated this quiz group.');
+      return;
+    }
+
+    setRatingLoading(prev => ({ ...prev, [groupId]: true }));
+    try {
+      const folderRef = doc(db, 'folders', folderId);
+      const updatedQuizGroups = folder.quizGroups.map(group => 
+        group.id === groupId ? { ...group, rating } : group
+      );
+
+      await updateDoc(folderRef, {
+        quizGroups: updatedQuizGroups,
+      });
+
+      setFolder(prev => ({
+        ...prev,
+        quizGroups: updatedQuizGroups,
+      }));
+      setRatings(prev => ({
+        ...prev,
+        [groupId]: rating,
+      }));
+      setHasRated(prev => ({
+        ...prev,
+        [groupId]: true,
+      }));
+
+      await addDoc(collection(db, 'ratings'), {
+        userId: auth.currentUser.uid,
+        folderId,
+        quizGroupId: groupId,
+        rating,
+        createdAt: new Date().toISOString(),
+      });
+
+      toast.success('Rating submitted successfully!');
+    } catch (err) {
+      console.error('Rate quiz group error:', err);
+      toast.error('Failed to submit rating. Please try again.');
+    } finally {
+      setRatingLoading(prev => ({ ...prev, [groupId]: false }));
     }
   };
 
@@ -517,18 +622,17 @@ function Quizzes() {
     }));
   };
 
-  const handleAnswerSelect = (answer) => {
-    if (selectedAnswer) return;
-    setSelectedAnswer(answer);
-    const currentQuiz = selectedQuizGroup?.quizzes[currentQuizIndex];
-    const isAnswerCorrect = answer === currentQuiz.correctAnswer;
-    setIsCorrect(isAnswerCorrect);
+  const handleAnswerSelect = (option) => {
+    setSelectedAnswer(option);
+    const selectedOptionLetter = option.split('.')[0].trim();
+    const correctOptionLetter = currentQuiz.correctAnswer.split('.')[0].trim();
+    setIsCorrect(selectedOptionLetter === correctOptionLetter);
   };
 
   const handleNextQuestion = () => {
+    setCurrentQuizIndex(prev => prev + 1);
     setSelectedAnswer(null);
     setIsCorrect(null);
-    setCurrentQuizIndex(prev => prev + 1);
   };
 
   const handleReportContent = async (messageIndex, reason) => {
@@ -631,7 +735,7 @@ function Quizzes() {
     setChatLoading(true);
     try {
       const quizContent = quizGroup.quizzes.map((quiz, index) => {
-        return `Question ${index + 1}: ${quiz.question}\nOptions: ${quiz.options.join(', ')}\nCorrect Answer: ${quiz.correctAnswer}`;
+        return `Question ${index + 1}:\nQuestion: ${quiz.question}\nOptions: ${quiz.options.join(', ')}\nCorrect Answer: ${quiz.correctAnswer}`;
       }).join('\n\n');
 
       const quizGroupIndex = folder.quizGroups.findIndex(g => g.id === quizGroup.id) + 1;
@@ -647,7 +751,7 @@ function Quizzes() {
         throw new Error('DwenLite API key not found. Please set VITE_DWENLITE_API_KEY in your .env file.');
       }
 
-      const prompt = `You are DwenLite AI, an assistant that answers questions based on provided quiz group content. Here is the content of the quiz group:\n\n${quizContent}\n\nQuestion: ${question}\n\nProvide a clear, concise, and accurate answer based on the quiz group content. If the question cannot be answered from the quiz group, state so and provide a brief explanation. Format the answer as plain text suitable for rendering in a React component.`;
+      let prompt = `You are DwenLite AI, an assistant that answers questions based on provided quiz group content. Here is the content of the quiz group:\n\n${quizContent}\n\nQuestion: ${question}\n\nProvide a clear, concise, and accurate answer based on the quiz group content. If the question cannot be answered from the quiz group, state so and provide a brief explanation. Format the answer as plain text suitable for rendering in a React component.`;
 
       setChatHistory(prev => [
         ...prev,
@@ -656,7 +760,7 @@ function Quizzes() {
 
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      const response = await axios.post(
+      let response = await axios.post(
         'https://api.deepseek.com/v1/chat/completions',
         {
           model: 'deepseek-chat',
@@ -669,7 +773,7 @@ function Quizzes() {
         },
         {
           headers: {
-            'Authorization': `Bearer ${apiKey}`,
+            Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
           },
         }
@@ -700,7 +804,56 @@ function Quizzes() {
         throw new Error('Invalid DwenLite API response: No answer found.');
       }
 
-      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...').concat({
+      if (answer.includes('cannot be answered from the quiz group')) {
+        setChatHistory(prev => [
+          ...prev,
+          { type: 'system', content: 'DwenLite AI is searching the web for additional information...' },
+        ]);
+
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        const searchResults = await scrapeWeb(question);
+        const searchContent = searchResults.map(result => `Title: ${result.title}\nSnippet: ${result.snippet}\nLink: ${result.link}`).join('\n\n');
+
+        prompt = `You are DwenLite AI, an assistant that answers questions using provided quiz group content and web search results. The quiz group content did not provide enough information to answer the question. Here is the quiz group content:\n\n${quizContent}\n\nHere are the web search results:\n\n${searchContent}\n\nQuestion: ${question}\n\nProvide a clear, concise, and accurate answer based on the web search results. If the question still cannot be answered, state so and provide a brief explanation. Format the answer as plain text suitable for rendering in a React component.`;
+
+        response = await axios.post(
+          'https://api.deepseek.com/v1/chat/completions',
+          {
+            model: 'deepseek-chat',
+            messages: [
+              { role: 'system', content: 'You are DwenLite AI, a helpful assistant for answering questions using quiz groups and web search results.' },
+              { role: 'user', content: prompt },
+            ],
+            max_tokens: 1000,
+            temperature: 0.7,
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              'Content-Type': 'application/json',
+            },
+          }
+        ).catch(err => {
+          console.error('DwenLite API error (web search):', {
+            status: err.response?.status,
+            statusText: err.response?.statusText,
+            data: err.response?.data,
+            message: err.message,
+          });
+          throw new Error(`DwenLite API request failed: ${err.message}`);
+        });
+
+        if (response.data.choices?.[0]?.message?.content) {
+          answer = response.data.choices[0].message.content.trim();
+        } else if (response.data.choices?.[0]?.text) {
+          answer = response.data.choices[0].text.trim();
+        } else {
+          throw new Error('Invalid DwenLite API response: No answer found after web search.');
+        }
+      }
+
+      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...' && item.content !== 'DwenLite AI is searching the web for additional information...').concat({
         type: 'ai',
         content: answer,
       }));
@@ -708,9 +861,55 @@ function Quizzes() {
     } catch (err) {
       console.error('Error processing question:', err);
       toast.error(err.message);
-      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...'));
+      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...' && item.content !== 'DwenLite AI is searching the web for additional information...'));
     } finally {
       setChatLoading(false);
+    }
+  };
+
+  const scrapeWeb = async (query) => {
+    try {
+      const apiKey = import.meta.env.VITE_SERPAPI_API_KEY;
+      if (!apiKey) {
+        throw new Error('SerpApi API key not found. Please set VITE_SERPAPI_API_KEY in your .env file.');
+      }
+
+      const params = new URLSearchParams({
+        q: query,
+        api_key: apiKey,
+      });
+
+      const response = await axios.get(`https://serpapi.com/search?${params.toString()}`).catch(err => {
+        console.error('SerpApi request error:', {
+          status: err.response?.status,
+          statusText: err.response?.statusText,
+          data: err.response?.data,
+          message: err.message,
+        });
+        let errorMessage = 'Web search request failed';
+        if (err.response?.status === 401) {
+          errorMessage = 'Invalid SerpApi API key. Please check your API key in the .env file.';
+        } else if (err.response?.status === 429) {
+          errorMessage = 'SerpApi rate limit exceeded. Please wait a few minutes and try again.';
+        }
+        throw new Error(`${errorMessage}: ${err.message}`);
+      });
+
+      const organicResults = response.data.organic_results || [];
+      let searchResults = organicResults.slice(0, 3).map(result => ({
+        title: result.title,
+        snippet: result.snippet,
+        link: result.link,
+      }));
+
+      if (searchResults.length === 0) {
+        searchResults = [{ title: 'No results found', snippet: 'No relevant information was found for your query.', link: '' }];
+      }
+
+      return searchResults;
+    } catch (err) {
+      console.error('Web scraping error:', err);
+      throw new Error(`Web scraping failed: ${err.message}`);
     }
   };
 
@@ -804,6 +1003,25 @@ function Quizzes() {
           .hover-scale:hover {
             transform: scale(1.05);
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+          }
+          .star-rating {
+            display: inline-flex;
+            cursor: pointer;
+          }
+          .star {
+            color: #d1d5db;
+            transition: color 0.2s ease;
+          }
+          .star.filled {
+            color: #facc15;
+          }
+          .star:hover,
+          .star.filled:hover {
+            color: #eab308;
+          }
+          .star-rating.disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
           }
         `}
       </style>
@@ -942,6 +1160,41 @@ function Quizzes() {
                         Quiz Group {index + 1} (Created: {new Date(group.createdAt).toLocaleDateString()})
                       </button>
                       <div className="flex items-center space-x-2">
+                        <div className={`star-rating ${hasRated[group.id] ? 'disabled' : ''}`}>
+                          {[1, 2, 3, 4, 5].map(star => (
+                            <svg
+                              key={star}
+                              onClick={() => !hasRated[group.id] && handleRateQuizGroup(group.id, star)}
+                              className={`w-5 h-5 star ${ratings[group.id] >= star ? 'filled' : ''}`}
+                              fill="currentColor"
+                              viewBox="0 0 20 20"
+                              xmlns="http://www.w3.org/2000/svg"
+                            >
+                              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                            </svg>
+                          ))}
+                        </div>
+                        {ratingLoading[group.id] && (
+                          <svg
+                            className="animate-spin h-4 w-4 text-white"
+                            viewBox="0 0 24 24"
+                          >
+                            <circle
+                              className="opacity-25"
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                              fill="none"
+                            />
+                            <path
+                              className="opacity-75"
+                              fill="currentColor"
+                              d="M4 12a8 8 0 018-8v8H4z"
+                            />
+                          </svg>
+                        )}
                         <button
                           onClick={() => handleToggleGroup(group.id)}
                           className={`text-gray-400 hover:text-white ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
@@ -1017,7 +1270,7 @@ function Quizzes() {
                     message.content
                   )}
                 </span>
-                {message.type === 'ai' && !message.content.includes('DwenLite AI is typing...') && (
+                {message.type === 'ai' && !message.content.includes('DwenLite AI is typing...') && !message.content.includes('DwenLite AI is reading Quiz Group...') && (
                   <button
                     onClick={() => setShowReportForm(showReportForm === index ? null : index)}
                     className={`absolute top-0 right-0 text-red-500 hover:text-red-400 text-xs p-1 ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}

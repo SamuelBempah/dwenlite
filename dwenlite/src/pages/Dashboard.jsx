@@ -27,8 +27,9 @@ function Dashboard() {
   const [showAdNotice, setShowAdNotice] = useState(false);
   const [gCoins, setGCoins] = useState(0);
   const [gCoinsAnimating, setGCoinsAnimating] = useState(false);
-  const [isGhanaianUser, setIsGhanaianUser] = useState(false); // New state for Ghana check
-  const [currency, setCurrency] = useState({ symbol: '₵', code: 'GHS', rate: 1 }); // Default to GHS
+  const [isGhanaianUser, setIsGhanaianUser] = useState(false);
+  const [currency, setCurrency] = useState({ symbol: '₵', code: 'GHS', rate: 1 });
+  const [ratingStats, setRatingStats] = useState({ average: 0, count: 0 });
 
   const folderInputRef = useRef(null);
   const createButtonRef = useRef(null);
@@ -37,13 +38,12 @@ function Dashboard() {
   const foldersSectionRef = useRef(null);
   const bundleEventRef = useRef(null);
 
-  // Static exchange rates (GHS to other currencies, approximate as of 2025)
   const currencyMap = {
-    US: { symbol: '$', code: 'USD', rate: 0.064 }, // 1 GHS ≈ 0.064 USD
-    GB: { symbol: '£', code: 'GBP', rate: 0.049 }, // 1 GHS ≈ 0.049 GBP
-    EU: { symbol: '€', code: 'EUR', rate: 0.059 }, // 1 GHS ≈ 0.059 EUR
-    GH: { symbol: '₵', code: 'GHS', rate: 1 }, // 1 GHS = 1 GHS
-    NG: { symbol: '₦', code: 'NGN', rate: 103.45 }, // 1 GHS ≈ 103.45 NGN
+    US: { symbol: '$', code: 'USD', rate: 0.064 },
+    GB: { symbol: '£', code: 'GBP', rate: 0.049 },
+    EU: { symbol: '€', code: 'EUR', rate: 0.059 },
+    GH: { symbol: '₵', code: 'GHS', rate: 1 },
+    NG: { symbol: '₦', code: 'NGN', rate: 103.45 },
   };
 
   const tutorialSteps = [
@@ -75,16 +75,16 @@ function Dashboard() {
     {
       title: "Educational Bundles",
       description: "Check out our limited-time educational bundles to enhance your study experience with premium resources! (Available for Ghanaian users only)",
-      highlightRef: isGhanaianUser ? bundleEventRef : null, // Only highlight if in Ghana
+      highlightRef: isGhanaianUser ? bundleEventRef : null,
     },
     {
       title: "Manage Folders",
-      description: "Your folders are listed here. Click a folder to view its contents, or use the menu to edit/delete. Check your G_COINS balance above to generate notes.",
+      description: "Your folders are listed here. Click a folder to view its contents, or use the menu to edit/delete. Check your G_COINS balance and ratings above to generate and evaluate notes.",
       highlightRef: foldersSectionRef,
     },
     {
       title: "You're All Set!",
-      description: "That's it! You can now create folders, upload content, and manage your study materials. Use G_COINS to generate notes in folders. Close this to continue.",
+      description: "That's it! You can now create folders, upload content, manage your study materials, and rate your generated notes. Close this to continue.",
       highlightRef: null,
     },
   ];
@@ -96,6 +96,7 @@ function Dashboard() {
         setCurrentUser(user);
         fetchFolders(user.uid);
         fetchUserGCoins(user.uid);
+        fetchRatingStats();
         if (!localStorage.getItem('tutorialCompleted')) {
           setShowTutorial(true);
         }
@@ -103,21 +104,20 @@ function Dashboard() {
           setShowAdNotice(true);
           sessionStorage.setItem('adNoticeShown', 'true');
         }
-        // Detect user's country
         fetch('https://ipapi.co/json/')
           .then(response => response.json())
           .then(data => {
             console.log('Geolocation data:', data);
-            const countryCode = data.country_code || 'GH'; // Fallback to Ghana
-            const currencyInfo = currencyMap[countryCode] || currencyMap['GH']; // Default to GHS
+            const countryCode = data.country_code || 'GH';
+            const currencyInfo = currencyMap[countryCode] || currencyMap['GH'];
             setCurrency(currencyInfo);
-            setIsGhanaianUser(countryCode === 'GH'); // Set Ghanaian user flag
+            setIsGhanaianUser(countryCode === 'GH');
             console.log('Currency set:', currencyInfo, 'Is Ghanaian:', countryCode === 'GH');
           })
           .catch(err => {
             console.error('Geolocation error:', err);
-            setCurrency(currencyMap['GH']); // Fallback to GHS
-            setIsGhanaianUser(true); // Default to Ghana for safety
+            setCurrency(currencyMap['GH']);
+            setIsGhanaianUser(true);
           });
       } else {
         navigate('/login');
@@ -126,22 +126,19 @@ function Dashboard() {
     return unsubscribe;
   }, [navigate]);
 
-  // Fetch user G_COINS and handle daily coin increase
   const fetchUserGCoins = async (userId) => {
     try {
       const userRef = doc(db, 'users', userId);
       const userSnap = await getDoc(userRef);
       let userData = userSnap.exists() ? userSnap.data() : { gCoins: 30, lastCoinDrop: null };
 
-      // Check if it's a new day for coin drop
       const today = new Date().toDateString();
       const lastCoinDrop = userData.lastCoinDrop ? new Date(userData.lastCoinDrop).toDateString() : null;
 
       let newGCoins = userData.gCoins || 30;
 
-      // Only add coins if current balance is 30 or less and it's a new day
       if (newGCoins <= 30 && (!lastCoinDrop || lastCoinDrop !== today)) {
-        newGCoins = Math.min(newGCoins + 3, 30); // Add 3 coins, cap at 30
+        newGCoins = Math.min(newGCoins + 3, 30);
         await setDoc(userRef, { 
           gCoins: newGCoins, 
           lastCoinDrop: new Date().toISOString() 
@@ -160,7 +157,20 @@ function Dashboard() {
     }
   };
 
-  // Countdown timer for educational bundles (set to end on August 31, 2025)
+  const fetchRatingStats = async () => {
+    try {
+      const ratingsQuery = query(collection(db, 'ratings'));
+      const ratingsSnapshot = await getDocs(ratingsQuery);
+      const ratings = ratingsSnapshot.docs.map(doc => doc.data().rating);
+      const count = ratings.length;
+      const average = count > 0 ? (ratings.reduce((sum, rating) => sum + rating, 0) / count).toFixed(1) : 0;
+      setRatingStats({ average, count });
+    } catch (err) {
+      console.error('Fetch rating stats error:', err);
+      toast.error('Failed to fetch rating statistics.');
+    }
+  };
+
   useEffect(() => {
     const endDate = new Date('2025-08-31T23:59:59Z');
     const updateCountdown = () => {
@@ -325,16 +335,12 @@ function Dashboard() {
     }
   };
 
-  const handleUpgrade = () => {
+  const handleBuyGCoins = () => {
     setUpgradeLoading(true);
-    navigate('/support-me');
+    navigate('/buy-coins');
     setTimeout(() => {
       setUpgradeLoading(false);
     }, 1000);
-  };
-
-  const handleBuyGCoins = () => {
-    navigate('/buy-coins');
   };
 
   const handleLogout = () => {
@@ -458,10 +464,21 @@ function Dashboard() {
             right: 0;
             z-index: 20;
           }
+          .rating-stars {
+            display: inline-flex;
+            align-items: center;
+          }
+          .rating-star {
+            color: #facc15;
+            margin-right: 2px;
+          }
+          .rating-text {
+            font-size: 0.9rem;
+            color: #d1d5db;
+          }
         `}
       </style>
 
-      {/* Tutorial Modal */}
       {showTutorial && (
         <div className={`fixed inset-0 bg-black bg-opacity-50 flex justify-center z-50 px-4 ${
           tutorialStep === 3 || tutorialStep === 4 || tutorialStep === 5 || tutorialStep === 6 ? 'items-start pt-4' : 'items-center'
@@ -495,7 +512,6 @@ function Dashboard() {
         </div>
       )}
 
-      {/* Sidebar for Desktop */}
       <div
         ref={sidebarRef}
         className={`hidden md:block w-64 bg-gray-800 p-6 flex flex-col justify-between ${
@@ -534,7 +550,461 @@ function Dashboard() {
         </div>
       </div>
 
-      {/* Bottom Navigation for Mobile */}
+      <div className="flex-1 p-4 md:p-8">
+        <div className="flex justify-between items-center mb-6 md:mb-8">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-bold">Dashboard</h1>
+            <p className={`text-sm md:text-base mt-2 ${gCoinsAnimating ? 'coins-deduct' : ''}`}>
+              💰 G_COINS: {gCoins}
+            </p>
+            <div className="rating-stars mt-2">
+              <span className="rating-text">
+                AI Rating: {ratingStats.average} ({ratingStats.count} reviews)
+              </span>
+              <div className="flex items-center ml-2">
+                {[1, 2, 3, 4, 5].map(star => (
+                  <svg
+                    key={star}
+                    className={`w-4 h-4 rating-star ${star <= Math.round(ratingStats.average) ? 'filled' : ''}`}
+                    fill="currentColor"
+                    viewBox="0 0 20 20"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                  </svg>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="hidden md:block">
+            <button
+              onClick={handleBuyGCoins}
+              disabled={upgradeLoading}
+              className={`bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 mr-2 hover-scale ${
+                upgradeLoading ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
+              {upgradeLoading ? (
+                <span className="flex items-center">
+                  <svg
+                    className="animate-spin h-5 w-5 mr-2 text-white"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      fill="none"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8v8H4z"
+                    />
+                  </svg>
+                  Processing...
+                </span>
+              ) : (
+                'Buy G_COINS'
+              )}
+            </button>
+            <button
+              onClick={handleLogout}
+              disabled={logoutLoading}
+              className={`bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 hover-scale ${
+                logoutLoading ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
+              {logoutLoading ? (
+                <span className="flex items-center">
+                  <svg
+                    className="animate-spin h-5 w-5 mr-2 text-white"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      fill="none"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8v8H4z"
+                    />
+                  </svg>
+                  Logging out...
+                </span>
+              ) : (
+                'Logout'
+              )}
+            </button>
+          </div>
+        </div>
+
+        {showAdNotice && isGhanaianUser && (
+          <div
+            ref={bundleEventRef}
+            className={`bg-gray-800 p-4 rounded-lg mb-6 ad-notice-enter ${
+              tutorialStep === 5 ? 'ring-4 ring-purple-500' : ''
+            }`}
+          >
+            <div className="flex justify-between items-center">
+              <div>
+                <h2 className="text-lg font-semibold">Limited-Time Offer!</h2>
+                <p className="text-gray-300">
+                  Get our Educational Bundles at 50% off! Only {currency.symbol}
+                  {(99.99 * currency.rate).toFixed(2)} {currency.code}. Offer ends in{' '}
+                  <span className="text-purple-400">{countdown}</span>.
+                </p>
+              </div>
+              <button
+                onClick={handleCloseAdNotice}
+                className="text-gray-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div
+          ref={uploadSectionRef}
+          className={`mb-6 md:mb-8 ${tutorialStep === 2 ? 'ring-4 ring-purple-500' : ''}`}
+        >
+          <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Upload Content</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <button
+              onClick={handleAudioClick}
+              disabled={audioLoading}
+              className={`bg-gray-800 p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 hover-scale ${
+                audioLoading ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
+              {audioLoading ? (
+                <span className="flex items-center">
+                  <svg
+                    className="animate-spin h-5 w-5 mr-2 text-white"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      fill="none"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8v8H4z"
+                    />
+                  </svg>
+                  Processing...
+                </span>
+              ) : (
+                <>
+                  <span>Upload Audio</span>
+                  <span>🎙️</span>
+                </>
+              )}
+            </button>
+            <button
+              onClick={handleYoutubeClick}
+              disabled={youtubeLoading}
+              className={`bg-gray-800 p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 hover-scale ${
+                youtubeLoading ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
+              {youtubeLoading ? (
+                <span className="flex items-center">
+                  <svg
+                    className="animate-spin h-5 w-5 mr-2 text-white"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      fill="none"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8v8H4z"
+                    />
+                  </svg>
+                  Processing...
+                </span>
+              ) : (
+                <>
+                  <span>Upload Video</span>
+                  <span>🎥</span>
+                </>
+              )}
+            </button>
+            <button
+              onClick={handleDocumentClick}
+              disabled={documentLoading}
+              className={`bg-gray-800 p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 hover-scale ${
+                documentLoading ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            >
+              {documentLoading ? (
+                <span className="flex items-center">
+                  <svg
+                    className="animate-spin h-5 w-5 mr-2 text-white"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      fill="none"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8v8H4z"
+                    />
+                  </svg>
+                  Processing...
+                </span>
+              ) : (
+                <>
+                  <span>Upload Document</span>
+                  <span>📄</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        <div
+          ref={folderInputRef}
+          className={`mb-6 md:mb-8 ${tutorialStep === 3 ? 'ring-4 ring-purple-500' : ''}`}
+        >
+          <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Create New Folder</h2>
+          <div className="flex items-center">
+            <input
+              type="text"
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              placeholder="Enter folder name"
+              className="flex-1 p-2 bg-gray-700 text-white rounded-l-lg focus:outline-none"
+              disabled={createFolderLoading}
+            />
+            <button
+              ref={createButtonRef}
+              onClick={handleCreateFolder}
+              disabled={createFolderLoading}
+              className={`bg-purple-600 text-white py-2 px-4 rounded-r-lg hover:bg-purple-700 hover-scale ${
+                createFolderLoading ? 'opacity-50 cursor-not-allowed' : ''
+              } ${tutorialStep === 4 ? 'pulse-glow' : ''}`}
+            >
+              {createFolderLoading ? (
+                <span className="flex items-center">
+                  <svg
+                    className="animate-spin h-5 w-5 mr-2 text-white"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      fill="none"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8v8H4z"
+                    />
+                  </svg>
+                  Creating...
+                </span>
+              ) : (
+                'Create'
+              )}
+            </button>
+          </div>
+        </div>
+
+        <div
+          ref={foldersSectionRef}
+          className={`mb-6 md:mb-8 ${tutorialStep === 6 ? 'ring-4 ring-purple-500' : ''}`}
+        >
+          <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Your Folders</h2>
+          {foldersLoading ? (
+            <div className="flex items-center justify-center">
+              <svg
+                className="animate-spin h-5 w-5 mr-3 text-white"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                  fill="none"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8v8H4z"
+                />
+              </svg>
+              Loading folders...
+            </div>
+          ) : folders.length === 0 ? (
+            <p className="text-gray-400">No folders found. Create a new folder to get started!</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              {folders.map((folder) => (
+                <div
+                  key={folder.id}
+                  className="bg-gray-800 p-4 rounded-lg relative hover-scale"
+                >
+                  <div className="flex justify-between items-center">
+                    {editFolderId === folder.id ? (
+                      <div className="flex-1 flex items-center">
+                        <input
+                          type="text"
+                          value={editFolderName}
+                          onChange={(e) => setEditFolderName(e.target.value)}
+                          className="flex-1 p-2 bg-gray-700 text-white rounded-l-lg focus:outline-none"
+                          disabled={editLoading}
+                        />
+                        <button
+                          onClick={() => handleEditFolder(folder.id)}
+                          disabled={editLoading}
+                          className={`bg-purple-600 text-white py-2 px-4 rounded-r-lg hover:bg-purple-700 hover-scale ${
+                            editLoading ? 'opacity-50 cursor-not-allowed' : ''
+                          }`}
+                        >
+                          {editLoading ? (
+                            <span className="flex items-center">
+                              <svg
+                                className="animate-spin h-5 w-5 mr-2 text-white"
+                                viewBox="0 0 24 24"
+                              >
+                                <circle
+                                  className="opacity-25"
+                                  cx="12"
+                                  cy="12"
+                                  r="10"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                  fill="none"
+                                />
+                                <path
+                                  className="opacity-75"
+                                  fill="currentColor"
+                                  d="M4 12a8 8 0 018-8v8H4z"
+                                />
+                              </svg>
+                              Saving...
+                            </span>
+                          ) : (
+                            'Save'
+                          )}
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <Link
+                          to={`/folder/${folder.id}`}
+                          className="text-lg font-semibold hover:text-purple-400 flex-1"
+                        >
+                          {folder.name}
+                        </Link>
+                        <button
+                          onClick={() => {
+                            toggleDropdown(folder.id);
+                            setEditFolderName(folder.name);
+                          }}
+                          className="text-gray-400 hover:text-white"
+                        >
+                          ⋮
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {dropdownOpen === folder.id && (
+                    <div className="absolute right-0 mt-2 w-48 bg-gray-700 rounded-lg shadow-lg z-10">
+                      <button
+                        onClick={() => {
+                          setEditFolderId(folder.id);
+                          setDropdownOpen(null);
+                        }}
+                        className="block w-full text-left px-4 py-2 text-white hover:bg-gray-600"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteFolder(folder.id)}
+                        disabled={deleteLoading}
+                        className={`block w-full text-left px-4 py-2 text-white hover:bg-gray-600 ${
+                          deleteLoading ? 'opacity-50 cursor-not-allowed' : ''
+                        }`}
+                      >
+                        {deleteLoading ? (
+                          <span className="flex items-center">
+                            <svg
+                              className="animate-spin h-5 w-5 mr-2 text-white"
+                              viewBox="0 0 24 24"
+                            >
+                              <circle
+                                className="opacity-25"
+                                cx="12"
+                                cy="12"
+                                r="10"
+                                stroke="currentColor"
+                                strokeWidth="4"
+                                fill="none"
+                              />
+                              <path
+                                className="opacity-75"
+                                fill="currentColor"
+                                d="M4 12a8 8 0 018-8v8H4z"
+                              />
+                            </svg>
+                            Deleting...
+                          </span>
+                        ) : (
+                          'Delete'
+                        )}
+                      </button>
+                    </div>
+                  )}
+                  <p className="text-gray-400 text-sm mt-2">
+                    Created: {folder.createdAt}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
       <div
         className={`md:hidden bottom-nav bg-gray-800 p-4 flex justify-around items-center bottom-nav-enter`}
       >
@@ -637,373 +1107,6 @@ function Dashboard() {
             </svg>
           )}
         </button>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex-1 p-4 md:p-8">
-        <div className="flex justify-between items-center mb-6 md:mb-8">
-          <h1 className="text-2xl md:text-3xl font-bold">Dashboard</h1>
-          <div className="flex flex-col items-end space-y-2">
-            {/* Profile name and icon for mobile only */}
-            <div className="flex items-center md:hidden">
-              <div className="w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center text-lg">
-                {currentUser.displayName?.charAt(0) || 'U'}
-              </div>
-              <span className="ml-2 text-base font-semibold">
-                {currentUser.displayName || 'User'}
-              </span>
-            </div>
-            <div className="flex items-center space-x-4">
-              <button
-                onClick={() => setShowTutorial(true)}
-                className="text-purple-400 hover:text-purple-300 text-sm md:text-base"
-              >
-                Show Tutorial
-              </button>
-              <button
-                onClick={handleLogout}
-                disabled={logoutLoading}
-                className={`hidden md:block text-gray-400 hover:text-white text-base ${
-                  logoutLoading ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
-              >
-                {logoutLoading ? (
-                  <span className="flex items-center">
-                    <svg
-                      className="animate-spin h-5 w-5 mr-2 text-white"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                        fill="none"
-                      />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                    </svg>
-                    Loading...
-                  </span>
-                ) : (
-                  'Logout'
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-        <div ref={uploadSectionRef} className={`mb-6 md:mb-8 ${tutorialStep === 2 ? 'ring-4 ring-purple-500' : ''}`}>
-          <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Try Now For Free!</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
-            <button
-              onClick={handleAudioClick}
-              disabled={audioLoading}
-              className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base ${
-                audioLoading ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              {audioLoading ? (
-                <span className="flex items-center">
-                  <svg
-                    className="animate-spin h-4 w-4 md:h-5 md:w-5 mr-2 text-white"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                      fill="none"
-                    />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                  </svg>
-                  Loading...
-                </span>
-              ) : (
-                <>
-                  <span>Audio Upload</span>
-                  <span>➔</span>
-                </>
-              )}
-            </button>
-            <button
-              onClick={handleYoutubeClick}
-              disabled={youtubeLoading}
-              className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base ${
-                youtubeLoading ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              {youtubeLoading ? (
-                <span className="flex items-center">
-                  <svg
-                    className="animate-spin h-4 w-4 md:h-5 md:w-5 mr-2 text-white"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                      fill="none"
-                    />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                  </svg>
-                  Loading...
-                </span>
-              ) : (
-                <>
-                  <span>Video Upload</span>
-                  <span>➔</span>
-                </>
-              )}
-            </button>
-            <button
-              onClick={handleDocumentClick}
-              disabled={documentLoading}
-              className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base ${
-                documentLoading ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              {documentLoading ? (
-                <span className="flex items-center">
-                  <svg
-                    className="animate-spin h-4 w-4 md:h-5 md:w-5 mr-2 text-white"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                      fill="none"
-                    />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                  </svg>
-                  Loading...
-                </span>
-              ) : (
-                <>
-                  <span>Document Upload</span>
-                  <span>➔</span>
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* Educational Bundles Promotion */}
-        {isGhanaianUser && countdown !== 'Offer Ended' && (
-          <div ref={bundleEventRef} className={`mb-6 md:mb-8 pulse-glow ${tutorialStep === 5 ? 'ring-4 ring-purple-500' : ''}`}>
-            <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4 text-purple-400">📚 Limited-Time Educational Bundles Available!</h2>
-            <div className="bg-gray-800 p-4 md:p-6 rounded-lg">
-              <p className="text-gray-300 text-sm md:text-base mb-3">
-                Boost your learning with our exclusive educational bundles by purchasing them using your G_COINS.
-              </p>
-              <p className="text-yellow-400 text-sm md:text-base font-semibold mb-3">
-                Offer Expires In: {countdown}
-              </p>
-              <Link
-                to="/buy-bundles"
-                className="inline-block bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 hover-scale text-sm md:text-base"
-              >
-                Explore Educational Bundles
-              </Link>
-            </div>
-          </div>
-        )}
-
-        <div ref={foldersSectionRef} className={tutorialStep === 6 ? 'ring-4 ring-purple-500' : ''}>
-          <div className="flex justify-between items-center mb-3 md:mb-4">
-            <h2 className="text-lg md:text-xl font-semibold">All Folders</h2>
-            <div className="flex items-center space-x-3">
-              <p className={`text-sm md:text-base ${gCoinsAnimating ? 'coins-deduct' : ''}`}>
-                💰 G_COINS: {gCoins}
-              </p>
-              <button
-                onClick={handleBuyGCoins}
-                className="bg-purple-600 text-white py-1 px-3 rounded-lg hover:bg-purple-700 text-sm md:text-base hover-scale"
-              >
-                Buy G_COINS
-              </button>
-            </div>
-          </div>
-          <div className={`flex flex-col sm:flex-row items-center mb-4 gap-3 ${tutorialStep === 3 || tutorialStep === 4 ? 'ring-4 ring-purple-500' : ''}`}>
-            <input
-              ref={folderInputRef}
-              type="text"
-              value={newFolderName}
-              onChange={(e) => setNewFolderName(e.target.value)}
-              placeholder="New folder name"
-              className="p-2 rounded-lg bg-gray-700 text-white w-full sm:w-auto"
-            />
-            <button
-              ref={createButtonRef}
-              onClick={handleCreateFolder}
-              disabled={createFolderLoading}
-              className={`bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base w-full sm:w-auto ${
-                createFolderLoading ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              {createFolderLoading ? (
-                <span className="flex items-center justify-center">
-                  <svg
-                    className="animate-spin h-4 w-4 md:h-5 md:w-5 mr-2 text-white"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                      fill="none"
-                    />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                  </svg>
-                  Creating Folder...
-                </span>
-              ) : (
-                'Create Folder'
-              )}
-            </button>
-          </div>
-          {foldersLoading ? (
-            <div className="min-h-[200px] flex items-center justify-center">
-              <div className="flex items-center">
-                <svg className="animate-spin h-5 w-5 mr-3 text-white" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                </svg>
-                Fetching Your Folders...
-              </div>
-            </div>
-          ) : folders.length === 0 ? (
-            <p className="text-gray-400 text-sm md:text-base">
-              No folders yet. Create one to start!
-            </p>
-          ) : (
-            folders.map((folder) => (
-              <div
-                key={folder.id}
-                className="bg-gray-800 p-3 md:p-4 rounded-lg mb-3 md:mb-4 flex items-center justify-between relative"
-              >
-                {editFolderId === folder.id ? (
-                  <div className="flex items-center space-x-3 w-full">
-                    <input
-                      type="text"
-                      value={editFolderName}
-                      onChange={(e) => setEditFolderName(e.target.value)}
-                      placeholder="Edit folder name"
-                      className="p-2 rounded-lg bg-gray-700 text-white flex-1"
-                    />
-                    <button
-                      onClick={() => handleEditFolder(folder.id)}
-                      disabled={editLoading}
-                      className={`bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm ${
-                        editLoading ? 'opacity-50 cursor-not-allowed' : ''
-                      }`}
-                    >
-                      {editLoading ? (
-                        <span className="flex items-center">
-                          <svg className="animate-spin h-4 w-4 mr-2 text-white" viewBox="0 0 24 24">
-                            <circle
-                              className="opacity-25"
-                              cx="12"
-                              cy="12"
-                              r="10"
-                              stroke="currentColor"
-                              strokeWidth="4"
-                              fill="none"
-                            />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                          </svg>
-                          Saving...
-                        </span>
-                      ) : (
-                        'Save'
-                      )}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setEditFolderId(null);
-                        setEditFolderName('');
-                      }}
-                      className="text-gray-400 hover:text-white text-sm"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <Link to={`/folder/${folder.id}`} className="flex-1">
-                      <div className="hover:bg-gray-700 p-2 rounded-lg transition-colors">
-                        <h3 className="text-base md:text-lg font-semibold">{folder.name}</h3>
-                        <p className="text-gray-400 text-sm">Created on {folder.createdAt}</p>
-                      </div>
-                    </Link>
-                    <div className="relative">
-                      <button
-                        onClick={() => toggleDropdown(folder.id)}
-                        className="text-gray-400 hover:text-white text-xl"
-                      >
-                        ⋯
-                      </button>
-                      {dropdownOpen === folder.id && (
-                        <div className="absolute right-0 mt-2 w-32 bg-gray-700 rounded-lg shadow-lg z-10">
-                          <button
-                            onClick={() => {
-                              setEditFolderId(folder.id);
-                              setEditFolderName(folder.name);
-                              setDropdownOpen(null);
-                            }}
-                            className="block w-full text-left px-4 py-2 text-sm text-white hover:bg-gray-600 rounded-t-lg"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDeleteFolder(folder.id)}
-                            disabled={deleteLoading}
-                            className={`block w-full text-left px-4 py-2 text-sm text-red-400 hover:bg-gray-600 rounded-b-lg ${
-                              deleteLoading ? 'opacity-50 cursor-not-allowed' : ''
-                            }`}
-                          >
-                            {deleteLoading ? (
-                              <span className="flex items-center">
-                                <svg className="animate-spin h-4 w-4 mr-2 text-red-400" viewBox="0 0 24 24">
-                                  <circle
-                                    className="opacity-25"
-                                    cx="12"
-                                    cy="12"
-                                    r="10"
-                                    stroke="currentColor"
-                                    strokeWidth="4"
-                                    fill="none"
-                                  />
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                                </svg>
-                                Deleting...
-                              </span>
-                            ) : (
-                              'Delete'
-                            )}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-            ))
-          )}
-        </div>
       </div>
     </div>
   );

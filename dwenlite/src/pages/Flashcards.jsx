@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { db, auth } from '../firebase';
-import { doc, getDoc, updateDoc, addDoc, collection, setDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, addDoc, collection, setDoc, query, where, getDocs } from 'firebase/firestore';
+import { arrayUnion } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 
@@ -26,6 +27,9 @@ function Flashcards() {
   const [reportLoading, setReportLoading] = useState(false);
   const [gCoins, setGCoins] = useState(0);
   const [gCoinsAnimating, setGCoinsAnimating] = useState(false);
+  const [ratings, setRatings] = useState({});
+  const [ratingLoading, setRatingLoading] = useState({});
+  const [hasRated, setHasRated] = useState({});
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -34,9 +38,10 @@ function Flashcards() {
         navigate('/login');
         return;
       }
-      setGCoins(0); // Reset G_COINS state
+      setGCoins(0);
       fetchFolder(user.uid);
       fetchUserGCoins(user.uid);
+      fetchUserRatings(user.uid);
     });
     return () => unsubscribe();
   }, [navigate, folderId]);
@@ -48,13 +53,35 @@ function Flashcards() {
       if (userSnap.exists()) {
         setGCoins(userSnap.data().gCoins || 0);
       } else {
-        // Initialize user with 30 G_COINS
         await setDoc(userRef, { gCoins: 30 });
         setGCoins(30);
       }
     } catch (err) {
       console.error('Fetch user G_COINS error:', err);
       toast.error('Failed to fetch G_COINS. Please try again.');
+    }
+  };
+
+  const fetchUserRatings = async (userId) => {
+    try {
+      const ratingsQuery = query(
+        collection(db, 'ratings'),
+        where('userId', '==', userId),
+        where('folderId', '==', folderId)
+      );
+      const ratingsSnap = await getDocs(ratingsQuery);
+      const userRatings = {};
+      const hasRatedGroups = {};
+      ratingsSnap.forEach(doc => {
+        const data = doc.data();
+        userRatings[data.flashcardGroupId] = data.rating;
+        hasRatedGroups[data.flashcardGroupId] = true;
+      });
+      setRatings(userRatings);
+      setHasRated(hasRatedGroups);
+    } catch (err) {
+      console.error('Fetch user ratings error:', err);
+      toast.error('Failed to fetch user ratings. Please try again.');
     }
   };
 
@@ -72,7 +99,7 @@ function Flashcards() {
       await updateDoc(userRef, { gCoins: currentGCoins - amount });
       setGCoins(currentGCoins - amount);
       setGCoinsAnimating(true);
-      setTimeout(() => setGCoinsAnimating(false), 1000); // Animation duration
+      setTimeout(() => setGCoinsAnimating(false), 1000);
     } catch (err) {
       console.error('Deduct G_COINS error:', err);
       throw err;
@@ -101,6 +128,10 @@ function Flashcards() {
 
       folderData.flashcardGroups = folderData.flashcardGroups || [];
       folderData.documents = folderData.documents || [];
+      folderData.flashcardGroups = folderData.flashcardGroups.map(group => ({
+        ...group,
+        rating: group.rating || 0
+      }));
       setFolder(folderData);
       setLoading(false);
     } catch (err) {
@@ -399,7 +430,6 @@ function Flashcards() {
       return;
     }
 
-    // Check G_COINS balance
     if (gCoins < 3) {
       toast.error(
         <div>
@@ -421,6 +451,7 @@ function Flashcards() {
         id: Date.now().toString(),
         flashcards: newFlashcards,
         createdAt: new Date().toISOString(),
+        rating: 0
       };
 
       const folderRef = doc(db, 'folders', folderId);
@@ -430,12 +461,19 @@ function Flashcards() {
         flashcardGroups: updatedFlashcardGroups,
       });
 
-      // Deduct 3 G_COINS on successful generation
       await deductGCoins(auth.currentUser.uid, 3);
 
       setFolder(prev => ({
         ...prev,
         flashcardGroups: updatedFlashcardGroups,
+      }));
+      setRatings(prev => ({
+        ...prev,
+        [newFlashcardGroup.id]: newFlashcardGroup.rating,
+      }));
+      setHasRated(prev => ({
+        ...prev,
+        [newFlashcardGroup.id]: false,
       }));
       toast.success('New flashcard group generated successfully! 3 G_COINS deducted.');
       setSelectedFlashcardGroup(newFlashcardGroup);
@@ -462,6 +500,17 @@ function Flashcards() {
         flashcardGroups: updatedFlashcardGroups,
       }));
 
+      setRatings(prev => {
+        const newRatings = { ...prev };
+        delete newRatings[groupId];
+        return newRatings;
+      });
+      setHasRated(prev => {
+        const newHasRated = { ...prev };
+        delete newHasRated[groupId];
+        return newHasRated;
+      });
+
       if (selectedFlashcardGroup?.id === groupId) {
         setSelectedFlashcardGroup(null);
         setCurrentFlashcardIndex(0);
@@ -472,6 +521,58 @@ function Flashcards() {
     } catch (err) {
       console.error('Error deleting flashcard group:', err);
       toast.error('Failed to delete flashcard group. Please try again.');
+    }
+  };
+
+  const handleRateFlashcardGroup = async (groupId, rating) => {
+    if (!auth.currentUser) {
+      toast.error('Please log in to rate flashcard groups.');
+      return;
+    }
+
+    if (hasRated[groupId]) {
+      toast.error('You have already rated this flashcard group.');
+      return;
+    }
+
+    setRatingLoading(prev => ({ ...prev, [groupId]: true }));
+    try {
+      const folderRef = doc(db, 'folders', folderId);
+      const updatedFlashcardGroups = folder.flashcardGroups.map(group => 
+        group.id === groupId ? { ...group, rating } : group
+      );
+
+      await updateDoc(folderRef, {
+        flashcardGroups: updatedFlashcardGroups,
+      });
+
+      setFolder(prev => ({
+        ...prev,
+        flashcardGroups: updatedFlashcardGroups,
+      }));
+      setRatings(prev => ({
+        ...prev,
+        [groupId]: rating,
+      }));
+      setHasRated(prev => ({
+        ...prev,
+        [groupId]: true,
+      }));
+
+      await addDoc(collection(db, 'ratings'), {
+        userId: auth.currentUser.uid,
+        folderId,
+        flashcardGroupId: groupId,
+        rating,
+        createdAt: new Date().toISOString(),
+      });
+
+      toast.success('Rating submitted successfully!');
+    } catch (err) {
+      console.error('Rate flashcard group error:', err);
+      toast.error('Failed to submit rating. Please try again.');
+    } finally {
+      setRatingLoading(prev => ({ ...prev, [groupId]: false }));
     }
   };
 
@@ -918,6 +1019,25 @@ function Flashcards() {
             color: white;
             transform: rotateY(180deg);
           }
+          .star-rating {
+            display: inline-flex;
+            cursor: pointer;
+          }
+          .star {
+            color: #d1d5db;
+            transition: color 0.2s ease;
+          }
+          .star.filled {
+            color: #facc15;
+          }
+          .star:hover,
+          .star.filled:hover {
+            color: #eab308;
+          }
+          .star-rating.disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+          }
         `}
       </style>
 
@@ -1060,6 +1180,41 @@ function Flashcards() {
                         Flashcard Group {index + 1} (Created: {new Date(group.createdAt).toLocaleDateString()})
                       </button>
                       <div className="flex items-center space-x-2">
+                        <div className={`star-rating ${hasRated[group.id] ? 'disabled' : ''}`}>
+                          {[1, 2, 3, 4, 5].map(star => (
+                            <svg
+                              key={star}
+                              onClick={() => !hasRated[group.id] && handleRateFlashcardGroup(group.id, star)}
+                              className={`w-5 h-5 star ${ratings[group.id] >= star ? 'filled' : ''}`}
+                              fill="currentColor"
+                              viewBox="0 0 20 20"
+                              xmlns="http://www.w3.org/2000/svg"
+                            >
+                              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                            </svg>
+                          ))}
+                        </div>
+                        {ratingLoading[group.id] && (
+                          <svg
+                            className="animate-spin h-4 w-4 text-white"
+                            viewBox="0 0 24 24"
+                          >
+                            <circle
+                              className="opacity-25"
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                              fill="none"
+                            />
+                            <path
+                              className="opacity-75"
+                              fill="currentColor"
+                              d="M4 12a8 8 0 018-8v8H4z"
+                            />
+                          </svg>
+                        )}
                         <button
                           onClick={() => handleToggleGroup(group.id)}
                           className={`text-gray-400 hover:text-white ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
