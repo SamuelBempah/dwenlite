@@ -27,9 +27,9 @@ function Notes() {
   const [reportLoading, setReportLoading] = useState(false);
   const [gCoins, setGCoins] = useState(0);
   const [gCoinsAnimating, setGCoinsAnimating] = useState(false);
-  const [ratings, setRatings] = useState({}); // State to track user ratings for notes
-  const [ratingLoading, setRatingLoading] = useState({}); // State to track loading status for ratings
-  const [hasRated, setHasRated] = useState({}); // State to track if user has rated a note
+  const [ratings, setRatings] = useState({});
+  const [ratingLoading, setRatingLoading] = useState({});
+  const [hasRated, setHasRated] = useState({});
 
   // Configure marked to match CommunitySupport.jsx
   marked.setOptions({
@@ -410,7 +410,7 @@ function Notes() {
         id: Date.now().toString(), 
         content: generatedText,
         createdAt: new Date().toISOString(),
-        rating: 0 // Initialize rating for new note
+        rating: 0
       };
     } catch (err) {
       console.error('Error generating notes:', err);
@@ -886,19 +886,19 @@ function Notes() {
             color: #d1d5db;
           }
           .prose h1 {
-            font-size: 1.5rem;
+            font-size: 1.25rem;
             font-weight: 700;
             margin-bottom: 1rem;
             color: #ffffff;
           }
           .prose h2 {
-            font-size: 1.25rem;
+            font-size: 1.125rem;
             font-weight: 600;
             margin-bottom: 0.75rem;
             color: #e5e7eb;
           }
           .prose h3 {
-            font-size: 1.125rem;
+            font-size: 1rem;
             font-weight: 600;
             margin-bottom: 0.5rem;
             color: #e5e7eb;
@@ -1030,12 +1030,13 @@ function Notes() {
       <div className="mb-6">
         <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Stored Notes</h2>
         {folder.notes?.length === 0 ? (
-          <p className="text-gray-400 text-sm md:text-base">No notes available in this folder.</p>
+          <p className="text-gray-400 text-sm">No notes available in this folder. Generate a new note to start!</p>
         ) : (
           <div>
             <button
               onClick={() => setShowStoredNotes(!showStoredNotes)}
-              className="bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base w-full mb-3"
+              className={`bg-gray-800 p-3 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm w-full mb-3 ${notesLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+              disabled={notesLoading}
             >
               <span>{showStoredNotes ? 'Hide Stored Notes' : 'Show Stored Notes'}</span>
               <span>{showStoredNotes ? '▼' : '▶'}</span>
@@ -1045,22 +1046,23 @@ function Notes() {
                 {folder.notes.map((note, index) => (
                   <div
                     key={note.id}
-                    className="bg-gray-800 p-3 md:p-4 rounded-lg"
+                    className="bg-gray-800 p-3 sm:p-4 rounded-lg"
                   >
-                    <div className="flex justify-between items-center mb-2">
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-2 space-y-2 sm:space-y-0">
                       <button
                         onClick={() => handleToggleGroup(note.id)}
-                        className="text-left flex-1 text-base md:text-lg font-semibold hover:text-purple-400"
+                        className={`text-left flex-1 text-sm sm:text-base font-semibold hover:text-purple-400 ${notesLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                        disabled={notesLoading}
                       >
                         Note {index + 1} (Created: {new Date(note.createdAt).toLocaleDateString()})
                       </button>
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-2 sm:space-x-3">
                         <div className={`star-rating ${hasRated[note.id] ? 'disabled' : ''}`}>
                           {[1, 2, 3, 4, 5].map(star => (
                             <svg
                               key={star}
                               onClick={() => !hasRated[note.id] && handleRateNote(note.id, star)}
-                              className={`w-5 h-5 star ${ratings[note.id] >= star ? 'filled' : ''}`}
+                              className={`w-4 h-4 sm:w-5 sm:h-5 star ${ratings[note.id] >= star ? 'filled' : ''}`}
                               fill="currentColor"
                               viewBox="0 0 20 20"
                               xmlns="http://www.w3.org/2000/svg"
@@ -1071,7 +1073,7 @@ function Notes() {
                         </div>
                         {ratingLoading[note.id] && (
                           <svg
-                            className="animate-spin h-4 w-4 text-white"
+                            className="animate-spin h-4 w-4 sm:h-5 sm:h-5 text-white"
                             viewBox="0 0 24 24"
                           >
                             <circle
@@ -1092,19 +1094,22 @@ function Notes() {
                         )}
                         <button
                           onClick={() => handleToggleGroup(note.id)}
-                          className="text-gray-400 hover:text-white"
+                          className={`text-gray-400 hover:text-white text-sm sm:text-base ${notesLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                          disabled={notesLoading}
                         >
                           {expandedGroups[note.id] ? 'Hide Notes' : 'Show Notes'}
                         </button>
                         <button
                           onClick={() => handleDownloadPDF(note)}
-                          className="bg-blue-600 text-white py-1 px-3 rounded-lg hover:bg-blue-700"
+                          className={`bg-blue-600 text-white py-1 px-3 sm:px-4 rounded-lg hover:bg-blue-700 text-sm ${notesLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                          disabled={notesLoading}
                         >
                           Download PDF
                         </button>
                         <button
                           onClick={() => handleDeleteNote(note.id)}
-                          className="bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700"
+                          className={`bg-red-600 text-white py-1 px-3 sm:px-4 rounded-lg hover:bg-red-700 text-sm ${notesLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                          disabled={notesLoading}
                         >
                           Delete
                         </button>
@@ -1113,7 +1118,7 @@ function Notes() {
                     {expandedGroups[note.id] && (
                       <div className="mt-2 prose prose-invert max-w-none">
                         <div
-                          className="text-gray-300 text-sm md:text-base"
+                          className="text-gray-300 text-sm sm:text-base break-words"
                           dangerouslySetInnerHTML={{ __html: renderMarkdown(note.content) }}
                         />
                       </div>
@@ -1141,7 +1146,7 @@ function Notes() {
                 }`}
               >
                 <span
-                  className={`inline-block p-2 rounded-lg ${
+                  className={`inline-block p-2 rounded-lg text-sm md:text-base ${
                     message.type === 'user'
                       ? 'bg-purple-600'
                       : message.type === 'ai'
@@ -1163,7 +1168,8 @@ function Notes() {
                 {message.type === 'ai' && !message.content.includes('DwenLite AI is typing...') && (
                   <button
                     onClick={() => setShowReportForm(showReportForm === index ? null : index)}
-                    className="absolute top-0 right-0 text-red-500 hover:text-red-400 text-xs p-1"
+                    className={`absolute top-0 right-0 text-red-500 hover:text-red-400 text-xs p-1 ${notesLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                    disabled={notesLoading}
                   >
                     {showReportForm === index ? 'Cancel' : 'Report'}
                   </button>
@@ -1174,14 +1180,14 @@ function Notes() {
                       value={reportReason}
                       onChange={(e) => setReportReason(e.target.value)}
                       placeholder="Why is this content offensive or inappropriate?"
-                      className="w-full p-2 bg-gray-600 text-white rounded-lg focus:outline-none"
+                      className="w-full p-2 bg-gray-600 text-white rounded-lg focus:outline-none text-sm"
                       rows="3"
                     />
                     <button
                       onClick={() => handleReportContent(index, reportReason)}
-                      disabled={reportLoading || !reportReason.trim()}
-                      className={`mt-2 bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700 ${
-                        reportLoading || !reportReason.trim() ? 'opacity-50 cursor-not-allowed' : ''
+                      disabled={reportLoading || !reportReason.trim() || notesLoading}
+                      className={`mt-2 bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700 text-sm ${
+                        reportLoading || !reportReason.trim() || notesLoading ? 'opacity-50 cursor-not-allowed' : ''
                       }`}
                     >
                       {reportLoading ? (
@@ -1224,7 +1230,8 @@ function Notes() {
                   console.log('Selected note ID changed to:', e.target.value);
                   setSelectedNoteId(e.target.value);
                 }}
-                className="w-full p-2 bg-gray-700 text-white rounded-lg"
+                className="w-full p-2 bg-gray-700 text-white rounded-lg text-sm"
+                disabled={notesLoading}
               >
                 <option value="">Select a note</option>
                 {folder.notes.map((note, index) => (
@@ -1239,8 +1246,8 @@ function Notes() {
                     console.log('Note selection button clicked');
                     handleNoteSelection();
                   }}
-                  className="mt-2 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 w-full hover-scale"
-                  disabled={chatLoading || notesLoading}
+                  className={`mt-2 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 w-full hover-scale text-sm ${notesLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                  disabled={notesLoading}
                 >
                   Submit
                 </button>
@@ -1258,13 +1265,13 @@ function Notes() {
                 value={chatInput}
                 onChange={(e) => setChatInput(e.target.value)}
                 placeholder="Ask DwenLite AI a question..."
-                className="flex-1 p-2 bg-gray-700 text-white rounded-l-lg focus:outline-none"
+                className="flex-1 p-2 bg-gray-700 text-white rounded-l-lg focus:outline-none text-sm"
                 disabled={chatLoading || notesLoading}
               />
               <button
                 type="submit"
                 disabled={chatLoading || notesLoading}
-                className={`bg-purple-600 text-white py-2 px-4 rounded-r-lg hover:bg-purple-700 hover-scale ${
+                className={`bg-purple-600 text-white py-2 px-4 rounded-r-lg hover:bg-purple-700 hover-scale text-sm ${
                   chatLoading || notesLoading ? 'opacity-50 cursor-not-allowed' : ''
                 }`}
               >

@@ -1153,12 +1153,12 @@ function Flashcards() {
       <div className="mb-6">
         <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Stored Flashcard Groups</h2>
         {folder.flashcardGroups.length === 0 ? (
-          <p className="text-gray-400 text-sm md:text-base">No flashcard groups available. Generate a new group to start!</p>
+          <p className="text-gray-400 text-sm">No flashcard groups available. Generate a new group to start!</p>
         ) : (
           <div>
             <button
               onClick={() => setShowStoredFlashcards(!showStoredFlashcards)}
-              className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base w-full mb-3 ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+              className={`bg-gray-800 p-3 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm w-full mb-3 ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
               disabled={flashcardsLoading}
             >
               <span>{showStoredFlashcards ? 'Hide Stored Flashcard Groups' : 'Show Stored Flashcard Groups'}</span>
@@ -1169,23 +1169,23 @@ function Flashcards() {
                 {folder.flashcardGroups.map((group, index) => (
                   <div
                     key={group.id}
-                    className="bg-gray-800 p-3 md:p-4 rounded-lg"
+                    className="bg-gray-800 p-3 sm:p-4 rounded-lg"
                   >
-                    <div className="flex justify-between items-center mb-2">
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-2 space-y-2 sm:space-y-0">
                       <button
                         onClick={() => handleSelectFlashcardGroup(group)}
-                        className={`text-left flex-1 text-base md:text-lg font-semibold hover:text-purple-400 ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                        className={`text-left flex-1 text-sm sm:text-base font-semibold hover:text-purple-400 ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
                         disabled={flashcardsLoading}
                       >
                         Flashcard Group {index + 1} (Created: {new Date(group.createdAt).toLocaleDateString()})
                       </button>
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-2 sm:space-x-3">
                         <div className={`star-rating ${hasRated[group.id] ? 'disabled' : ''}`}>
                           {[1, 2, 3, 4, 5].map(star => (
                             <svg
                               key={star}
                               onClick={() => !hasRated[group.id] && handleRateFlashcardGroup(group.id, star)}
-                              className={`w-5 h-5 star ${ratings[group.id] >= star ? 'filled' : ''}`}
+                              className={`w-4 h-4 sm:w-5 sm:h-5 star ${ratings[group.id] >= star ? 'filled' : ''}`}
                               fill="currentColor"
                               viewBox="0 0 20 20"
                               xmlns="http://www.w3.org/2000/svg"
@@ -1196,7 +1196,7 @@ function Flashcards() {
                         </div>
                         {ratingLoading[group.id] && (
                           <svg
-                            className="animate-spin h-4 w-4 text-white"
+                            className="animate-spin h-4 w-4 sm:h-5 sm:w-5 text-white"
                             viewBox="0 0 24 24"
                           >
                             <circle
@@ -1217,14 +1217,14 @@ function Flashcards() {
                         )}
                         <button
                           onClick={() => handleToggleGroup(group.id)}
-                          className={`text-gray-400 hover:text-white ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                          className={`text-gray-400 hover:text-white text-sm sm:text-base ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
                           disabled={flashcardsLoading}
                         >
                           {expandedGroups[group.id] ? 'Hide Flashcards' : 'Show Flashcards'}
                         </button>
                         <button
                           onClick={() => handleDeleteFlashcardGroup(group.id)}
-                          className={`bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700 ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                          className={`bg-red-600 text-white py-1 px-3 sm:px-4 rounded-lg hover:bg-red-700 text-sm ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
                           disabled={flashcardsLoading}
                         >
                           Delete
@@ -1235,13 +1235,13 @@ function Flashcards() {
                       <div className="mt-2 space-y-3">
                         {group.flashcards.map((card, cIndex) => (
                           <div key={card.id} className="bg-gray-700 p-3 rounded-lg">
-                            <p className="text-sm md:text-base font-semibold">
+                            <p className="text-sm font-semibold">
                               Flashcard {cIndex + 1}
                             </p>
-                            <p className="text-gray-300 text-sm md:text-base">
+                            <p className="text-gray-300 text-sm break-words">
                               <strong>Question:</strong> {card.question}
                             </p>
-                            <p className="text-gray-300 text-sm md:text-base">
+                            <p className="text-gray-300 text-sm break-words">
                               <strong>Answer:</strong> {card.answer}
                             </p>
                           </div>

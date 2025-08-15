@@ -476,40 +476,33 @@ function Quizzes() {
     setQuizLoading(true);
     try {
       const newQuizzes = await generateContent();
-
-      const newQuizGroup = {
+      const newGroup = {
         id: Date.now().toString(),
         quizzes: newQuizzes,
         createdAt: new Date().toISOString(),
-        rating: 0
+        rating: 0,
       };
 
       const folderRef = doc(db, 'folders', folderId);
-      const updatedQuizGroups = [...(folder.quizGroups || []), newQuizGroup];
-
       await updateDoc(folderRef, {
-        quizGroups: updatedQuizGroups,
+        quizGroups: [...folder.quizGroups, newGroup],
       });
 
       await deductGCoins(auth.currentUser.uid, 5);
 
       setFolder(prev => ({
         ...prev,
-        quizGroups: updatedQuizGroups,
+        quizGroups: [...prev.quizGroups, newGroup],
       }));
       setRatings(prev => ({
         ...prev,
-        [newQuizGroup.id]: newQuizGroup.rating,
+        [newGroup.id]: newGroup.rating,
       }));
       setHasRated(prev => ({
         ...prev,
-        [newQuizGroup.id]: false,
+        [newGroup.id]: false,
       }));
-      toast.success('New quiz group generated successfully! 5 G_COINS deducted.');
-      setSelectedQuizGroup(newQuizGroup);
-      setCurrentQuizIndex(0);
-      setSelectedAnswer(null);
-      setIsCorrect(null);
+      toast.success('Quiz group generated successfully! 5 G_COINS deducted.');
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -519,9 +512,8 @@ function Quizzes() {
 
   const handleDeleteQuizGroup = async (groupId) => {
     try {
-      const folderRef = doc(db, 'folders', folderId);
       const updatedQuizGroups = folder.quizGroups.filter(group => group.id !== groupId);
-
+      const folderRef = doc(db, 'folders', folderId);
       await updateDoc(folderRef, {
         quizGroups: updatedQuizGroups,
       });
@@ -530,7 +522,6 @@ function Quizzes() {
         ...prev,
         quizGroups: updatedQuizGroups,
       }));
-
       setRatings(prev => {
         const newRatings = { ...prev };
         delete newRatings[groupId];
@@ -551,7 +542,7 @@ function Quizzes() {
 
       toast.success('Quiz group deleted successfully!');
     } catch (err) {
-      console.error('Error deleting quiz group:', err);
+      console.error('Delete quiz group error:', err);
       toast.error('Failed to delete quiz group. Please try again.');
     }
   };
@@ -609,6 +600,7 @@ function Quizzes() {
   };
 
   const handleSelectQuizGroup = (group) => {
+    if (quizLoading) return;
     setSelectedQuizGroup(group);
     setCurrentQuizIndex(0);
     setSelectedAnswer(null);
@@ -623,53 +615,20 @@ function Quizzes() {
   };
 
   const handleAnswerSelect = (option) => {
+    if (selectedAnswer !== null || quizLoading) return;
     setSelectedAnswer(option);
-    const selectedOptionLetter = option.split('.')[0].trim();
-    const correctOptionLetter = currentQuiz.correctAnswer.split('.')[0].trim();
-    setIsCorrect(selectedOptionLetter === correctOptionLetter);
+    setIsCorrect(option === currentQuiz.correctAnswer);
   };
 
   const handleNextQuestion = () => {
-    setCurrentQuizIndex(prev => prev + 1);
-    setSelectedAnswer(null);
-    setIsCorrect(null);
-  };
-
-  const handleReportContent = async (messageIndex, reason) => {
-    setReportLoading(true);
-    try {
-      const user = auth.currentUser;
-      if (!user) {
-        toast.error('You must be logged in to report content.');
-        return;
-      }
-
-      const message = chatHistory[messageIndex];
-      const reportData = {
-        userId: user.uid,
-        folderId,
-        contentType: 'chat_message',
-        contentId: `message_${messageIndex}`,
-        content: message.content,
-        reason,
-        createdAt: new Date().toISOString(),
-      };
-
-      await addDoc(collection(db, 'reports'), reportData);
-      toast.success('Content reported successfully. Thank you for your feedback.');
-      setShowReportForm(null);
-      setReportReason('');
-    } catch (err) {
-      console.error('Error reporting content:', {
-        message: err.message,
-        code: err.code,
-        details: err.details,
-      });
-      toast.error(`Failed to report content: ${err.message}. Please try again.`);
-    } finally {
-      setReportLoading(false);
+    if (currentQuizIndex + 1 < selectedQuizGroup.quizzes.length) {
+      setCurrentQuizIndex(prev => prev + 1);
+      setSelectedAnswer(null);
+      setIsCorrect(null);
     }
   };
+
+  const currentQuiz = selectedQuizGroup?.quizzes[currentQuizIndex];
 
   const handleChatSubmit = async (e) => {
     e.preventDefault();
@@ -680,21 +639,21 @@ function Quizzes() {
 
     const quizGroupRegex = /(?:reference|check|use|from)\s*(?:quiz\s*group\s*)(\d+|one|two|three|four|five)/i;
     const match = question.match(quizGroupRegex);
-    let quizGroupIndex = null;
+    let groupIndex = null;
 
     if (match) {
-      const quizGroupRef = match[1].toLowerCase();
+      const groupRef = match[1].toLowerCase();
       const numberWords = ['one', 'two', 'three', 'four', 'five'];
-      if (numberWords.includes(quizGroupRef)) {
-        quizGroupIndex = numberWords.indexOf(quizGroupRef);
-      } else if (!isNaN(parseInt(quizGroupRef))) {
-        quizGroupIndex = parseInt(quizGroupRef) - 1;
+      if (numberWords.includes(groupRef)) {
+        groupIndex = numberWords.indexOf(groupRef);
+      } else if (!isNaN(parseInt(groupRef))) {
+        groupIndex = parseInt(groupRef) - 1;
       }
     }
 
-    if (quizGroupIndex !== null && folder.quizGroups[quizGroupIndex]) {
-      const selectedQuizGroup = folder.quizGroups[quizGroupIndex];
-      await processQuestion(question, selectedQuizGroup);
+    if (groupIndex !== null && folder.quizGroups[groupIndex]) {
+      const selectedGroup = folder.quizGroups[groupIndex];
+      await processQuestion(question, selectedGroup);
     } else if (folder.quizGroups.length === 0) {
       toast.error('No quiz groups available to reference.');
       return;
@@ -715,8 +674,8 @@ function Quizzes() {
       return;
     }
 
-    const selectedQuizGroup = folder.quizGroups.find(group => group.id === selectedQuizGroupId);
-    if (!selectedQuizGroup) {
+    const selectedGroup = folder.quizGroups.find(group => group.id === selectedQuizGroupId);
+    if (!selectedGroup) {
       toast.error('Selected quiz group not found.');
       return;
     }
@@ -728,20 +687,20 @@ function Quizzes() {
     }
 
     setShowQuizGroupPrompt(false);
-    await processQuestion(lastQuestion, selectedQuizGroup);
+    try {
+      await processQuestion(lastQuestion, selectedGroup);
+    } catch (err) {
+      toast.error('Failed to process question. Please try again.');
+    }
   };
 
-  const processQuestion = async (question, quizGroup) => {
+  const processQuestion = async (question, group) => {
     setChatLoading(true);
     try {
-      const quizContent = quizGroup.quizzes.map((quiz, index) => {
-        return `Question ${index + 1}:\nQuestion: ${quiz.question}\nOptions: ${quiz.options.join(', ')}\nCorrect Answer: ${quiz.correctAnswer}`;
-      }).join('\n\n');
-
-      const quizGroupIndex = folder.quizGroups.findIndex(g => g.id === quizGroup.id) + 1;
+      const groupIndex = folder.quizGroups.findIndex(g => g.id === group.id) + 1;
       setChatHistory(prev => [
         ...prev,
-        { type: 'system', content: `DwenLite AI is reading Quiz Group ${quizGroupIndex}...` },
+        { type: 'system', content: `DwenLite AI is reading Quiz Group ${groupIndex}...` },
       ]);
 
       await new Promise(resolve => setTimeout(resolve, 1500));
@@ -751,7 +710,11 @@ function Quizzes() {
         throw new Error('DwenLite API key not found. Please set VITE_DWENLITE_API_KEY in your .env file.');
       }
 
-      let prompt = `You are DwenLite AI, an assistant that answers questions based on provided quiz group content. Here is the content of the quiz group:\n\n${quizContent}\n\nQuestion: ${question}\n\nProvide a clear, concise, and accurate answer based on the quiz group content. If the question cannot be answered from the quiz group, state so and provide a brief explanation. Format the answer as plain text suitable for rendering in a React component.`;
+      const quizContent = group.quizzes.map(quiz => 
+        `Question: ${quiz.question}\nOptions: ${quiz.options.join(', ')}\nCorrect Answer: ${quiz.correctAnswer}`
+      ).join('\n\n');
+
+      const prompt = `You are DwenLite AI, an assistant that answers questions based on provided quiz groups. Here is the content of the quiz group:\n\n${quizContent}\n\nQuestion: ${question}\n\nProvide a clear, concise, and accurate answer based on the quiz group. If the question cannot be answered from the quiz group, state so and provide a brief explanation. Format the answer as plain text suitable for rendering in a React component.`;
 
       setChatHistory(prev => [
         ...prev,
@@ -760,7 +723,7 @@ function Quizzes() {
 
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      let response = await axios.post(
+      const response = await axios.post(
         'https://api.deepseek.com/v1/chat/completions',
         {
           model: 'deepseek-chat',
@@ -804,56 +767,7 @@ function Quizzes() {
         throw new Error('Invalid DwenLite API response: No answer found.');
       }
 
-      if (answer.includes('cannot be answered from the quiz group')) {
-        setChatHistory(prev => [
-          ...prev,
-          { type: 'system', content: 'DwenLite AI is searching the web for additional information...' },
-        ]);
-
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        const searchResults = await scrapeWeb(question);
-        const searchContent = searchResults.map(result => `Title: ${result.title}\nSnippet: ${result.snippet}\nLink: ${result.link}`).join('\n\n');
-
-        prompt = `You are DwenLite AI, an assistant that answers questions using provided quiz group content and web search results. The quiz group content did not provide enough information to answer the question. Here is the quiz group content:\n\n${quizContent}\n\nHere are the web search results:\n\n${searchContent}\n\nQuestion: ${question}\n\nProvide a clear, concise, and accurate answer based on the web search results. If the question still cannot be answered, state so and provide a brief explanation. Format the answer as plain text suitable for rendering in a React component.`;
-
-        response = await axios.post(
-          'https://api.deepseek.com/v1/chat/completions',
-          {
-            model: 'deepseek-chat',
-            messages: [
-              { role: 'system', content: 'You are DwenLite AI, a helpful assistant for answering questions using quiz groups and web search results.' },
-              { role: 'user', content: prompt },
-            ],
-            max_tokens: 1000,
-            temperature: 0.7,
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-              'Content-Type': 'application/json',
-            },
-          }
-        ).catch(err => {
-          console.error('DwenLite API error (web search):', {
-            status: err.response?.status,
-            statusText: err.response?.statusText,
-            data: err.response?.data,
-            message: err.message,
-          });
-          throw new Error(`DwenLite API request failed: ${err.message}`);
-        });
-
-        if (response.data.choices?.[0]?.message?.content) {
-          answer = response.data.choices[0].message.content.trim();
-        } else if (response.data.choices?.[0]?.text) {
-          answer = response.data.choices[0].text.trim();
-        } else {
-          throw new Error('Invalid DwenLite API response: No answer found after web search.');
-        }
-      }
-
-      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...' && item.content !== 'DwenLite AI is searching the web for additional information...').concat({
+      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...').concat({
         type: 'ai',
         content: answer,
       }));
@@ -861,55 +775,9 @@ function Quizzes() {
     } catch (err) {
       console.error('Error processing question:', err);
       toast.error(err.message);
-      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...' && item.content !== 'DwenLite AI is searching the web for additional information...'));
+      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...'));
     } finally {
       setChatLoading(false);
-    }
-  };
-
-  const scrapeWeb = async (query) => {
-    try {
-      const apiKey = import.meta.env.VITE_SERPAPI_API_KEY;
-      if (!apiKey) {
-        throw new Error('SerpApi API key not found. Please set VITE_SERPAPI_API_KEY in your .env file.');
-      }
-
-      const params = new URLSearchParams({
-        q: query,
-        api_key: apiKey,
-      });
-
-      const response = await axios.get(`https://serpapi.com/search?${params.toString()}`).catch(err => {
-        console.error('SerpApi request error:', {
-          status: err.response?.status,
-          statusText: err.response?.statusText,
-          data: err.response?.data,
-          message: err.message,
-        });
-        let errorMessage = 'Web search request failed';
-        if (err.response?.status === 401) {
-          errorMessage = 'Invalid SerpApi API key. Please check your API key in the .env file.';
-        } else if (err.response?.status === 429) {
-          errorMessage = 'SerpApi rate limit exceeded. Please wait a few minutes and try again.';
-        }
-        throw new Error(`${errorMessage}: ${err.message}`);
-      });
-
-      const organicResults = response.data.organic_results || [];
-      let searchResults = organicResults.slice(0, 3).map(result => ({
-        title: result.title,
-        snippet: result.snippet,
-        link: result.link,
-      }));
-
-      if (searchResults.length === 0) {
-        searchResults = [{ title: 'No results found', snippet: 'No relevant information was found for your query.', link: '' }];
-      }
-
-      return searchResults;
-    } catch (err) {
-      console.error('Web scraping error:', err);
-      throw new Error(`Web scraping failed: ${err.message}`);
     }
   };
 
@@ -934,7 +802,7 @@ function Quizzes() {
           <p className="text-gray-400 text-lg">Unable to load folder.</p>
           <Link
             to="/dashboard"
-            className={`mt-4 inline-block bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+            className={`bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
           >
             Back to Dashboard
           </Link>
@@ -943,10 +811,8 @@ function Quizzes() {
     );
   }
 
-  const currentQuiz = selectedQuizGroup?.quizzes[currentQuizIndex];
-
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-4 md:p-8">
+    <div className="min-h-screen bg-gray-900 text-white p-4 sm:p-8">
       <style>
         {`
           @keyframes slideInFromRight {
@@ -1026,35 +892,35 @@ function Quizzes() {
         `}
       </style>
 
-      <div className="mb-6 md:mb-8">
-        <h1 className="text-2xl md:text-3xl font-bold">{folder.name} - Quizzes</h1>
+      <div className="mb-6 sm:mb-8">
+        <h1 className="text-xl sm:text-3xl font-bold">{folder.name} - Quizzes</h1>
         <div className="mt-2 flex items-center space-x-3">
           <Link
             to={`/folder/${folderId}`}
-            className={`bg-purple-600 text-white py-1 px-3 rounded-md hover:bg-purple-700 text-xs md:text-sm ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+            className={`bg-purple-600 text-white py-1 px-3 rounded-md hover:bg-purple-700 text-xs sm:text-sm ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
           >
             Back to Folder
           </Link>
-          <p className={`text-sm md:text-base ml-2 ${gCoinsAnimating ? 'coins-deduct' : ''}`}>
+          <p className={`text-sm sm:text-base ${gCoinsAnimating ? 'coins-deduct' : ''}`}>
             💰 G_COINS: {gCoins}
           </p>
         </div>
       </div>
 
-      <div className="mb-6 md:mb-8">
-        <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Generate Quizzes</h2>
-        <p className="text-gray-400 text-sm md:text-base mb-3 md:mb-4">
+      <div className="mb-6 sm:mb-8">
+        <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Generate Quizzes</h2>
+        <p className="text-gray-400 text-sm sm:text-base mb-3 sm:mb-4">
           Quiz generation typically takes 60-180 seconds and costs 5 G_COINS. Processing time may vary based on server load and document size.
         </p>
         <button
           onClick={handleRegenerateQuiz}
           disabled={quizLoading}
-          className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base w-full ${quizLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
+          className={`bg-gray-800 p-3 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm w-full ${quizLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
           {quizLoading ? (
             <span className="flex items-center">
               <svg
-                className="animate-spin h-4 w-4 md:h-5 md:w-5 mr-2 text-white"
+                className="animate-spin h-4 w-4 sm:h-5 sm:w-5 mr-2 text-white"
                 viewBox="0 0 24 24"
               >
                 <circle
@@ -1084,28 +950,28 @@ function Quizzes() {
       </div>
 
       <div className="mb-6">
-        <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Take Quiz</h2>
+        <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Take Quiz</h2>
         {!selectedQuizGroup ? (
-          <p className="text-gray-400 text-sm md:text-base">Select a quiz group from the stored quizzes to start!</p>
+          <p className="text-gray-400 text-sm">Select a quiz group from the stored quizzes to start!</p>
         ) : currentQuizIndex >= selectedQuizGroup.quizzes.length ? (
-          <p className="text-gray-400 text-sm md:text-base">You've completed this quiz group! Select another to continue.</p>
+          <p className="text-gray-400 text-sm">You've completed this quiz group! Select another to continue.</p>
         ) : currentQuiz ? (
-          <div className="bg-gray-800 p-3 md:p-4 rounded-lg mb-3 md:mb-4">
-            <h3 className="text-base md:text-lg font-semibold mb-2">
+          <div className="bg-gray-800 p-3 sm:p-4 rounded-lg mb-3 sm:mb-4">
+            <h3 className="text-base sm:text-lg font-semibold mb-2 break-words">
               Question {currentQuizIndex + 1} of {selectedQuizGroup.quizzes.length}: {currentQuiz.question}
             </h3>
-            <ul className="text-gray-300 text-sm md:text-base">
+            <ul className="text-gray-300 text-sm">
               {currentQuiz.options.map((option, index) => (
                 <li key={index} className="mb-2">
                   <button
                     onClick={() => handleAnswerSelect(option)}
-                    className={`w-full text-left p-2 rounded-lg ${
+                    className={`w-full text-left p-2 rounded-lg text-sm break-words ${
                       selectedAnswer === option
                         ? isCorrect
                           ? 'bg-green-600'
                           : 'bg-red-600'
                         : 'bg-gray-700 hover:bg-gray-600'
-                    }`}
+                    } ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
                     disabled={selectedAnswer !== null || quizLoading}
                   >
                     {option}
@@ -1114,33 +980,35 @@ function Quizzes() {
               ))}
             </ul>
             {selectedAnswer && (
-              <p className={`mt-2 ${isCorrect ? 'text-green-400' : 'text-red-400'}`}>
+              <p className={`mt-2 text-sm ${isCorrect ? 'text-green-400' : 'text-red-400'}`}>
                 {isCorrect ? 'Correct!' : `Incorrect. Correct answer: ${currentQuiz.correctAnswer}`}
               </p>
             )}
             {selectedAnswer && (
               <button
                 onClick={handleNextQuestion}
-                className={`mt-4 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                className={`mt-3 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                disabled={quizLoading}
               >
                 Next Question
               </button>
             )}
           </div>
         ) : (
-          <p className="text-gray-400 text-sm md:text-base">Loading quiz...</p>
+          <p className="text-gray-400 text-sm">Loading quiz...</p>
         )}
       </div>
 
       <div className="mb-6">
-        <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Stored Quiz Groups</h2>
+        <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">Stored Quiz Groups</h2>
         {folder.quizGroups.length === 0 ? (
-          <p className="text-gray-400 text-sm md:text-base">No quiz groups available. Generate a new group to start!</p>
+          <p className="text-gray-400 text-sm">No quiz groups available. Generate a new group to start!</p>
         ) : (
           <div>
             <button
               onClick={() => setShowStoredQuizzes(!showStoredQuizzes)}
-              className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base w-full mb-3 ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+              className={`bg-gray-800 p-3 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm w-full mb-3 ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+              disabled={quizLoading}
             >
               <span>{showStoredQuizzes ? 'Hide Stored Quiz Groups' : 'Show Stored Quiz Groups'}</span>
               <span>{showStoredQuizzes ? '▼' : '▶'}</span>
@@ -1150,22 +1018,23 @@ function Quizzes() {
                 {folder.quizGroups.map((group, index) => (
                   <div
                     key={group.id}
-                    className="bg-gray-800 p-3 md:p-4 rounded-lg"
+                    className="bg-gray-800 p-3 sm:p-4 rounded-lg"
                   >
-                    <div className="flex justify-between items-center mb-2">
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-2 space-y-2 sm:space-y-0">
                       <button
                         onClick={() => handleSelectQuizGroup(group)}
-                        className={`text-left flex-1 text-base md:text-lg font-semibold hover:text-purple-400 ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                        className={`text-left flex-1 text-sm sm:text-base font-semibold hover:text-purple-400 ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                        disabled={quizLoading}
                       >
                         Quiz Group {index + 1} (Created: {new Date(group.createdAt).toLocaleDateString()})
                       </button>
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center space-x-2 sm:space-x-3">
                         <div className={`star-rating ${hasRated[group.id] ? 'disabled' : ''}`}>
                           {[1, 2, 3, 4, 5].map(star => (
                             <svg
                               key={star}
                               onClick={() => !hasRated[group.id] && handleRateQuizGroup(group.id, star)}
-                              className={`w-5 h-5 star ${ratings[group.id] >= star ? 'filled' : ''}`}
+                              className={`w-4 h-4 sm:w-5 sm:h-5 star ${ratings[group.id] >= star ? 'filled' : ''}`}
                               fill="currentColor"
                               viewBox="0 0 20 20"
                               xmlns="http://www.w3.org/2000/svg"
@@ -1176,7 +1045,7 @@ function Quizzes() {
                         </div>
                         {ratingLoading[group.id] && (
                           <svg
-                            className="animate-spin h-4 w-4 text-white"
+                            className="animate-spin h-4 w-4 sm:h-5 sm:h-5 text-white"
                             viewBox="0 0 24 24"
                           >
                             <circle
@@ -1197,13 +1066,15 @@ function Quizzes() {
                         )}
                         <button
                           onClick={() => handleToggleGroup(group.id)}
-                          className={`text-gray-400 hover:text-white ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                          className={`text-gray-400 hover:text-white text-sm sm:text-base ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                          disabled={quizLoading}
                         >
                           {expandedGroups[group.id] ? 'Hide Questions' : 'Show Questions'}
                         </button>
                         <button
                           onClick={() => handleDeleteQuizGroup(group.id)}
-                          className={`bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700 ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                          className={`bg-red-600 text-white py-1 px-3 sm:px-4 rounded-lg hover:bg-red-700 text-sm ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                          disabled={quizLoading}
                         >
                           Delete
                         </button>
@@ -1213,15 +1084,15 @@ function Quizzes() {
                       <div className="mt-2 space-y-3">
                         {group.quizzes.map((quiz, qIndex) => (
                           <div key={quiz.id} className="bg-gray-700 p-3 rounded-lg">
-                            <h4 className="text-sm md:text-base font-semibold">
+                            <h4 className="text-sm sm:text-base font-semibold break-words">
                               Question {qIndex + 1}: {quiz.question}
                             </h4>
-                            <ul className="text-gray-300 text-sm md:text-base mt-1">
+                            <ul className="text-gray-300 text-sm mt-1">
                               {quiz.options.map((option, oIndex) => (
-                                <li key={oIndex}>{option}</li>
+                                <li key={oIndex} className="break-words">{option}</li>
                               ))}
                             </ul>
-                            <p className="text-gray-400 mt-1">
+                            <p className="text-gray-400 text-sm mt-1">
                               Correct Answer: {quiz.correctAnswer}
                             </p>
                           </div>
@@ -1237,11 +1108,11 @@ function Quizzes() {
       </div>
 
       <div className="mb-6">
-        <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">DwenLite AI Chat</h2>
-        <p className="text-gray-400 text-sm md:text-base mb-3 md:mb-4">
+        <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4">DwenLite AI Chat</h2>
+        <p className="text-gray-400 text-sm sm:text-base mb-3 sm:mb-4">
           Ask questions about your quiz groups, and DwenLite AI will provide answers based on the selected quiz group.
         </p>
-        <div className={`bg-gray-800 p-3 md:p-4 rounded-lg ${chatLoading ? 'pulse-container' : ''}`}>
+        <div className={`bg-gray-800 p-3 sm:p-4 rounded-lg ${chatLoading ? 'pulse-container' : ''}`}>
           <div className="mb-3 max-h-96 overflow-y-auto">
             {chatHistory.map((message, index) => (
               <div
@@ -1251,7 +1122,7 @@ function Quizzes() {
                 }`}
               >
                 <span
-                  className={`inline-block p-2 rounded-lg text-sm md:text-base ${
+                  className={`inline-block p-2 rounded-lg text-sm ${
                     message.type === 'user'
                       ? 'bg-purple-600'
                       : message.type === 'ai'
@@ -1274,6 +1145,7 @@ function Quizzes() {
                   <button
                     onClick={() => setShowReportForm(showReportForm === index ? null : index)}
                     className={`absolute top-0 right-0 text-red-500 hover:text-red-400 text-xs p-1 ${quizLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+                    disabled={quizLoading}
                   >
                     {showReportForm === index ? 'Cancel' : 'Report'}
                   </button>
