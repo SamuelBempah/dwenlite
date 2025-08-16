@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { guess } from 'web-audio-beat-detector';
 import Welcome from './pages/Welcome';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
@@ -51,10 +52,7 @@ function BanPopup({ isOpen, onClose }) {
         <h2 className="text-xl font-bold text-gray-800 mb-4">Account Banned</h2>
         <p className="text-gray-600 mb-6">
           This account has been banned for inappropriate behavior. If you think this is a mistake, please appeal by sending an email to{' '}
-          <a
-            href="mailto:info@dwenlite.space"
-            className="text-purple-600 hover:underline"
-          >
+          <a href="mailto:info@dwenlite.space" className="text-purple-600 hover:underline">
             info@dwenlite.space
           </a>.
         </p>
@@ -90,18 +88,22 @@ function App() {
   const [showBanPopup, setShowBanPopup] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAccountDisabled, setIsAccountDisabled] = useState(false);
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  const [isAudioLoading, setIsAudioLoading] = useState(false);
+  const [bpm, setBpm] = useState(120); // Default BPM
+  const [position, setPosition] = useState({ x: window.innerWidth - 80, y: window.innerHeight - 80 }); // Initial position (bottom-right)
+  const [isDragging, setIsDragging] = useState(false);
+  const audioRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const dragRef = useRef(null);
 
   useEffect(() => {
     const fetchUserStatus = async () => {
       try {
-        // Check authentication status
-        // Replace with your actual auth check (e.g., Firebase, Auth0, or JWT validation)
         const authToken = localStorage.getItem('authToken');
         if (authToken) {
           setIsAuthenticated(true);
           console.log('User is authenticated');
-          // Fetch user account status
-          // Replace with your actual API endpoint
           try {
             const userResponse = await fetch('https://api.dwenlite.space/user/status', {
               headers: { Authorization: `Bearer ${authToken}` },
@@ -137,14 +139,192 @@ function App() {
         setIsAccountDisabled(false);
       }
     };
+
+    const loadAndAnalyzeAudio = async () => {
+      try {
+        setIsAudioLoading(true);
+        audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
+        const response = await fetch('/music.m4a');
+        const arrayBuffer = await response.arrayBuffer();
+        const audioBuffer = await audioContextRef.current.decodeAudioData(arrayBuffer);
+        const { bpm } = await guess(audioBuffer);
+        setBpm(bpm || 120); // Fallback to 120 BPM if detection fails
+        console.log(`Detected BPM: ${bpm}`);
+      } catch (error) {
+        console.error('Error analyzing audio:', error);
+        setBpm(120); // Fallback BPM
+      } finally {
+        setIsAudioLoading(false);
+      }
+    };
+
     fetchUserStatus();
+    loadAndAnalyzeAudio();
+
+    return () => {
+      if (audioContextRef.current) {
+        audioContextRef.current.close().catch((error) => console.error('Error closing AudioContext:', error));
+      }
+    };
   }, []);
+
+  const toggleAudio = () => {
+    if (audioRef.current) {
+      if (isAudioPlaying) {
+        audioRef.current.pause();
+        setIsAudioPlaying(false);
+      } else {
+        setIsAudioLoading(true);
+        audioRef.current.play()
+          .then(() => {
+            setIsAudioPlaying(true);
+            setIsAudioLoading(false);
+          })
+          .catch((error) => {
+            console.error('Error playing audio:', error);
+            setIsAudioLoading(false);
+          });
+      }
+    }
+  };
+
+  const handleMouseDown = (e) => {
+    if (!isAudioLoading) {
+      setIsDragging(true);
+      e.preventDefault(); // Prevent text selection
+    }
+  };
+
+  const handleMouseMove = (e) => {
+    if (isDragging) {
+      const buttonSize = 64; // Approximate size of the button (including padding)
+      const newX = Math.max(0, Math.min(e.clientX - buttonSize / 2, window.innerWidth - buttonSize));
+      const newY = Math.max(0, Math.min(e.clientY - buttonSize / 2, window.innerHeight - buttonSize));
+      setPosition({ x: newX, y: newY });
+    }
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+    } else {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging]);
+
+  // Calculate animation duration based on BPM (seconds per beat)
+  const beatDuration = 60 / bpm;
 
   return (
     <ErrorBoundary>
       <Router>
         <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
         <BanPopup isOpen={showBanPopup} onClose={() => setShowBanPopup(false)} />
+        <audio ref={audioRef} src="/music.m4a" loop />
+        <div
+          className={`fixed z-50 ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+          style={{ left: `${position.x}px`, top: `${position.y}px` }}
+          ref={dragRef}
+        >
+          <button
+            onClick={toggleAudio}
+            onMouseDown={handleMouseDown}
+            className={`relative bg-gradient-to-r from-blue-400 via-purple-500 to-blue-600 text-white p-4 rounded-full hover:from-blue-500 hover:via-purple-600 hover:to-blue-700 transition-all duration-300 shadow-lg animate-float ${
+              isAudioPlaying ? 'animate-pulse-sync' : ''
+            } ${isAudioLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
+            style={{
+              backgroundSize: '200% 200%',
+              animation: `gradientMove 5s ease infinite${isAudioPlaying ? `, pulseSync ${beatDuration}s ease-in-out infinite` : ''}`,
+            }}
+            aria-label={isAudioPlaying ? 'Pause Background Music' : 'Play Background Music'}
+            disabled={isAudioLoading}
+          >
+            <span className="absolute inset-0 rounded-full bg-blue-300 opacity-20 animate-ripple"></span>
+            {isAudioLoading ? (
+              <svg className="animate-spin h-6 w-6 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+            ) : isAudioPlaying ? (
+              <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <rect x="6" y="4" width="4" height="16" rx="1"></rect>
+                <rect x="14" y="4" width="4" height="16" rx="1"></rect>
+              </svg>
+            ) : (
+              <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+              </svg>
+            )}
+          </button>
+        </div>
+        <style jsx>{`
+          @keyframes float {
+            0%, 100% {
+              transform: translateY(0) rotate(0deg);
+            }
+            50% {
+              transform: translateY(-12px) rotate(2deg);
+            }
+          }
+          @keyframes ripple {
+            0% {
+              transform: scale(1);
+              opacity: 0.3;
+            }
+            100% {
+              transform: scale(1.8);
+              opacity: 0;
+            }
+          }
+          @keyframes gradientMove {
+            0% {
+              background-position: 0% 50%;
+            }
+            50% {
+              background-position: 100% 50%;
+            }
+            100% {
+              background-position: 0% 50%;
+            }
+          }
+          @keyframes pulseSync {
+            0%, 100% {
+              transform: scale(1) rotate(0deg);
+              box-shadow: 0 0 15px rgba(59, 130, 246, 0.5), 0 0 30px rgba(147, 51, 234, 0.3);
+            }
+            50% {
+              transform: scale(1.2) rotate(3deg);
+              box-shadow: 0 0 25px rgba(59, 130, 246, 0.8), 0 0 40px rgba(147, 51, 234, 0.5);
+            }
+          }
+          @keyframes spin {
+            to {
+              transform: rotate(360deg);
+            }
+          }
+          .animate-float {
+            animation: float 3.5s ease-in-out infinite;
+          }
+          .animate-ripple {
+            animation: ripple 2.5s ease-out infinite;
+          }
+          .animate-pulse-sync {
+            animation: pulseSync ${beatDuration}s ease-in-out infinite;
+          }
+          .animate-spin {
+            animation: spin 1s linear infinite;
+          }
+        `}</style>
         <Routes>
           <Route path="/" element={<MaintenanceRoute component={Welcome} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
           <Route path="/login" element={<MaintenanceRoute component={Login} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
