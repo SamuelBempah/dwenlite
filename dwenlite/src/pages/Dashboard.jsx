@@ -656,26 +656,24 @@ function Dashboard() {
         {showAdNotice && isGhanaianUser && (
           <div
             ref={bundleEventRef}
-            className={`bg-gray-800 p-4 rounded-lg mb-6 ad-notice-enter ${
+            className={`bg-gray-800 p-3 sm:p-4 rounded-lg mb-4 sm:mb-6 ad-notice-enter flex flex-col sm:flex-row sm:justify-between sm:items-center ${
               tutorialStep === 5 ? 'ring-4 ring-purple-500' : ''
             }`}
           >
-            <div className="flex justify-between items-center">
-              <div>
-                <h2 className="text-lg font-semibold">Limited-Time Offer!</h2>
-                <p className="text-gray-300">
-                  Get our Educational Bundles for All Networks Starting from {currency.symbol}
-                  {(4 * currency.rate).toFixed(2)} {currency.code}. Offer ends in{' '}
-                  <span className="text-purple-400">{countdown}</span>.
-                </p>
-              </div>
-              <button
-                onClick={handleBuyBundle}
-                className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 hover-scale"
-              >
-                Buy Now
-              </button>
+            <div className="mb-3 sm:mb-0">
+              <h2 className="text-base sm:text-lg font-semibold">Limited-Time Offer!</h2>
+              <p className="text-gray-300 text-sm sm:text-base">
+                Get our Educational Bundles for All Networks Starting from {currency.symbol}
+                {(4 * currency.rate).toFixed(2)} {currency.code}. Offer ends in{' '}
+                <span className="text-purple-400">{countdown}</span>.
+              </p>
             </div>
+            <button
+              onClick={handleBuyBundle}
+              className="bg-purple-600 text-white py-2 px-3 sm:px-4 rounded-lg hover:bg-purple-700 hover-scale w-full sm:w-auto text-sm sm:text-base"
+            >
+              Buy Now
+            </button>
           </div>
         )}
 
