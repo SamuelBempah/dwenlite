@@ -197,9 +197,13 @@ function App() {
 
   const handleDragMove = (e) => {
     if (isDragging) {
+      if (e.type === 'touchmove') {
+        e.preventDefault(); // Prevent page scrolling
+      }
+
       const buttonSize = 64; // Approximate size of the button (including padding)
       let clientX, clientY;
-      
+
       if (e.type === 'touchmove') {
         clientX = e.touches[0].clientX;
         clientY = e.touches[0].clientY;
@@ -265,6 +269,7 @@ function App() {
             }}
             aria-label={isAudioPlaying ? 'Pause Background Music' : 'Play Background Music'}
             disabled={isAudioLoading}
+            role="button"
           >
             <span className="absolute inset-0 rounded-full bg-blue-300 opacity-20 animate-ripple"></span>
             {isAudioLoading ? (
@@ -340,6 +345,20 @@ function App() {
           }
           .animate-spin {
             animation: spin 1s linear infinite;
+          }
+        `}</style>
+        <style jsx global>{`
+          html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            width: 100%;
+            background-color: #1f2937;
+            overscroll-behavior: none;
+          }
+          #root {
+            min-height: 100vh;
+            background-color: #1f2937;
           }
         `}</style>
         <Routes>
