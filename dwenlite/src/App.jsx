@@ -188,37 +188,53 @@ function App() {
     }
   };
 
-  const handleMouseDown = (e) => {
+  const handleDragStart = (e) => {
     if (!isAudioLoading) {
       setIsDragging(true);
-      e.preventDefault(); // Prevent text selection
+      e.preventDefault(); // Prevent default behavior like text selection
     }
   };
 
-  const handleMouseMove = (e) => {
+  const handleDragMove = (e) => {
     if (isDragging) {
       const buttonSize = 64; // Approximate size of the button (including padding)
-      const newX = Math.max(0, Math.min(e.clientX - buttonSize / 2, window.innerWidth - buttonSize));
-      const newY = Math.max(0, Math.min(e.clientY - buttonSize / 2, window.innerHeight - buttonSize));
+      let clientX, clientY;
+      
+      if (e.type === 'touchmove') {
+        clientX = e.touches[0].clientX;
+        clientY = e.touches[0].clientY;
+      } else {
+        clientX = e.clientX;
+        clientY = e.clientY;
+      }
+
+      const newX = Math.max(0, Math.min(clientX - buttonSize / 2, window.innerWidth - buttonSize));
+      const newY = Math.max(0, Math.min(clientY - buttonSize / 2, window.innerHeight - buttonSize));
       setPosition({ x: newX, y: newY });
     }
   };
 
-  const handleMouseUp = () => {
+  const handleDragEnd = () => {
     setIsDragging(false);
   };
 
   useEffect(() => {
     if (isDragging) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
+      window.addEventListener('mousemove', handleDragMove);
+      window.addEventListener('mouseup', handleDragEnd);
+      window.addEventListener('touchmove', handleDragMove, { passive: false });
+      window.addEventListener('touchend', handleDragEnd);
     } else {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('mousemove', handleDragMove);
+      window.removeEventListener('mouseup', handleDragEnd);
+      window.removeEventListener('touchmove', handleDragMove);
+      window.removeEventListener('touchend', handleDragEnd);
     }
     return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('mousemove', handleDragMove);
+      window.removeEventListener('mouseup', handleDragEnd);
+      window.removeEventListener('touchmove', handleDragMove);
+      window.removeEventListener('touchend', handleDragEnd);
     };
   }, [isDragging]);
 
@@ -238,7 +254,8 @@ function App() {
         >
           <button
             onClick={toggleAudio}
-            onMouseDown={handleMouseDown}
+            onMouseDown={handleDragStart}
+            onTouchStart={handleDragStart}
             className={`relative bg-gradient-to-r from-blue-400 via-purple-500 to-blue-600 text-white p-4 rounded-full hover:from-blue-500 hover:via-purple-600 hover:to-blue-700 transition-all duration-300 shadow-lg animate-float ${
               isAudioPlaying ? 'animate-pulse-sync' : ''
             } ${isAudioLoading ? 'opacity-70 cursor-not-allowed' : ''}`}
