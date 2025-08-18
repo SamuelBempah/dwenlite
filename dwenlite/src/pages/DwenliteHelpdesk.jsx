@@ -693,7 +693,7 @@ function DwenliteHelpdesk() {
           transition={{ duration: 0.5 }}
           className="text-3xl md:text-4xl font-bold mb-8 text-center"
         >
-          Dwenlite Admin Dashboard
+          Dwenlite HelpDesk Dashboard
         </motion.h1>
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Left Panel */}
