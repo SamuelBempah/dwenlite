@@ -59,7 +59,7 @@ function Dashboard() {
     },
     {
       title: "Upload Options",
-      description: "Use these buttons to upload audio, video, or documents. First, you'll need to create or select a folder.",
+      description: "Use these buttons to know how to upload audio, video, or documents. In case you just want to know straight forward, First, you'll need to create or select a folder.",
       highlightRef: uploadSectionRef,
     },
     {
