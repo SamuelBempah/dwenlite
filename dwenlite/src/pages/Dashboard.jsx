@@ -669,8 +669,8 @@ function Dashboard() {
               </p>
             </div>
             <button
-              onClick={handleBuyBundle}
-              className="bg-purple-600 text-white py-2 px-3 sm:px-4 rounded-lg hover:bg-purple-700 hover-scale w-full sm:w-auto text-sm sm:text-base"
+              onClick={handleBuyBundle} disabled
+              className="bg-purple-600 text-white py-2 px-3 sm:px-4 rounded-lg hover:bg-purple-700 hover-scale w-full sm:w-auto text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:backdrop-blur-sm"
             >
               Buy Now
             </button>
