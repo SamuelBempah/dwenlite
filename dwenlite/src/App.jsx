@@ -9,7 +9,6 @@ import Quizzes from './pages/Quizzes';
 import Flashcards from './pages/Flashcards';
 import Dashboard from './pages/Dashboard';
 import ViewFolder from './pages/ViewFolder';
-import SupportMe from './pages/SupportMe';
 import Terms from './pages/Terms';
 import ResetPassword from './pages/ResetPassword';
 import ErrorBoundary from './ErrorBoundary';
@@ -165,7 +164,6 @@ function App() {
           <Route path="/folder/:folderId/flashcards" element={<MaintenanceRoute component={Flashcards} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
           <Route path="/folder/:folderId/podcast" element={<MaintenanceRoute component={Podcast} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
           <Route path="/delete-account" element={<MaintenanceRoute component={DeleteAccount} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/support-me" element={<MaintenanceRoute component={SupportMe} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
           <Route path="/dwenlite-download" element={<MaintenanceRoute component={DwenLiteDownload} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
           <Route path="/terms" element={<MaintenanceRoute component={Terms} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
           <Route path="/reset-password" element={<MaintenanceRoute component={ResetPassword} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />

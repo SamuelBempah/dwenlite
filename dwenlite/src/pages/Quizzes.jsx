@@ -328,10 +328,9 @@ function Quizzes() {
 
   const generateContent = async (retry = false) => {
     try {
-      const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
-      if (!apiKey) {
-        throw new Error('DwenLite API key not found. Please set VITE_DWENLITE_API_KEY in your .env file.');
-      }
+      // --- CORS FIX ---
+      // Using the same proxy function for secure server-side API calls
+      const functionUrl = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
 
       const latestDocument = folder.documents.length > 0
         ? folder.documents.reduce((latest, doc) => {
@@ -356,48 +355,33 @@ function Quizzes() {
         prompt = `You previously failed to return valid JSON. Generate 40 multiple-choice quiz questions based on the following content: "${context}". For each question, provide the question, four options (labeled a, b, c, d), and the correct answer. Format as a JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }, ...]. Return ONLY the JSON array string. Do NOT include markdown, code block markers (like \`\`\`json), or any additional text before or after the JSON. The output MUST be valid JSON, parsable by JSON.parse(), and correctAnswer must match one of the options exactly (e.g., "a. ...").`;
       }
 
-      const response = await axios.post(
-        'https://api.deepseek.com/v1/chat/completions',
-        {
-          model: 'deepseek-chat',
-          messages: [
-            { role: 'system', content: 'You are a helpful assistant for generating educational content.' },
-            { role: 'user', content: prompt },
-          ],
-          max_tokens: 4000,
-          temperature: 0.7,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      ).catch(err => {
-        console.error('DwenLite API error:', {
-          status: err.response?.status,
-          statusText: err.response?.statusText,
-          data: err.response?.data,
-          message: err.message,
+      // Call the Firebase Cloud Function Proxy
+      const response = await axios.post(functionUrl, { prompt })
+        .catch(err => {
+          console.error('Proxy API error:', {
+            status: err.response?.status,
+            statusText: err.response?.statusText,
+            data: err.response?.data,
+            message: err.message,
+          });
+          
+          if (err.response?.status === 404) {
+             throw new Error('Backend function not found.');
+          } else if (err.response?.status === 500) {
+             throw new Error(`Server Error: ${err.response?.data?.details || err.message}`);
+          } else {
+             throw new Error(`Generation failed: ${err.message}`);
+          }
         });
-        if (err.response?.status === 401) {
-          throw new Error('Invalid DwenLite API key. Please check your API key in the .env file.');
-        } else if (err.response?.status === 429) {
-          throw new Error('Rate limit exceeded. Please try again later.');
-        } else if (err.response?.status === 404) {
-          throw new Error('DwenLite API endpoint not found. The endpoint may have changed.');
-        } else {
-          throw new Error(`DwenLite API request failed: ${err.message}`);
-        }
-      });
 
       let generatedText;
+      // Handle the structure returned by the proxy
       if (response.data.choices?.[0]?.message?.content) {
         generatedText = response.data.choices[0].message.content.trim();
       } else if (response.data.choices?.[0]?.text) {
         generatedText = response.data.choices[0].text.trim();
       } else {
-        throw new Error('Invalid DwenLite API response: No generated content found.');
+        throw new Error('Invalid API response: No generated content found.');
       }
 
       generatedText = generatedText
@@ -705,10 +689,8 @@ function Quizzes() {
 
       await new Promise(resolve => setTimeout(resolve, 1500));
 
-      const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
-      if (!apiKey) {
-        throw new Error('DwenLite API key not found. Please set VITE_DWENLITE_API_KEY in your .env file.');
-      }
+      // --- CORS FIX ---
+      const functionUrl = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
 
       const quizContent = group.quizzes.map(quiz => 
         `Question: ${quiz.question}\nOptions: ${quiz.options.join(', ')}\nCorrect Answer: ${quiz.correctAnswer}`
@@ -723,40 +705,12 @@ function Quizzes() {
 
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      const response = await axios.post(
-        'https://api.deepseek.com/v1/chat/completions',
-        {
-          model: 'deepseek-chat',
-          messages: [
-            { role: 'system', content: 'You are DwenLite AI, a helpful assistant for answering questions based on quiz groups.' },
-            { role: 'user', content: prompt },
-          ],
-          max_tokens: 1000,
-          temperature: 0.7,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      ).catch(err => {
-        console.error('DwenLite API error:', {
-          status: err.response?.status,
-          statusText: err.response?.statusText,
-          data: err.response?.data,
-          message: err.message,
+      // Call Proxy
+      const response = await axios.post(functionUrl, { prompt })
+        .catch(err => {
+             console.error('Chat API error:', err);
+             throw new Error(`Chat failed: ${err.message}`);
         });
-        if (err.response?.status === 401) {
-          throw new Error('Invalid DwenLite API key. Please check your API key in the .env file.');
-        } else if (err.response?.status === 429) {
-          throw new Error('Rate limit exceeded. Please try again later.');
-        } else if (err.response?.status === 404) {
-          throw new Error('DwenLite API endpoint not found. The endpoint may have changed.');
-        } else {
-          throw new Error(`DwenLite API request failed: ${err.message}`);
-        }
-      });
 
       let answer;
       if (response.data.choices?.[0]?.message?.content) {
@@ -764,7 +718,7 @@ function Quizzes() {
       } else if (response.data.choices?.[0]?.text) {
         answer = response.data.choices[0].text.trim();
       } else {
-        throw new Error('Invalid DwenLite API response: No answer found.');
+        throw new Error('Invalid API response: No answer found.');
       }
 
       setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...').concat({

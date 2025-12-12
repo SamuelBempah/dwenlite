@@ -336,11 +336,11 @@ function Notes() {
 
   const generateContent = async () => {
     try {
-      const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
-      if (!apiKey) {
-        throw new Error('DwenLite API key not found. Please set VITE_DWENLITE_API_KEY in your .env file.');
-      }
-
+      // --- CORS FIX ---
+      // IMPORTANT: Replace 'YOUR_PROJECT_ID' below with your actual Firebase Project ID.
+      // You can find this in Firebase Console -> Project Overview -> Project Settings.
+      const functionUrl = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
+      
       const latestDocument = folder.documents.length > 0
         ? folder.documents.reduce((latest, doc) => {
             return new Date(doc.uploadedAt) > new Date(latest.uploadedAt) ? doc : latest;
@@ -360,48 +360,33 @@ function Notes() {
 
       const prompt = `Generate comprehensive and well-organized study notes based on the following content: "${context}". Structure the notes with clear headings, subheadings, and bullet points where appropriate to enhance readability and understanding. Ensure the notes are detailed, covering key concepts, definitions, and examples. Do not include any introductory or concluding statements such as "Here are the notes" or "Let me know if you need modifications." Do not use asterisks (*) for bullet points; use plain text indentation for lists if needed. Format the output as plain text suitable for rendering in a React component.`;
 
-      const response = await axios.post(
-        'https://api.deepseek.com/v1/chat/completions',
-        {
-          model: 'deepseek-chat',
-          messages: [
-            { role: 'system', content: 'You are a helpful assistant for generating educational content.' },
-            { role: 'user', content: prompt },
-          ],
-          max_tokens: 4000,
-          temperature: 0.7,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      ).catch(err => {
-        console.error('DwenLite API error:', {
-          status: err.response?.status,
-          statusText: err.response?.statusText,
-          data: err.response?.data,
-          message: err.message,
+      // Call the Firebase Cloud Function Proxy
+      const response = await axios.post(functionUrl, { prompt })
+        .catch(err => {
+          console.error('Proxy API error:', {
+            status: err.response?.status,
+            statusText: err.response?.statusText,
+            data: err.response?.data,
+            message: err.message,
+          });
+          
+          if (err.response?.status === 404) {
+             throw new Error('Backend function not found. Did you deploy "generateNotesProxy"?');
+          } else if (err.response?.status === 500) {
+             throw new Error(`Server Error: ${err.response?.data?.details || err.message}`);
+          } else {
+             throw new Error(`Generation failed: ${err.message}`);
+          }
         });
-        if (err.response?.status === 401) {
-          throw new Error('Invalid DwenLite API key. Please check your API key in the .env file.');
-        } else if (err.response?.status === 429) {
-          throw new Error('Rate limit exceeded. Please wait a few minutes and try again.');
-        } else if (err.response?.status === 404) {
-          throw new Error('DwenLite API endpoint not found. The endpoint may have changed.');
-        } else {
-          throw new Error(`DwenLite API request failed: ${err.message}`);
-        }
-      });
 
       let generatedText;
+      // Handle the structure returned by the proxy (which returns response.data from DeepSeek)
       if (response.data.choices?.[0]?.message?.content) {
         generatedText = response.data.choices[0].message.content.trim();
       } else if (response.data.choices?.[0]?.text) {
         generatedText = response.data.choices[0].text.trim();
       } else {
-        throw new Error('Invalid DwenLite API response: No generated content found.');
+        throw new Error('Invalid API response: No generated content found.');
       }
 
       generatedText = generatedText.replace(/^\* /gm, '• ');
@@ -702,10 +687,11 @@ function Notes() {
 
       await new Promise(resolve => setTimeout(resolve, 1500));
 
-      const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
-      if (!apiKey) {
-        throw new Error('DwenLite API key not found. Please set VITE_DWENLITE_API_KEY in your .env file.');
-      }
+      // --- CORS FIX for Chat ---
+      // Re-using the same functionUrl as generateContent
+      // IMPORTANT: Ensure your backend function can handle "prompt" for notes AND questions.
+      // Or create a separate function for chat.
+      const functionUrl = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
 
       const prompt = `You are DwenLite AI, an assistant that answers questions based on provided notes. Here is the content of the note:\n\n${note.content}\n\nQuestion: ${question}\n\nProvide a clear, concise, and accurate answer based on the note. If the question cannot be answered from the note, state so and provide a brief explanation. Format the answer as plain text suitable for rendering in a React component.`;
 
@@ -716,40 +702,11 @@ function Notes() {
 
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      const response = await axios.post(
-        'https://api.deepseek.com/v1/chat/completions',
-        {
-          model: 'deepseek-chat',
-          messages: [
-            { role: 'system', content: 'You are DwenLite AI, a helpful assistant for answering questions based on notes.' },
-            { role: 'user', content: prompt },
-          ],
-          max_tokens: 1000,
-          temperature: 0.7,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      ).catch(err => {
-        console.error('DwenLite API error:', {
-          status: err.response?.status,
-          statusText: err.response?.statusText,
-          data: err.response?.data,
-          message: err.message,
+      const response = await axios.post(functionUrl, { prompt })
+        .catch(err => {
+             console.error('Chat API error:', err);
+             throw new Error(`Chat failed: ${err.message}`);
         });
-        if (err.response?.status === 401) {
-          throw new Error('Invalid DwenLite API key. Please check your API key in the .env file.');
-        } else if (err.response?.status === 429) {
-          throw new Error('Rate limit exceeded. Please wait a few minutes and try again.');
-        } else if (err.response?.status === 404) {
-          throw new Error('DwenLite API endpoint not found. The endpoint may have changed.');
-        } else {
-          throw new Error(`DwenLite API request failed: ${err.message}`);
-        }
-      });
 
       let answer;
       if (response.data.choices?.[0]?.message?.content) {
