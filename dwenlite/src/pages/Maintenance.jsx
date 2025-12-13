@@ -87,7 +87,7 @@ const Maintenance = () => {
       {/* Footer / Copyright */}
       <div className="absolute bottom-6 w-full text-center p-4">
         <p className="text-slate-600 text-xs uppercase tracking-widest">
-           DwenLite Technologies &copy; {new Date().getFullYear()}
+           SBMind Technologies &copy; {new Date().getFullYear()}
         </p>
       </div>
     </div>
