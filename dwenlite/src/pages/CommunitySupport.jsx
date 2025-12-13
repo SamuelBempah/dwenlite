@@ -5,9 +5,18 @@ import DOMPurify from 'dompurify';
 import { auth, db } from '../firebase';
 import { collection, addDoc, doc, onSnapshot, updateDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
 import toast from 'react-hot-toast';
+import axios from 'axios'; // Import axios
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  Search, ChevronDown, ChevronUp, User, Calendar, 
+  MessageCircle, Send, X, Star, LifeBuoy, LogOut, 
+  ArrowLeft, Coins, LayoutDashboard, Sparkles, CheckCircle
+} from 'lucide-react';
 
 const CommunitySupport = () => {
   const navigate = useNavigate();
+  
+  // --- BLOG DATA ---
   const [blogs, setBlogs] = useState([
     {
       id: 2,
@@ -317,28 +326,10 @@ Happy browsing with DwenLite!
       date: "2025-08-01",
     },
   ]);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [openBlogId, setOpenBlogId] = useState(null);
   const [hasNewMessage, setHasNewMessage] = useState(false);
-
-  const filteredBlogs = blogs.filter(blog =>
-    blog.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    blog.content.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
-  const toggleBlogContent = (blogId) => {
-    setOpenBlogId(openBlogId === blogId ? null : blogId);
-  };
-
-  marked.setOptions({
-    breaks: true,
-    gfm: true,
-  });
-
-  const renderMarkdown = (content) => {
-    const html = marked(content);
-    return DOMPurify.sanitize(html);
-  };
 
   // Chat State
   const [messages, setMessages] = useState([]);
@@ -352,11 +343,30 @@ Happy browsing with DwenLite!
   const [showRating, setShowRating] = useState(false);
   const [rating, setRating] = useState(0);
   const [ratingSubmitted, setRatingSubmitted] = useState(false);
+  
   const chatDisplayRef = useRef(null);
   const audioRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const prevMessagesRef = useRef([]);
 
+  // --- LOGIC: FILTERING & FORMATTING ---
+  const filteredBlogs = blogs.filter(blog =>
+    blog.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    blog.content.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const toggleBlogContent = (blogId) => {
+    setOpenBlogId(openBlogId === blogId ? null : blogId);
+  };
+
+  marked.setOptions({ breaks: true, gfm: true });
+
+  const renderMarkdown = (content) => {
+    const html = marked(content);
+    return DOMPurify.sanitize(html);
+  };
+
+  // --- LOGIC: CHAT & AUTH ---
   const predefinedResponses = {
     folder: 'In Dwenlite, you can create folders to organize your study materials. Go to the dashboard, enter a folder name in the "New folder name" field, and click "Create Folder" to get started. Is that all?',
     upload: 'You can upload PDF, PPTX, TXT, DOCX, audio, or video files to a folder. On the dashboard, select a folder, then use the "Audio Upload", "Video Upload", or "Document Upload" buttons to add your files. Is that all?',
@@ -411,7 +421,6 @@ Happy browsing with DwenLite!
         navigate('/login');
       }
     });
-
     return () => unsubscribeAuth();
   }, [navigate]);
 
@@ -436,9 +445,7 @@ Happy browsing with DwenLite!
           setAgentJoined(!!data.agentId);
           setIsConversationEnded(data.status === 'closed');
           setIsTyping(data.isAgentTyping || false);
-          if (data.status === 'closed' && !showRating) {
-            setShowRating(true);
-          }
+          if (data.status === 'closed' && !showRating) setShowRating(true);
         }
       });
       return () => unsubscribeChat();
@@ -446,9 +453,7 @@ Happy browsing with DwenLite!
   }, [chatId, showRating]);
 
   const scrollToBottom = () => {
-    if (chatDisplayRef.current) {
-      chatDisplayRef.current.scrollTop = chatDisplayRef.current.scrollHeight;
-    }
+    if (chatDisplayRef.current) chatDisplayRef.current.scrollTop = chatDisplayRef.current.scrollHeight;
   };
 
   const playAlertSound = () => {
@@ -460,23 +465,12 @@ Happy browsing with DwenLite!
 
   const endConversation = async (message) => {
     setTimeout(() => {
-      setMessages(prev => [...prev, {
-        id: Date.now(),
-        sender: 'dwenlite',
-        content: message,
-        timestamp: new Date().toLocaleString(),
-      }]);
+      setMessages(prev => [...prev, { id: Date.now(), sender: 'dwenlite', content: message, timestamp: new Date().toLocaleString() }]);
       updateDoc(doc(db, 'chats', chatId), {
-        messages: [...messages, {
-          id: Date.now(),
-          sender: 'dwenlite',
-          content: message,
-          timestamp: new Date().toLocaleString(),
-        }],
+        messages: [...messages, { id: Date.now(), sender: 'dwenlite', content: message, timestamp: new Date().toLocaleString() }],
         status: 'closed',
         lastMessageTime: serverTimestamp(),
-        isUserTyping: false,
-        isAgentTyping: false,
+        isUserTyping: false, isAgentTyping: false,
       });
       setIsConversationEnded(true);
       playAlertSound();
@@ -489,34 +483,19 @@ Happy browsing with DwenLite!
     if (!chatId || isConversationEnded) return;
     const isTypingNow = !!value.trim();
     if (isTypingNow) {
-      try {
-        await updateDoc(doc(db, 'chats', chatId), {
-          isUserTyping: true,
-        });
-      } catch {}
+      try { await updateDoc(doc(db, 'chats', chatId), { isUserTyping: true }); } catch {}
     }
-    if (typingTimeoutRef.current) {
-      clearTimeout(typingTimeoutRef.current);
-    }
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(async () => {
       if (isTypingNow) {
-        try {
-          await updateDoc(doc(db, 'chats', chatId), {
-            isUserTyping: false,
-          });
-        } catch {}
+        try { await updateDoc(doc(db, 'chats', chatId), { isUserTyping: false }); } catch {}
       }
     }, 2000);
   };
 
   const handleSendMessage = async () => {
     if (!input.trim() || !currentUser || isConversationEnded) return;
-    const userMessage = {
-      id: Date.now(),
-      sender: 'user',
-      content: input.trim(),
-      timestamp: new Date().toLocaleString(),
-    };
+    const userMessage = { id: Date.now(), sender: 'user', content: input.trim(), timestamp: new Date().toLocaleString() };
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     await updateDoc(doc(db, 'chats', chatId), {
@@ -536,36 +515,22 @@ Happy browsing with DwenLite!
         setIsTyping(true);
         const lowercaseInput = input.toLowerCase();
         let responseText = null;
-        if (lowercaseInput.includes('folder') || lowercaseInput.includes('create folder')) {
-          responseText = predefinedResponses.folder;
-        } else if (lowercaseInput.includes('upload') || lowercaseInput.includes('document') || lowercaseInput.includes('audio') || lowercaseInput.includes('video')) {
-          responseText = predefinedResponses.upload;
-        } else if (lowercaseInput.includes('notes') || lowercaseInput.includes('generate notes')) {
-          responseText = predefinedResponses.notes;
-        } else if (lowercaseInput.includes('quiz') || lowercaseInput.includes('quizzes')) {
-          responseText = predefinedResponses.quizzes;
-        } else if (lowercaseInput.includes('flashcard') || lowercaseInput.includes('flashcards')) {
-          responseText = predefinedResponses.flashcards;
-        } else if (lowercaseInput.includes('human') || lowercaseInput.includes('agent')) {
+        if (lowercaseInput.includes('folder') || lowercaseInput.includes('create folder')) responseText = predefinedResponses.folder;
+        else if (lowercaseInput.includes('upload') || lowercaseInput.includes('document')) responseText = predefinedResponses.upload;
+        else if (lowercaseInput.includes('notes') || lowercaseInput.includes('generate notes')) responseText = predefinedResponses.notes;
+        else if (lowercaseInput.includes('quiz')) responseText = predefinedResponses.quizzes;
+        else if (lowercaseInput.includes('flashcard')) responseText = predefinedResponses.flashcards;
+        else if (lowercaseInput.includes('human') || lowercaseInput.includes('agent')) {
           responseText = predefinedResponses.agent;
-          await updateDoc(doc(db, 'chats', chatId), {
-            needsAgent: true,
-            lastMessageTime: serverTimestamp(),
-          }).catch(() => {});
+          await updateDoc(doc(db, 'chats', chatId), { needsAgent: true, lastMessageTime: serverTimestamp() }).catch(() => {});
         }
+        
         if (responseText) {
           setTimeout(() => {
-            const botMessage = {
-              id: Date.now(),
-              sender: 'dwenlite',
-              content: responseText,
-              timestamp: new Date().toLocaleString(),
-            };
+            const botMessage = { id: Date.now(), sender: 'dwenlite', content: responseText, timestamp: new Date().toLocaleString() };
             setMessages(prev => [...prev, botMessage]);
             updateDoc(doc(db, 'chats', chatId), {
-              messages: [...messages, userMessage, botMessage],
-              lastMessageTime: serverTimestamp(),
-              isUserTyping: false,
+              messages: [...messages, userMessage, botMessage], lastMessageTime: serverTimestamp(), isUserTyping: false,
             }).catch(() => {});
             setIsTyping(false);
             playAlertSound();
@@ -573,63 +538,34 @@ Happy browsing with DwenLite!
           }, 3000);
           return;
         }
+
+        // --- FIXED: USE CLOUD FUNCTION PROXY ---
         try {
-          const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
-          if (!apiKey) throw new Error('DeepSeek API key not found.');
-          const prompt = `You are a support assistant for Dwenlite, an AI study companion that helps users create folders to organize study materials, upload documents (PDF, PPTX, TXT, DOCX), audio, and videos, and generate notes, quizzes, and flashcards from them. Provide a concise, helpful response to the following user query: "${input}". Keep the response under 100 words and relevant to Dwenlite's features. If the user asks for a human agent, instruct them to type "agent". End your response with: "Is that all?"`;
-          const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${apiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'deepseek-chat',
-              messages: [
-                { role: 'system', content: 'You are a helpful assistant for Dwenlite support.' },
-                { role: 'user', content: prompt },
-              ],
-              max_tokens: 500,
-              temperature: 0.7,
-            }),
-          });
-          if (!response.ok) throw new Error(`DeepSeek API request failed: ${response.status}`);
-          const data = await response.json();
-          const generatedText = data.choices?.[0]?.message?.content?.trim();
-          if (!generatedText) throw new Error('No response from DeepSeek API.');
+          const functionUrl = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
+          const prompt = `You are a support assistant for Dwenlite. Provide a concise response to: "${input}". End with: "Is that all?"`;
+          
+          const response = await axios.post(functionUrl, { prompt });
+          
+          let generatedText;
+          if (response.data.choices?.[0]?.message?.content) generatedText = response.data.choices[0].message.content.trim();
+          else if (response.data.choices?.[0]?.text) generatedText = response.data.choices[0].text.trim();
+          else throw new Error('No answer found.');
+
           setTimeout(() => {
-            const botMessage = {
-              id: Date.now(),
-              sender: 'dwenlite',
-              content: generatedText,
-              timestamp: new Date().toLocaleString(),
-            };
+            const botMessage = { id: Date.now(), sender: 'dwenlite', content: generatedText, timestamp: new Date().toLocaleString() };
             setMessages(prev => [...prev, botMessage]);
-            updateDoc(doc(db, 'chats', chatId), {
-              messages: [...messages, userMessage, botMessage],
-              lastMessageTime: serverTimestamp(),
-              isUserTyping: false,
-            }).catch(() => {});
+            updateDoc(doc(db, 'chats', chatId), { messages: [...messages, userMessage, botMessage], lastMessageTime: serverTimestamp(), isUserTyping: false }).catch(() => {});
             setIsTyping(false);
             playAlertSound();
             scrollToBottom();
           }, 3000);
-        } catch {
+        } catch (err) {
+          console.error("Chat API Error:", err);
           setTimeout(() => {
-            const errorMessage = {
-              id: Date.now(),
-              sender: 'dwenlite',
-              content: 'Sorry, I encountered an error. Please try again or type "agent" for assistance. Is that all?',
-              timestamp: new Date().toLocaleString(),
-            };
+            const errorMessage = { id: Date.now(), sender: 'dwenlite', content: 'Sorry, I encountered an error connecting to the server. Please try again or type "agent".', timestamp: new Date().toLocaleString() };
             setMessages(prev => [...prev, errorMessage]);
-            updateDoc(doc(db, 'chats', chatId), {
-              messages: [...messages, userMessage, errorMessage],
-              lastMessageTime: serverTimestamp(),
-              isUserTyping: false,
-            }).catch(() => {});
+            updateDoc(doc(db, 'chats', chatId), { messages: [...messages, userMessage, errorMessage], lastMessageTime: serverTimestamp(), isUserTyping: false }).catch(() => {});
             setIsTyping(false);
-            playAlertSound();
             scrollToBottom();
           }, 3000);
         }
@@ -639,38 +575,13 @@ Happy browsing with DwenLite!
 
   const handleRatingSubmit = async () => {
     try {
-      await addDoc(collection(db, 'ratings'), {
-        userId: currentUser.uid,
-        chatId,
-        rating,
-        timestamp: serverTimestamp(),
-      });
-      await addDoc(collection(db, 'chat_history'), {
-        userId: currentUser.uid,
-        username: currentUser.displayName || 'User',
-        messages,
-        status: 'closed',
-        closedAt: serverTimestamp(),
-      });
+      await addDoc(collection(db, 'ratings'), { userId: currentUser.uid, chatId, rating, timestamp: serverTimestamp() });
+      await addDoc(collection(db, 'chat_history'), { userId: currentUser.uid, username: currentUser.displayName || 'User', messages, status: 'closed', closedAt: serverTimestamp() });
       setRatingSubmitted(true);
       setShowRating(false);
-      setMessages(prev => [...prev, {
-        id: Date.now(),
-        sender: 'dwenlite',
-        content: 'Thank you for your feedback!',
-        timestamp: new Date().toLocaleString(),
-      }]);
-      await updateDoc(doc(db, 'chats', chatId), {
-        messages: [...messages, {
-          id: Date.now(),
-          sender: 'dwenlite',
-          content: 'Thank you for your feedback!',
-          timestamp: new Date().toLocaleString(),
-        }],
-        lastMessageTime: serverTimestamp(),
-        isUserTyping: false,
-        isAgentTyping: false,
-      });
+      const thanksMsg = { id: Date.now(), sender: 'dwenlite', content: 'Thank you for your feedback!', timestamp: new Date().toLocaleString() };
+      setMessages(prev => [...prev, thanksMsg]);
+      await updateDoc(doc(db, 'chats', chatId), { messages: [...messages, thanksMsg], lastMessageTime: serverTimestamp() });
       scrollToBottom();
     } catch {}
   };
@@ -678,27 +589,12 @@ Happy browsing with DwenLite!
   const handleStartNewChat = async () => {
     try {
       const chatDoc = await addDoc(collection(db, 'chats'), {
-        userId: currentUser.uid,
-        username: currentUser.displayName || 'User',
-        messages: [{
-          id: Date.now(),
-          sender: 'dwenlite',
-          content: 'Welcome to Dwenlite Support! How can I assist you today? Type your query or ask for an agent.',
-          timestamp: new Date().toLocaleString(),
-        }],
-        status: 'active',
-        needsAgent: false,
-        lastMessageTime: serverTimestamp(),
-        isUserTyping: false,
-        isAgentTyping: false,
+        userId: currentUser.uid, username: currentUser.displayName || 'User',
+        messages: [{ id: Date.now(), sender: 'dwenlite', content: 'Welcome to Dwenlite Support! How can I assist you today?', timestamp: new Date().toLocaleString() }],
+        status: 'active', needsAgent: false, lastMessageTime: serverTimestamp(), isUserTyping: false, isAgentTyping: false,
       });
       setChatId(chatDoc.id);
-      setMessages([{
-        id: Date.now(),
-        sender: 'dwenlite',
-        content: 'Welcome to Dwenlite Support! How can I assist you today? Type your query or ask for an agent.',
-        timestamp: new Date().toLocaleString(),
-      }]);
+      setMessages([{ id: Date.now(), sender: 'dwenlite', content: 'Welcome to Dwenlite Support! How can I assist you today?', timestamp: new Date().toLocaleString() }]);
       setIsConversationEnded(false);
       setRatingSubmitted(false);
       setShowRating(false);
@@ -713,510 +609,285 @@ Happy browsing with DwenLite!
       await auth.signOut();
       toast.success('Logged out successfully!');
       navigate('/login');
-    } catch (err) {
-      console.error('Logout error:', err);
-      toast.error('Failed to log out. Please try again.');
-    }
+    } catch (err) { toast.error('Failed to log out.'); }
   };
 
-  if (!currentUser) {
-    return (
-      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
-        <div className="flex items-center">
-          <svg className="animate-spin h-5 w-5 mr-3 text-white" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-          </svg>
-          Loading...
-        </div>
-      </div>
-    );
-  }
+  if (!currentUser) return (
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white">
+       <div className="w-10 h-10 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col md:flex-row">
-      <style>
-        {`
-          .hover-scale {
-            transition: transform 0.2s ease;
-          }
-          .hover-scale:hover {
-            transform: scale(1.05);
-          }
-          .dropdown-transition {
-            transition: max-height 0.3s ease, opacity 0.3s ease;
-            max-height: 0;
-            opacity: 0;
-            overflow-y: auto;
-            scrollbar-width: thin;
-            scrollbar-color: #6b7280 #1f2937;
-          }
-          .dropdown-transition.open {
-            max-height: 400px;
-            opacity: 1;
-          }
-          .dropdown-transition::-webkit-scrollbar {
-            width: 8px;
-          }
-          .dropdown-transition::-webkit-scrollbar-track {
-            background: #1f2937;
-          }
-          .dropdown-transition::-webkit-scrollbar-thumb {
-            background: #6b7280;
-            border-radius: 4px;
-          }
-          .dropdown-transition::-webkit-scrollbar-thumb:hover {
-            background: #9ca3af;
-          }
-          .check-icon {
-            display: inline-block;
-            vertical-align: middle;
-            margin-left: 4px;
-          }
-          .prose {
-            color: #d1d5db;
-          }
-          .prose h1 {
-            font-size: 1.5rem;
-            font-weight: 700;
-            margin-bottom: 1rem;
-            color: #ffffff;
-          }
-          .prose h2 {
-            font-size: 1.25rem;
-            font-weight: 600;
-            margin-bottom: 0.75rem;
-            color: #e5e7eb;
-          }
-          .prose h3 {
-            font-size: 1.125rem;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-            color: #e5e7eb;
-          }
-          .prose p {
-            margin-bottom: 0.75rem;
-          }
-          .prose a {
-            color: #a78bfa;
-            text-decoration: underline;
-          }
-          .prose a:hover {
-            color: #c4b5fd;
-          }
-          .prose table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 1rem;
-          }
-          .prose th, .prose td {
-            border: 1px solid #4b5563;
-            padding: 0.5rem;
-            text-align: left;
-          }
-          .prose th {
-            background: #374151;
-            font-weight: 600;
-          }
-          .prose td {
-            background: #1f2937;
-          }
-          /* Chat Animations */
-          @keyframes pulse {
-            0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.7); }
-            50% { transform: scale(1.1); box-shadow: 0 0 15px 5px rgba(139, 92, 246, 0.5); }
-          }
-          @keyframes slideIn {
-            0% { transform: translateY(100%); opacity: 0; }
-            100% { transform: translateY(0); opacity: 1; }
-          }
-          @keyframes bounceIn {
-            0% { transform: translateY(10px); opacity: 0; }
-            60% { transform: translateY(-5px); opacity: 1; }
-            100% { transform: translateY(0); }
-          }
-          @keyframes typingDot {
-            0% { transform: translateY(0); background: #a78bfa; }
-            50% { transform: translateY(-5px); background: #c4b5fd; }
-            100% { transform: translateY(0); background: #a78bfa; }
-          }
-          @keyframes gradientShift {
-            0% { background-position: 0% 50%; }
-            100% { background-position: 200% 50%; }
-          }
-          .chat-bubble {
-            animation: pulse 2s infinite;
-          }
-          .chat-bubble:hover .chat-tooltip {
-            opacity: 1;
-            transform: translateY(-10px);
-          }
-          .chat-tooltip {
-            opacity: 0;
-            transform: translateY(0);
-            transition: opacity 0.3s ease, transform 0.3s ease;
-          }
-          .chat-window {
-            animation: slideIn 0.4s ease-out;
-            background: linear-gradient(45deg, #1f2937, #374151, #1f2937);
-            background-size: 200% 200%;
-            animation: gradientShift 10s ease infinite;
-          }
-          .message-bubble {
-            animation: bounceIn 0.3s ease-out;
-            transition: transform 0.2s ease, background 0.2s ease;
-          }
-          .message-bubble:hover {
-            transform: scale(1.02);
-            background: #4b5563 !important;
-          }
-          .typing-dot {
-            animation: typingDot 1s infinite;
-          }
-          .typing-dot:nth-child(2) { animation-delay: 0.2s; }
-          .typing-dot:nth-child(3) { animation-delay: 0.4s; }
-          .button-interact {
-            transition: transform 0.2s ease, background 0.2s ease;
-          }
-          .button-interact:hover {
-            transform: scale(1.05);
-            background: #a78bfa !important;
-          }
-          .bottom-nav {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            z-index: 20;
-          }
-          .bottom-nav-icon {
-            transition: transform 0.2s ease, color 0.2s ease;
-          }
-          .bottom-nav-icon:hover {
-            transform: scale(1.2);
-            color: #d1d5db;
-          }
-          .bottom-nav-enter {
-            animation: slideIn 0.3s ease-out forwards;
-          }
-          .active-nav {
-            color: #9333ea !important;
-            transform: scale(1.2);
-          }
-        `}
-      </style>
+    <div className="min-h-screen bg-slate-900 text-white font-sans selection:bg-purple-500 selection:text-white relative overflow-x-hidden flex flex-col md:flex-row">
+      
+      {/* Background Ambience */}
+      <div className="fixed inset-0 z-0 opacity-30 pointer-events-none">
+        <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-purple-900/40 to-transparent" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-indigo-600 rounded-full blur-[120px]" />
+      </div>
 
-      {/* Main Content */}
-      <div className="flex-1">
-        {/* Header */}
-        <header className="bg-gray-800 p-4 sm:p-6 flex justify-between items-center">
-          <div className="flex items-center">
-            <span className="text-xl sm:text-2xl font-bold">DwenLite Community Support</span>
+      <div className="relative z-10 flex-1 flex flex-col">
+        
+        {/* HEADER */}
+        <header className="bg-slate-900/80 backdrop-blur-md sticky top-0 z-30 p-4 border-b border-white/5 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+             <div className="p-2 bg-purple-600 rounded-lg">
+                <LifeBuoy size={20} className="text-white" />
+             </div>
+             <span className="text-xl font-bold">Community Support</span>
           </div>
           <nav className="flex items-center gap-3">
             <Link
               to="/dashboard"
-              className="hidden md:block bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition-colors"
+              className="hidden md:flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-white/10 text-white py-2 px-4 rounded-lg transition-colors text-sm"
             >
-              Back to Dashboard
+              <ArrowLeft size={16} /> Dashboard
             </Link>
             <button
               onClick={handleLogout}
-              className="hidden md:block text-purple-400 hover:text-purple-300"
+              className="hidden md:flex items-center gap-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 px-3 py-2 rounded-lg transition-colors"
               title="Logout"
             >
-              <svg
-                className="w-6 h-6"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M17 16l4-4m0 0l-4-4m4 4H7m5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h3a3 3 0 013 3v1"
-                />
-              </svg>
+              <LogOut size={18} />
             </button>
           </nav>
         </header>
 
-        {/* Hero Section */}
-        <div className="relative bg-gray-800 p-8 sm:p-12 text-center min-h-[280px] sm:min-h-[360px] flex flex-col justify-center">
-          <h1 className="text-2xl sm:text-3xl font-bold mb-3 sm:mb-4 relative z-10">Explore Support Resources</h1>
-          <img src="/community.jpg" alt="Community" className="absolute inset-0 w-full h-full object-cover opacity-30 min-h-[280px] sm:min-h-[360px]" />
-          <div className="relative z-10">
-            <p className="text-gray-300 text-base sm:text-lg max-w-2xl mx-auto">Discover solutions and insights from the DwenLite Support team to enhance your experience.</p>
-          </div>
+        {/* HERO SECTION */}
+        <div className="relative bg-gradient-to-r from-slate-900 via-purple-900/20 to-slate-900 p-8 sm:p-12 text-center border-b border-white/5">
+           <div className="absolute inset-0 bg-[url('/community.jpg')] bg-cover bg-center opacity-10 mix-blend-overlay" />
+           <div className="relative z-10 max-w-3xl mx-auto">
+             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-500/10 border border-purple-500/20 text-purple-300 text-xs font-semibold mb-4">
+               <Sparkles size={12} /> Help Center
+             </div>
+             <h1 className="text-3xl sm:text-4xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-white to-purple-200">
+               How can we help you today?
+             </h1>
+             <p className="text-slate-400 text-lg">
+               Explore guides, troubleshoot issues, or chat with our AI support.
+             </p>
+           </div>
         </div>
 
-        {/* Main Content */}
-        <div className="max-w-4xl mx-auto p-4 sm:p-8">
+        {/* MAIN CONTENT */}
+        <div className="max-w-4xl mx-auto p-4 sm:p-8 w-full pb-24">
+          
           {/* Search Bar */}
-          <div className="mb-6 sm:mb-8">
+          <div className="mb-8 relative group">
+            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <Search className="text-slate-500 group-focus-within:text-purple-400 transition-colors" size={20} />
+            </div>
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search support articles..."
-              className="w-full p-3 sm:p-4 rounded-lg bg-gray-700 text-white text-base sm:text-lg border border-gray-600 focus:border-purple-500 focus:outline-none transition-all duration-300"
+              placeholder="Search for articles, guides, and tutorials..."
+              className="w-full pl-12 pr-4 py-4 rounded-xl bg-slate-800/50 border border-white/10 focus:border-purple-500/50 focus:ring-1 focus:ring-purple-500/50 text-white placeholder-slate-500 outline-none transition-all shadow-lg shadow-purple-900/5"
             />
           </div>
 
-          {/* Latest Blogs */}
-          <div className="bg-gray-800 p-4 sm:p-6 rounded-xl shadow-lg">
-            <div className="flex justify-between items-center mb-4 sm:mb-6">
-              <h2 className="text-lg sm:text-xl font-semibold">Support Articles</h2>
-            </div>
-            {filteredBlogs.length === 0 ? (
-              <p className="text-gray-400 text-base sm:text-lg">No articles found.</p>
-            ) : (
-              filteredBlogs.map(b => (
-                <div key={b.id} className="mb-4 sm:mb-6">
-                  <div
-                    onClick={() => toggleBlogContent(b.id)}
-                    className="bg-gray-700 p-4 sm:p-5 rounded-lg hover:bg-gray-600 transition-colors cursor-pointer"
-                  >
-                    <h3 className="text-base sm:text-lg font-semibold">{b.title}</h3>
-                    <p className="text-gray-400 text-sm sm:text-base">
-                      Posted by {b.author}
-                      <svg className="check-icon w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                      </svg> - {b.date}
-                    </p>
-                  </div>
-                  <div className={`dropdown-transition ${openBlogId === b.id ? 'open' : ''} bg-gray-700 p-4 sm:p-5 rounded-b-lg mt-1`}>
-                    <div
-                      className="text-gray-300 text-base sm:text-lg prose prose-invert max-w-none"
-                      dangerouslySetInnerHTML={{ __html: renderMarkdown(b.content) }}
-                    />
-                  </div>
-                </div>
-              ))
-            )}
+          {/* Articles List */}
+          <div className="space-y-4">
+             <h2 className="text-lg font-semibold flex items-center gap-2 text-slate-300 mb-4">
+                <LayoutDashboard size={18} /> Knowledge Base
+             </h2>
+             
+             {filteredBlogs.length === 0 ? (
+               <div className="text-center py-12 border border-dashed border-slate-700 rounded-xl">
+                 <Search size={48} className="mx-auto text-slate-600 mb-4" />
+                 <p className="text-slate-400">No articles found matching your search.</p>
+               </div>
+             ) : (
+               filteredBlogs.map(b => (
+                 <motion.div 
+                   layout
+                   key={b.id} 
+                   className={`bg-slate-800/40 backdrop-blur-sm border ${openBlogId === b.id ? 'border-purple-500/30 bg-slate-800/80' : 'border-white/5'} rounded-xl overflow-hidden transition-all duration-300`}
+                 >
+                   <div
+                     onClick={() => toggleBlogContent(b.id)}
+                     className="p-5 cursor-pointer flex justify-between items-start gap-4"
+                   >
+                     <div>
+                       <h3 className={`text-lg font-semibold mb-2 ${openBlogId === b.id ? 'text-purple-300' : 'text-white'}`}>
+                         {b.title}
+                       </h3>
+                       <div className="flex items-center gap-4 text-xs text-slate-500">
+                         <span className="flex items-center gap-1"><User size={12} /> {b.author}</span>
+                         <span className="flex items-center gap-1"><Calendar size={12} /> {b.date}</span>
+                         {openBlogId === b.id && <span className="flex items-center gap-1 text-green-400"><CheckCircle size={12} /> Verified</span>}
+                       </div>
+                     </div>
+                     <div className={`p-2 rounded-full ${openBlogId === b.id ? 'bg-purple-500/20 text-purple-300' : 'bg-slate-700/50 text-slate-400'}`}>
+                        {openBlogId === b.id ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                     </div>
+                   </div>
+
+                   <AnimatePresence>
+                     {openBlogId === b.id && (
+                       <motion.div 
+                         initial={{ height: 0, opacity: 0 }}
+                         animate={{ height: 'auto', opacity: 1 }}
+                         exit={{ height: 0, opacity: 0 }}
+                         className="border-t border-white/5 bg-slate-900/30 px-6 py-6"
+                       >
+                         <div
+                           className="prose prose-invert prose-sm max-w-none 
+                           prose-headings:text-purple-200 prose-headings:font-bold
+                           prose-a:text-purple-400 hover:prose-a:text-purple-300
+                           prose-strong:text-white
+                           prose-code:text-purple-300 prose-code:bg-purple-900/20 prose-code:px-1 prose-code:rounded
+                           prose-blockquote:border-l-purple-500 prose-blockquote:bg-purple-900/10 prose-blockquote:py-1 prose-blockquote:px-4"
+                           dangerouslySetInnerHTML={{ __html: renderMarkdown(b.content) }}
+                         />
+                       </motion.div>
+                     )}
+                   </AnimatePresence>
+                 </motion.div>
+               ))
+             )}
           </div>
         </div>
       </div>
 
-      {/* Bottom Navigation for Mobile */}
-      <div className="md:hidden bottom-nav bg-gray-800 p-4 flex justify-around items-center bottom-nav-enter">
-        <Link
-          to="/dashboard"
-          className="text-purple-400 bottom-nav-icon"
-          title="Dashboard"
-        >
-          <svg
-            className="w-6 h-6"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
-            />
-          </svg>
+      {/* MOBILE BOTTOM NAV */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900/90 backdrop-blur-xl border-t border-white/10 p-4 z-40 flex justify-around items-center pb-6">
+        <Link to="/dashboard" className="flex flex-col items-center gap-1 text-slate-400 hover:text-purple-400 transition-colors">
+           <LayoutDashboard size={20} />
+           <span className="text-[10px]">Home</span>
         </Link>
-        <Link
-          to="/support"
-          className="text-purple-400 bottom-nav-icon active-nav"
-          title="Support"
-        >
-          <svg
-            className="w-6 h-6"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2m-4 0H7a2 2 0 01-2-2v-6a2 2 0 012-2h2m4 0V6a2 2 0 00-2-2H7a2 2 0 00-2 2v2m4 8h6m-6 4H7a2 2 0 01-2-2v-6a2 2 0 012-2h2"
-            />
-          </svg>
+        <Link to="/support" className="flex flex-col items-center gap-1 text-purple-400">
+           <LifeBuoy size={20} />
+           <span className="text-[10px]">Support</span>
         </Link>
-        <Link
-          to="/buy-coins"
-          className="text-purple-400 bottom-nav-icon"
-          title="Buy G_COINS"
-        >
-          <svg
-            className="w-6 h-6"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
+        <Link to="/buy-coins" className="flex flex-col items-center gap-1 text-slate-400 hover:text-purple-400 transition-colors">
+           <Coins size={20} />
+           <span className="text-[10px]">Coins</span>
         </Link>
-        <button
-          onClick={handleLogout}
-          className="text-purple-400 bottom-nav-icon"
-          title="Logout"
-        >
-          <svg
-            className="w-6 h-6"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              d="M17 16l4-4m0 0l-4-4m4 4H7m5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h3a3 3 0 013 3v1"
-            />
-          </svg>
+        <button onClick={handleLogout} className="flex flex-col items-center gap-1 text-slate-400 hover:text-red-400 transition-colors">
+           <LogOut size={20} />
+           <span className="text-[10px]">Logout</span>
         </button>
       </div>
 
-      {/* Live Chat Bubble */}
-      <button
+      {/* CHAT BUBBLE */}
+      <motion.button
+        whileHover={{ scale: 1.1 }}
+        whileTap={{ scale: 0.9 }}
         onClick={() => {
           setIsChatOpen(!isChatOpen);
           setHasNewMessage(false);
-          if (!isChatOpen) {
-            playAlertSound();
-            setTimeout(scrollToBottom, 0);
-          }
+          if (!isChatOpen) { playAlertSound(); setTimeout(scrollToBottom, 0); }
         }}
-        className={`fixed bottom-4 right-4 w-14 h-14 sm:w-16 sm:h-16 bg-gradient-to-r from-yellow-400 to-red-500 rounded-full flex items-center justify-center shadow-lg chat-bubble z-50 ${hasNewMessage ? 'border-2 border-purple-500 shadow-[0_0_15px_rgba(139,92,246,0.9)]' : ''}`}
+        className={`fixed bottom-20 md:bottom-8 right-4 md:right-8 w-14 h-14 md:w-16 md:h-16 rounded-full flex items-center justify-center shadow-2xl z-50 transition-all ${
+           hasNewMessage 
+           ? 'bg-purple-600 shadow-[0_0_20px_rgba(147,51,234,0.6)] animate-pulse' 
+           : 'bg-gradient-to-tr from-purple-600 to-indigo-600 border border-white/10'
+        }`}
       >
-        <svg className="w-6 h-6 sm:w-7 sm:h-7 text-white" fill="currentColor" viewBox="0 0 24 24">
-          <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"/>
-        </svg>
-        <span className="absolute top-[-40px] bg-orange-400 text-white text-xs px-3 py-1 rounded-lg chat-tooltip pointer-events-none">
-          Chat with Support
-        </span>
-      </button>
+        {isChatOpen ? <X className="text-white" size={28} /> : <MessageCircle className="text-white" size={28} />}
+        
+        {!isChatOpen && hasNewMessage && (
+           <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-slate-900" />
+        )}
+      </motion.button>
 
-      {/* Chat Window */}
-      {isChatOpen && (
-        <div className="fixed bottom-20 right-2 sm:right-5 w-[calc(100%-1rem)] sm:max-w-md bg-gray-800 rounded-xl shadow-2xl overflow-hidden chat-window z-50">
-          <div className="flex flex-col h-[80vh] sm:h-[500px]">
-            <div className="px-4 py-3 border-b border-gray-700 bg-gray-900/50">
-              <div className="flex justify-between items-center">
-                <h2 className="text-lg sm:text-xl font-semibold text-white">DwenLite Support</h2>
-                <div className={`text-xs px-3 py-1 rounded-full ${agentJoined ? 'bg-green-500' : 'bg-blue-500'} text-white animate-pulse`}>
-                  {agentJoined ? 'Agent Online' : 'AI Online'}
-                </div>
+      {/* CHAT WINDOW */}
+      <AnimatePresence>
+        {isChatOpen && (
+          <motion.div 
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.95 }}
+            className="fixed bottom-24 right-4 md:right-8 w-[calc(100%-2rem)] md:w-96 h-[500px] bg-slate-800/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl z-50 flex flex-col overflow-hidden"
+          >
+            {/* Chat Header */}
+            <div className="p-4 border-b border-white/5 bg-slate-900/50 flex justify-between items-center">
+              <div>
+                 <h3 className="font-bold text-white flex items-center gap-2">
+                    DwenLite Assistant
+                    {agentJoined && <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded border border-blue-500/30">Human Agent</span>}
+                 </h3>
+                 <p className="text-xs text-slate-400">{agentJoined ? 'Live support active' : 'AI-powered help'}</p>
               </div>
+              <div className={`w-2 h-2 rounded-full ${agentJoined ? 'bg-blue-500' : 'bg-green-500'} animate-pulse`} />
             </div>
-            <div ref={chatDisplayRef} className="flex-1 p-4 overflow-y-auto flex flex-col space-y-3 scrollbar-thin scrollbar-thumb-purple-500 scrollbar-track-gray-900">
+
+            {/* Chat Messages */}
+            <div ref={chatDisplayRef} className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-transparent">
               {messages.map(msg => (
-                <div
-                  key={msg.id}
-                  className={`max-w-[80%] rounded-xl px-3 py-2 text-sm sm:text-base message-bubble ${
-                    msg.sender === 'user'
-                      ? 'self-end bg-purple-600 text-white'
-                      : msg.sender === 'agent'
-                      ? 'self-start bg-blue-600 text-white'
-                      : 'self-start bg-gray-700 text-white'
-                  }`}
-                >
-                  <strong>{msg.sender === 'user' ? 'You' : msg.sender === 'agent' ? 'Agent' : 'DwenLite Support AI'}:</strong> {msg.content}
-                  <small className="block text-xs opacity-75 mt-1">{msg.timestamp}</small>
+                <div key={msg.id} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
+                   <div 
+                      className={`max-w-[85%] p-3 rounded-2xl text-sm ${
+                        msg.sender === 'user' 
+                        ? 'bg-purple-600 text-white rounded-br-none' 
+                        : msg.sender === 'agent'
+                           ? 'bg-blue-600 text-white rounded-bl-none'
+                           : 'bg-slate-700 text-slate-200 rounded-bl-none'
+                      }`}
+                   >
+                      {msg.content}
+                   </div>
+                   <span className="text-[10px] text-slate-500 mt-1 px-1">{msg.timestamp.split(',')[1]}</span>
                 </div>
               ))}
-              {(isTyping && agentJoined) && (
-                <div className="flex items-center px-3 py-2 text-gray-400 text-sm">
-                  <span>Agent is typing</span>
-                  <span className="w-2 h-2 bg-purple-500 rounded-full mx-1 typing-dot"></span>
-                  <span className="w-2 h-2 bg-purple-500 rounded-full mx-1 typing-dot"></span>
-                  <span className="w-2 h-2 bg-purple-500 rounded-full mx-1 typing-dot"></span>
-                </div>
-              )}
-              {(isTyping && !agentJoined) && (
-                <div className="flex items-center px-3 py-2 text-gray-400 text-sm">
-                  <span>DwenLite Support AI is typing</span>
-                  <span className="w-2 h-2 bg-purple-500 rounded-full mx-1 typing-dot"></span>
-                  <span className="w-2 h-2 bg-purple-500 rounded-full mx-1 typing-dot"></span>
-                  <span className="w-2 h-2 bg-purple-500 rounded-full mx-1 typing-dot"></span>
-                </div>
+              
+              {isTyping && (
+                 <div className="flex items-center gap-1 p-2 bg-slate-700/50 rounded-xl w-fit rounded-bl-none">
+                    <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" />
+                    <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-100" />
+                    <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-200" />
+                 </div>
               )}
             </div>
-            {showRating && !ratingSubmitted && (
-              <div className="px-4 py-3 border-t border-gray-700 bg-gray-900/50">
-                <div className="text-white text-sm mb-2">Rate your experience:</div>
-                <div className="flex gap-2">
-                  {[1, 2, 3, 4, 5].map(star => (
-                    <button
-                      key={star}
-                      onClick={() => setRating(star)}
-                      className={`text-2xl sm:text-3xl transition-transform duration-200 ${rating >= star ? 'text-yellow-400 scale-110' : 'text-gray-400'}`}
-                    >
-                      ★
-                    </button>
-                  ))}
-                </div>
-                <button
-                  onClick={handleRatingSubmit}
-                  className="bg-purple-600 text-white py-2 px-4 rounded-lg button-interact mt-3 w-full"
-                  disabled={rating === 0}
-                >
-                  Submit Rating
-                </button>
-              </div>
-            )}
-            {ratingSubmitted && (
-              <div className="px-4 py-3 border-t border-gray-700 bg-gray-900/50">
-                <button
-                  onClick={handleStartNewChat}
-                  className="bg-purple-600 text-white py-2 px-4 rounded-lg button-interact w-full"
-                >
-                  Start New Chat
-                </button>
-              </div>
-            )}
-            {!showRating && !ratingSubmitted && (
-              <div className="px-4 py-3 border-t border-gray-700 bg-gray-900/50">
-                <div className="flex gap-3">
-                  <input
-                    type="text"
-                    value={input}
-                    onChange={(e) => handleTyping(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                    placeholder="Type your message..."
-                    className={`flex-1 p-2 rounded-lg bg-gray-700 text-white text-sm border border-gray-600 focus:border-purple-500 focus:outline-none transition-all duration-300 ${
-                      isConversationEnded ? 'opacity-50 cursor-not-allowed' : ''
-                    }`}
-                    disabled={isConversationEnded}
-                  />
-                  <button
-                    onClick={handleSendMessage}
-                    className={`bg-purple-600 text-white py-2 px-4 rounded-lg button-interact ${
-                      isConversationEnded ? 'opacity-50 cursor-not-allowed' : ''
-                    }`}
-                    disabled={isConversationEnded}
-                  >
-                    Send
-                  </button>
-                </div>
-                <div className="text-gray-500 text-xs mt-2 text-center">Developed By SBMind Technologies</div>
-                {isConversationEnded && !showRating && (
-                  <div className="text-gray-500 text-xs mt-2 text-center">
-                    The conversation has ended. Tap "Start New Chat" to begin a new session.
+
+            {/* Chat Footer */}
+            <div className="p-3 bg-slate-900/50 border-t border-white/5">
+               {showRating && !ratingSubmitted ? (
+                  <div className="text-center p-2">
+                     <p className="text-sm text-slate-300 mb-3">How was your experience?</p>
+                     <div className="flex justify-center gap-2 mb-4">
+                        {[1, 2, 3, 4, 5].map(star => (
+                           <button key={star} onClick={() => setRating(star)} className="focus:outline-none transition-transform hover:scale-110">
+                              <Star size={24} className={rating >= star ? 'fill-yellow-400 text-yellow-400' : 'text-slate-600'} />
+                           </button>
+                        ))}
+                     </div>
+                     <button onClick={handleRatingSubmit} disabled={rating === 0} className="w-full bg-purple-600 hover:bg-purple-500 py-2 rounded-lg text-sm font-bold disabled:opacity-50">
+                        Submit Feedback
+                     </button>
                   </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+               ) : ratingSubmitted ? (
+                  <button onClick={handleStartNewChat} className="w-full bg-slate-700 hover:bg-slate-600 py-3 rounded-lg text-sm font-bold flex items-center justify-center gap-2">
+                     <MessageCircle size={16} /> Start New Chat
+                  </button>
+               ) : (
+                  <div className="flex gap-2">
+                     <input 
+                        value={input}
+                        onChange={(e) => handleTyping(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+                        disabled={isConversationEnded}
+                        placeholder={isConversationEnded ? "Chat ended." : "Type a message..."}
+                        className="flex-1 bg-slate-800 border border-slate-600 rounded-xl px-4 py-2 text-sm focus:border-purple-500 outline-none transition-all disabled:opacity-50"
+                     />
+                     <button 
+                        onClick={handleSendMessage}
+                        disabled={isConversationEnded || !input.trim()}
+                        className="bg-purple-600 hover:bg-purple-500 text-white p-2.5 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                     >
+                        <Send size={18} />
+                     </button>
+                  </div>
+               )}
+               {isConversationEnded && !showRating && !ratingSubmitted && (
+                  <p className="text-[10px] text-center text-slate-500 mt-2">Session closed.</p>
+               )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <audio ref={audioRef} preload="auto" src="/ping.mp3" />
     </div>

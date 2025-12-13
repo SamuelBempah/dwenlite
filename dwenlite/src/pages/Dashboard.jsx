@@ -3,13 +3,20 @@ import { useState, useEffect, useRef } from 'react';
 import { auth, db } from '../firebase';
 import { collection, addDoc, query, where, getDocs, updateDoc, deleteDoc, doc, getDoc, setDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  Folder, Mic, Video, FileText, Plus, LogOut, 
+  HelpCircle, MoreVertical, Edit2, Trash2, 
+  LayoutDashboard, Coins, Star 
+} from 'lucide-react';
 
 function Dashboard() {
   const navigate = useNavigate();
+  
+  // State Management
   const [folders, setFolders] = useState([]);
   const [newFolderName, setNewFolderName] = useState('');
   const [createFolderLoading, setCreateFolderLoading] = useState(false);
-  const [upgradeLoading, setUpgradeLoading] = useState(false);
   const [logoutLoading, setLogoutLoading] = useState(false);
   const [audioLoading, setAudioLoading] = useState(false);
   const [youtubeLoading, setYoutubeLoading] = useState(false);
@@ -23,103 +30,36 @@ function Dashboard() {
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
   const [foldersLoading, setFoldersLoading] = useState(true);
-  const [countdown, setCountdown] = useState('');
-  const [showAdNotice, setShowAdNotice] = useState(false);
   const [gCoins, setGCoins] = useState(0);
   const [gCoinsAnimating, setGCoinsAnimating] = useState(false);
-  const [isGhanaianUser, setIsGhanaianUser] = useState(false);
-  const [currency, setCurrency] = useState({ symbol: '₵', code: 'GHS', rate: 1 });
   const [ratingStats, setRatingStats] = useState({ average: 0, count: 0 });
 
+  // Refs for Tutorial
   const folderInputRef = useRef(null);
   const createButtonRef = useRef(null);
   const sidebarRef = useRef(null);
   const uploadSectionRef = useRef(null);
   const foldersSectionRef = useRef(null);
-  const bundleEventRef = useRef(null);
-
-  const currencyMap = {
-    US: { symbol: '$', code: 'USD', rate: 0.064 },
-    GB: { symbol: '£', code: 'GBP', rate: 0.049 },
-    EU: { symbol: '€', code: 'EUR', rate: 0.059 },
-    GH: { symbol: '₵', code: 'GHS', rate: 1 },
-    NG: { symbol: '₦', code: 'NGN', rate: 103.45 },
-  };
 
   const tutorialSteps = [
-    {
-      title: "Welcome to the Dashboard!",
-      description: "This is your main hub for managing folders and uploads. Let's take a quick tour to get you started.",
-      highlightRef: null,
-    },
-    {
-      title: "Navigation",
-      description: "On desktop, use the sidebar for navigation. On mobile, use the bottom navigation bar to access dashboard, support, and more.",
-      highlightRef: sidebarRef,
-    },
-    {
-      title: "Upload Options",
-      description: "Use these buttons to know how to upload audio, video, or documents. In case you just want to know straight forward, First, you'll need to create or select a folder.",
-      highlightRef: uploadSectionRef,
-    },
-    {
-      title: "Create a Folder",
-      description: "Enter a name for your new folder here. Folders help organize your notes, quizzes, and flashcards.",
-      highlightRef: folderInputRef,
-    },
-    {
-      title: "Confirm Folder Creation",
-      description: "Click this button to create your folder. It will appear in the list below.",
-      highlightRef: createButtonRef,
-    },
-    {
-      title: "Educational Bundles",
-      description: "Check out our limited-time educational bundles to enhance your study experience with premium resources! (Available for Ghanaian users only)",
-      highlightRef: isGhanaianUser ? bundleEventRef : null,
-    },
-    {
-      title: "Manage Folders",
-      description: "Your folders are listed here. Click a folder to view its contents, or use the menu to edit/delete. Check your G_COINS balance and ratings above to generate and evaluate notes.",
-      highlightRef: foldersSectionRef,
-    },
-    {
-      title: "You're All Set!",
-      description: "That's it! You can now create folders, upload content, manage your study materials, and rate your generated notes. Close this to continue.",
-      highlightRef: null,
-    },
+    { title: "Welcome to Your Study Hub!", description: "This is your dashboard. Let's get you oriented.", highlightRef: null },
+    { title: "Navigation", description: "Use the sidebar (desktop) or bottom bar (mobile) to move around.", highlightRef: sidebarRef },
+    { title: "Upload Content", description: "Quickly upload lectures, videos, or PDFs to generate notes.", highlightRef: uploadSectionRef },
+    { title: "Name Your Folder", description: "Type a name here to organize your subject.", highlightRef: folderInputRef },
+    { title: "Create It", description: "Click here to add the folder to your library.", highlightRef: createButtonRef },
+    { title: "Your Library", description: "Access all your generated notes and quizzes here.", highlightRef: foldersSectionRef },
+    { title: "Ready to Learn?", description: "You are all set. Start studying!", highlightRef: null },
   ];
 
+  // --- LOGIC SECTION ---
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
       if (user) {
-        console.log('Authenticated user UID:', user.uid);
         setCurrentUser(user);
         fetchFolders(user.uid);
         fetchUserGCoins(user.uid);
         fetchRatingStats();
-        if (!localStorage.getItem('tutorialCompleted')) {
-          setShowTutorial(true);
-        }
-        fetch('https://ipapi.co/json/')
-          .then(response => response.json())
-          .then(data => {
-            console.log('Geolocation data:', data);
-            const countryCode = data.country_code || 'GH';
-            const currencyInfo = currencyMap[countryCode] || currencyMap['GH'];
-            setCurrency(currencyInfo);
-            const isGhanaian = countryCode === 'GH';
-            setIsGhanaianUser(isGhanaian);
-            console.log('Currency set:', currencyInfo, 'Is Ghanaian:', isGhanaian);
-            if (isGhanaian) {
-              setShowAdNotice(true);
-            }
-          })
-          .catch(err => {
-            console.error('Geolocation error:', err);
-            setCurrency(currencyMap['GH']);
-            setIsGhanaianUser(true);
-            setShowAdNotice(true);
-          });
+        if (!localStorage.getItem('tutorialCompleted')) setShowTutorial(true);
       } else {
         navigate('/login');
       }
@@ -132,987 +72,454 @@ function Dashboard() {
       const userRef = doc(db, 'users', userId);
       const userSnap = await getDoc(userRef);
       let userData = userSnap.exists() ? userSnap.data() : { gCoins: 30, lastCoinDrop: null };
-
       const today = new Date().toDateString();
       const lastCoinDrop = userData.lastCoinDrop ? new Date(userData.lastCoinDrop).toDateString() : null;
-
       let newGCoins = userData.gCoins || 30;
 
       if (newGCoins <= 30 && (!lastCoinDrop || lastCoinDrop !== today)) {
         newGCoins = Math.min(newGCoins + 3, 30);
-        await setDoc(userRef, { 
-          gCoins: newGCoins, 
-          lastCoinDrop: new Date().toISOString() 
-        }, { merge: true });
+        await setDoc(userRef, { gCoins: newGCoins, lastCoinDrop: new Date().toISOString() }, { merge: true });
         if (userData.gCoins !== newGCoins) {
           setGCoinsAnimating(true);
           setTimeout(() => setGCoinsAnimating(false), 1000);
-          toast.success('You received 3 G_COINS for today!');
+          toast.success('Daily Bonus: +3 G_COINS!');
         }
       }
-
       setGCoins(newGCoins);
-    } catch (err) {
-      console.error('Fetch user G_COINS error:', err);
-      toast.error('Failed to fetch G_COINS. Please try again.');
-    }
+    } catch (err) { console.error(err); }
   };
 
   const fetchRatingStats = async () => {
     try {
-      const ratingsQuery = query(collection(db, 'ratings'));
-      const ratingsSnapshot = await getDocs(ratingsQuery);
-      const ratings = ratingsSnapshot.docs.map(doc => doc.data().rating);
+      const q = query(collection(db, 'ratings'));
+      const snap = await getDocs(q);
+      const ratings = snap.docs.map(doc => doc.data().rating);
       const count = ratings.length;
-      const average = count > 0 ? (ratings.reduce((sum, rating) => sum + rating, 0) / count).toFixed(1) : 0;
+      const average = count > 0 ? (ratings.reduce((a, b) => a + b, 0) / count).toFixed(1) : 0;
       setRatingStats({ average, count });
-    } catch (err) {
-      console.error('Fetch rating stats error:', err);
-      toast.error('Failed to fetch rating statistics.');
-    }
+    } catch (err) { console.error(err); }
   };
-
-  useEffect(() => {
-    const endDate = new Date('2025-08-31T23:59:59Z');
-    const updateCountdown = () => {
-      const now = new Date();
-      const timeLeft = endDate - now;
-      if (timeLeft <= 0) {
-        setCountdown('Offer Ended');
-        return;
-      }
-      const days = Math.floor(timeLeft / (1000 * 60 * 60 * 24));
-      const hours = Math.floor((timeLeft % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-      const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((timeLeft % (1000 * 60)) / 1000);
-      setCountdown(`${days}d ${hours}h ${minutes}m ${seconds}s`);
-    };
-    updateCountdown();
-    const timer = setInterval(updateCountdown, 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   const fetchFolders = async (userId) => {
     setFoldersLoading(true);
     try {
       const q = query(collection(db, 'folders'), where('user_id', '==', userId));
-      const querySnapshot = await getDocs(q);
-      const userFolders = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setFolders(userFolders);
-      console.log('Fetched folders:', userFolders);
-    } catch (err) {
-      toast.error('Failed to fetch folders. Please try again.');
-      console.error('Fetch folders error:', err);
-    } finally {
-      setTimeout(() => {
-        setFoldersLoading(false);
-      }, 1500);
-    }
-  };
-
-  const getFriendlyErrorMessage = (errorCode) => {
-    switch (errorCode) {
-      case 'permission-denied':
-        return 'You do not have permission to perform this action. Please contact support.';
-      case 'unavailable':
-        return 'Network error. Please check your internet connection and try again.';
-      case 'deadline-exceeded':
-        return 'The operation took too long. Please try again.';
-      default:
-        return 'An unexpected error occurred. Please try again.';
-    }
+      const snap = await getDocs(q);
+      setFolders(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    } catch (err) { toast.error('Failed to load folders'); } 
+    finally { setTimeout(() => setFoldersLoading(false), 800); }
   };
 
   const handleCreateFolder = async () => {
-    if (!newFolderName || !currentUser) {
-      toast.error('Folder name is required');
-      return;
-    }
+    if (!newFolderName.trim() || !currentUser) return toast.error('Name required');
     setCreateFolderLoading(true);
     try {
       const newFolder = {
         user_id: currentUser.uid,
         name: newFolderName,
-        createdAt: new Date().toLocaleDateString('en-US', {
-          weekday: 'long',
-          month: 'long',
-          day: 'numeric',
-        }),
-        notes: [],
-        quizzes: [],
-        flashcards: [],
-        documents: [],
+        createdAt: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        notes: [], quizzes: [], flashcards: [], documents: [],
       };
-      console.log('Creating folder with data:', newFolder);
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('deadline-exceeded')), 10000);
-      });
-      await Promise.race([
-        addDoc(collection(db, 'folders'), newFolder),
-        timeoutPromise,
-      ]);
-      setTimeout(() => {
-        toast.success('Folder created successfully!');
-        setNewFolderName('');
-        setCreateFolderLoading(false);
-        fetchFolders(currentUser.uid);
-      }, 3000);
-    } catch (err) {
-      const errorCode = err.code || err.message;
-      console.error('Create folder error details:', err);
-      toast.error(getFriendlyErrorMessage(errorCode));
-      setCreateFolderLoading(false);
-    }
+      await addDoc(collection(db, 'folders'), newFolder);
+      toast.success('Folder created!');
+      setNewFolderName('');
+      fetchFolders(currentUser.uid);
+    } catch (err) { toast.error('Error creating folder'); }
+    finally { setCreateFolderLoading(false); }
   };
 
   const handleEditFolder = async (folderId) => {
-    if (!currentUser) {
-      toast.error('User not authenticated. Please log in again.');
-      navigate('/login');
-      return;
-    }
-    if (!editFolderName) {
-      toast.error('Folder name cannot be empty');
-      return;
-    }
-    console.log('Editing folder with ID:', folderId, 'User UID:', currentUser.uid);
+    if (!editFolderName) return;
     setEditLoading(true);
     try {
-      const folderRef = doc(db, 'folders', folderId);
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('deadline-exceeded')), 10000);
-      });
-      await Promise.race([
-        updateDoc(folderRef, { name: editFolderName }),
-        timeoutPromise,
-      ]);
-      setTimeout(() => {
-        toast.success('Folder updated successfully!');
-        setEditFolderId(null);
-        setEditFolderName('');
-        setEditLoading(false);
-        setDropdownOpen(null);
-        fetchFolders(currentUser.uid);
-      }, 2000);
-    } catch (err) {
-      const errorCode = err.code || err.message;
-      console.error('Edit folder error details:', err);
-      toast.error(getFriendlyErrorMessage(errorCode));
-      setEditLoading(false);
-    }
+      await updateDoc(doc(db, 'folders', folderId), { name: editFolderName });
+      toast.success('Updated!');
+      setEditFolderId(null);
+      fetchFolders(currentUser.uid);
+    } catch (err) { toast.error('Update failed'); }
+    finally { setEditLoading(false); }
   };
 
   const handleDeleteFolder = async (folderId) => {
-    if (!currentUser) {
-      toast.error('User not authenticated. Please log in again.');
-      navigate('/login');
-      return;
-    }
-    if (!window.confirm('Are you sure you want to delete this folder?')) {
-      return;
-    }
-    console.log('Deleting folder with ID:', folderId, 'User UID:', currentUser.uid);
+    if (!window.confirm('Delete this folder?')) return;
     setDeleteLoading(true);
     try {
-      const folderRef = doc(db, 'folders', folderId);
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('deadline-exceeded')), 10000);
-      });
-      await Promise.race([
-        deleteDoc(folderRef),
-        timeoutPromise,
-      ]);
-      setTimeout(() => {
-        toast.success('Folder deleted successfully!');
-        setDeleteLoading(false);
-        setDropdownOpen(null);
-        fetchFolders(currentUser.uid);
-      }, 2000);
-    } catch (err) {
-      const errorCode = err.code || err.message;
-      console.error('Delete folder error details:', err);
-      toast.error(getFriendlyErrorMessage(errorCode));
-      setDeleteLoading(false);
-    }
-  };
-
-  const handleBuyGCoins = () => {
-    setUpgradeLoading(true);
-    navigate('/buy-coins');
-    setTimeout(() => {
-      setUpgradeLoading(false);
-    }, 1000);
-  };
-
-  const handleBuyBundle = () => {
-    setUpgradeLoading(true);
-    navigate('/buy-bundles');
-    setTimeout(() => {
-      setUpgradeLoading(false);
-    }, 1000);
+      await deleteDoc(doc(db, 'folders', folderId));
+      toast.success('Deleted!');
+      fetchFolders(currentUser.uid);
+    } catch (err) { toast.error('Delete failed'); }
+    finally { setDeleteLoading(false); }
   };
 
   const handleLogout = () => {
     setLogoutLoading(true);
     setTimeout(() => {
-      auth.signOut()
-        .then(() => {
-          toast.success('Logged out successfully!');
-          navigate('/login');
-        })
-        .catch((err) => {
-          toast.error('Failed to log out. Please try again.');
-          console.error('Logout error:', err);
-        })
-        .finally(() => {
-          setLogoutLoading(false);
-        });
-    }, 3000);
+      auth.signOut().then(() => navigate('/login'));
+    }, 1000);
   };
 
-  const handleAudioClick = () => {
-    setAudioLoading(true);
+  // Mock handlers
+  const handleMockUpload = (type, setter) => {
+    setter(true);
     setTimeout(() => {
-      setAudioLoading(false);
-      toast.success('Create Or Select A Folder To Upload Audio!');
-    }, 3000);
+      setter(false);
+      toast.success(`Select a folder to upload ${type}!`);
+    }, 1500);
   };
 
-  const handleYoutubeClick = () => {
-    setYoutubeLoading(true);
-    setTimeout(() => {
-      setYoutubeLoading(false);
-      toast.success('Create Or Select A Folder To Upload Video!');
-    }, 3000);
+  // --- ANIMATION VARIANTS ---
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: { opacity: 1, transition: { staggerChildren: 0.1 } }
   };
-
-  const handleDocumentClick = () => {
-    setDocumentLoading(true);
-    setTimeout(() => {
-      setDocumentLoading(false);
-      toast.success('Create Or Select A Folder To Upload Document!');
-    }, 3000);
-  };
-
-  const toggleDropdown = (folderId) => {
-    setDropdownOpen(dropdownOpen === folderId ? null : folderId);
-  };
-
-  const handleNextStep = () => {
-    if (tutorialStep < tutorialSteps.length - 1) {
-      setTutorialStep(tutorialStep + 1);
-    } else {
-      setShowTutorial(false);
-      localStorage.setItem('tutorialCompleted', 'true');
-    }
-  };
-
-  const handlePrevStep = () => {
-    if (tutorialStep > 0) {
-      setTutorialStep(tutorialStep - 1);
-    }
-  };
-
+  
   if (!currentUser) return null;
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col md:flex-row relative">
-      <style>
-        {`
-          @keyframes pulseGlow {
-            0% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0.7); }
-            70% { box-shadow: 0 0 0 10px rgba(147, 51, 234, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0); }
-          }
-          @keyframes coinsDeduction {
-            0% { transform: translateY(0); opacity: 1; }
-            50% { transform: translateY(-20px); opacity: 0.5; }
-            100% { transform: translateY(-40px); opacity: 0; }
-          }
-          @keyframes fadeInScale {
-            0% { opacity: 0; transform: scale(0.8); }
-            100% { opacity: 1; transform: scale(1); }
-          }
-          @keyframes slideUp {
-            0% { transform: translateY(100%); opacity: 0; }
-            100% { transform: translateY(0); opacity: 1; }
-          }
-          .pulse-glow {
-            animation: pulseGlow 2s infinite;
-          }
-          .coins-deduct {
-            animation: coinsDeduction 1s ease-out forwards;
-          }
-          .hover-scale {
-            transition: transform 0.2s ease;
-          }
-          .hover-scale:hover {
-            transform: scale(1.05);
-          }
-          .ad-notice-enter {
-            animation: fadeInScale 0.3s ease-out forwards;
-          }
-          .bottom-nav-enter {
-            animation: slideUp 0.3s ease-out forwards;
-          }
-          .bottom-nav-icon {
-            transition: transform 0.2s ease, color 0.2s ease;
-          }
-          .bottom-nav-icon:hover {
-            transform: scale(1.2);
-            color: #d1d5db;
-          }
-          .bottom-nav {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            z-index: 20;
-          }
-          .rating-stars {
-            display: inline-flex;
-            align-items: center;
-          }
-          .rating-star {
-            color: #facc15;
-            margin-right: 2px;
-          }
-          .rating-text {
-            font-size: 0.9rem;
-            color: #d1d5db;
-          }
-        `}
-      </style>
-
-      {showTutorial && (
-        <div className={`fixed inset-0 bg-black bg-opacity-50 flex justify-center z-50 px-4 ${
-          tutorialStep === 3 || tutorialStep === 4 || tutorialStep === 5 || tutorialStep === 6 ? 'items-start pt-4' : 'items-center'
-        }`}>
-          <div className="bg-gray-800 p-4 sm:p-6 rounded-lg w-full max-w-sm sm:max-w-md">
-            <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4">{tutorialSteps[tutorialStep].title}</h2>
-            <p className="text-gray-300 text-sm sm:text-base mb-4 sm:mb-6">{tutorialSteps[tutorialStep].description}</p>
-            <div className="flex justify-between items-center">
-              <button
-                onClick={handlePrevStep}
-                disabled={tutorialStep === 0}
-                className={`py-1 px-3 sm:py-2 sm:px-4 rounded-lg text-xs sm:text-sm ${
-                  tutorialStep === 0
-                    ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                    : 'bg-purple-600 text-white hover:bg-purple-700'
-                }`}
-              >
-                Previous
-              </button>
-              <span className="text-gray-400 text-xs sm:text-sm">
-                {tutorialStep + 1} / {tutorialSteps.length}
-              </span>
-              <button
-                onClick={handleNextStep}
-                className="bg-purple-600 text-white py-1 px-3 sm:py-2 sm:px-4 rounded-lg hover:bg-purple-700 text-xs sm:text-sm"
-              >
-                {tutorialStep === tutorialSteps.length - 1 ? 'Finish' : 'Next'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div
-        ref={sidebarRef}
-        className={`hidden md:block w-64 bg-gray-800 p-6 flex flex-col justify-between ${
-          tutorialStep === 1 ? 'ring-4 ring-purple-500' : ''
-        }`}
-      >
-        <div>
-          <div className="flex items-center mb-8">
-            <div className="w-10 h-10 bg-purple-600 rounded-full flex items-center justify-center text-xl">
-              {currentUser.displayName?.charAt(0) || 'U'}
-            </div>
-            <span className="ml-3 text-lg font-semibold">
-              {currentUser.displayName || 'User'}
-            </span>
-          </div>
-          <nav>
-            <Link
-              to="/dashboard"
-              className="flex items-center mb-4 text-purple-400 text-base"
-            >
-              <span className="mr-2">🏠</span> Dashboard
-            </Link>
-            <Link
-              to="/community-support"
-              className="flex items-center mb-4 text-purple-400 text-base"
-            >
-              <span className="mr-2">💬</span> Support
-            </Link>
-            <button
-              onClick={handleBuyGCoins}
-              className="flex items-center mb-4 text-purple-400 text-base"
-            >
-              <span className="mr-2">💰</span> Buy G_COINS
-            </button>
-          </nav>
-        </div>
+    <div className="min-h-screen bg-slate-900 text-white font-sans selection:bg-purple-500 selection:text-white overflow-hidden relative">
+      
+      {/* Dynamic Background */}
+      <div className="fixed inset-0 z-0 opacity-20 pointer-events-none">
+        <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-purple-600 rounded-full blur-[100px]" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-indigo-600 rounded-full blur-[100px]" />
       </div>
 
-      <div className="flex-1 p-4 md:p-8">
-        <div className="flex justify-between items-center mb-6 md:mb-8">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-bold">Dashboard</h1>
-            <p className={`text-sm md:text-base mt-2 ${gCoinsAnimating ? 'coins-deduct' : ''}`}>
-              💰 G_COINS: {gCoins}
-            </p>
-            <div className="rating-stars mt-2">
-              <span className="rating-text">
-                AI Rating: {ratingStats.average} ({ratingStats.count} reviews)
-              </span>
-              <div className="flex items-center ml-2">
-                {[1, 2, 3, 4, 5].map(star => (
-                  <svg
-                    key={star}
-                    className={`w-4 h-4 rating-star ${star <= Math.round(ratingStats.average) ? 'filled' : ''}`}
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                    xmlns="http://www.w3.org/2000/svg"
+      {/* Tutorial Overlay */}
+      <AnimatePresence>
+        {showTutorial && (
+          <motion.div 
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.9 }} animate={{ scale: 1 }}
+              className="bg-slate-800 border border-slate-700 p-6 rounded-2xl max-w-md w-full shadow-2xl"
+            >
+              <h2 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent mb-2">
+                {tutorialSteps[tutorialStep].title}
+              </h2>
+              <p className="text-slate-300 mb-6">{tutorialSteps[tutorialStep].description}</p>
+              <div className="flex justify-between items-center">
+                <div className="flex gap-1">
+                  {tutorialSteps.map((_, i) => (
+                    <div key={i} className={`h-1.5 rounded-full transition-all duration-300 ${i === tutorialStep ? 'w-6 bg-purple-500' : 'w-2 bg-slate-600'}`} />
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => tutorialStep > 0 && setTutorialStep(p => p - 1)}
+                    className={`px-3 py-1.5 rounded-lg text-sm ${tutorialStep === 0 ? 'text-slate-600' : 'text-slate-300 hover:bg-slate-700'}`}
                   >
-                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                  </svg>
-                ))}
+                    Back
+                  </button>
+                  <button 
+                    onClick={() => {
+                      if (tutorialStep < tutorialSteps.length - 1) setTutorialStep(p => p + 1);
+                      else { setShowTutorial(false); localStorage.setItem('tutorialCompleted', 'true'); }
+                    }}
+                    className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    {tutorialStep === tutorialSteps.length - 1 ? 'Finish' : 'Next'}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="flex h-screen relative z-10">
+        
+        {/* Desktop Sidebar */}
+        <aside ref={sidebarRef} className="hidden md:flex flex-col w-72 bg-slate-900/50 backdrop-blur-xl border-r border-white/10 p-6 justify-between">
+          <div>
+            <div className="flex items-center gap-3 mb-10">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-500 to-indigo-500 flex items-center justify-center text-lg font-bold shadow-lg shadow-purple-500/30">
+                {currentUser.displayName?.[0] || 'D'}
+              </div>
+              <div>
+                <h3 className="font-semibold text-sm">{currentUser.displayName || 'Student'}</h3>
+                <div className="flex items-center gap-1 text-xs text-yellow-400">
+                  <Star size={12} fill="currentColor" />
+                  <span>{ratingStats.average} Rating</span>
+                </div>
               </div>
             </div>
+
+            <nav className="space-y-2">
+              <NavItem icon={<LayoutDashboard size={20} />} label="Dashboard" active />
+              <NavItem icon={<HelpCircle size={20} />} label="Support" to="/community-support" />
+              <div onClick={() => navigate('/buy-coins')} className="cursor-pointer group">
+                <NavItem icon={<Coins size={20} className="text-yellow-400 group-hover:text-yellow-300" />} label="Buy G_COINS" />
+              </div>
+            </nav>
           </div>
-          <div className="hidden md:block">
-            <button
-              onClick={handleBuyGCoins}
-              disabled={upgradeLoading}
-              className={`bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 mr-2 hover-scale ${
-                upgradeLoading ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              {upgradeLoading ? (
-                <span className="flex items-center">
-                  <svg
-                    className="animate-spin h-5 w-5 mr-2 text-white"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                      fill="none"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8v8H4z"
-                    />
-                  </svg>
-                  Processing...
-                </span>
-              ) : (
-                'Buy G_COINS'
-              )}
-            </button>
-            <button
-              onClick={handleLogout}
+
+          <div className="space-y-3">
+             {/* G Coins Card */}
+            <div className="bg-slate-800/50 p-4 rounded-xl border border-white/5 relative overflow-hidden group">
+              <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-xs text-slate-400 uppercase font-bold tracking-wider">Balance</span>
+                <Coins className={`w-4 h-4 text-yellow-400 ${gCoinsAnimating ? 'animate-bounce' : ''}`} />
+              </div>
+              <div className="text-2xl font-bold text-white font-mono">{gCoins} <span className="text-sm text-slate-500">GC</span></div>
+            </div>
+
+            <button 
+              onClick={handleLogout} 
               disabled={logoutLoading}
-              className={`bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 hover-scale ${
-                logoutLoading ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
+              className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all text-sm font-medium"
             >
-              {logoutLoading ? (
-                <span className="flex items-center">
-                  <svg
-                    className="animate-spin h-5 w-5 mr-2 text-white"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                      fill="none"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8v8H4z"
-                    />
-                  </svg>
-                  Logging out...
-                </span>
-              ) : (
-                'Logout'
-              )}
+              {logoutLoading ? <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin"/> : <LogOut size={16} />}
+              Sign Out
             </button>
           </div>
-        </div>
+        </aside>
 
-        {showAdNotice && isGhanaianUser && (
-          <div
-            ref={bundleEventRef}
-            className={`bg-gray-800 p-3 sm:p-4 rounded-lg mb-4 sm:mb-6 ad-notice-enter flex flex-col sm:flex-row sm:justify-between sm:items-center ${
-              tutorialStep === 5 ? 'ring-4 ring-purple-500' : ''
-            }`}
-          >
-            <div className="mb-3 sm:mb-0">
-              <h2 className="text-base sm:text-lg font-semibold">Limited-Time Offer!</h2>
-              <p className="text-gray-300 text-sm sm:text-base">
-                Get our Educational Bundles for All Networks Starting from {currency.symbol}
-                {(4 * currency.rate).toFixed(2)} {currency.code}. Offer ends in{' '}
-                <span className="text-purple-400">{countdown}</span>.
-              </p>
+        {/* Main Content */}
+        <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8">
+          
+          {/* Mobile Header */}
+          <header className="md:hidden flex justify-between items-center mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500 flex items-center justify-center font-bold">
+                {currentUser.displayName?.[0]}
+              </div>
+              <span className="font-semibold">Dashboard</span>
             </div>
-            <button
-              onClick={handleBuyBundle} disabled
-              className="bg-purple-600 text-white py-2 px-3 sm:px-4 rounded-lg hover:bg-purple-700 hover-scale w-full sm:w-auto text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed disabled:backdrop-blur-sm"
-            >
-              Buy Now
-            </button>
-          </div>
-        )}
-
-        <div
-          ref={uploadSectionRef}
-          className={`mb-6 md:mb-8 ${tutorialStep === 2 ? 'ring-4 ring-purple-500' : ''}`}
-        >
-          <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Upload Content</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <button
-              onClick={handleAudioClick}
-              disabled={audioLoading}
-              className={`bg-gray-800 p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 hover-scale ${
-                audioLoading ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              {audioLoading ? (
-                <span className="flex items-center">
-                  <svg
-                    className="animate-spin h-5 w-5 mr-2 text-white"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                      fill="none"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8v8H4z"
-                    />
-                  </svg>
-                  Processing...
-                </span>
-              ) : (
-                <>
-                  <span>Upload Audio</span>
-                  <span>🎙️</span>
-                </>
-              )}
-            </button>
-            <button
-              onClick={handleYoutubeClick}
-              disabled={youtubeLoading}
-              className={`bg-gray-800 p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 hover-scale ${
-                youtubeLoading ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              {youtubeLoading ? (
-                <span className="flex items-center">
-                  <svg
-                    className="animate-spin h-5 w-5 mr-2 text-white"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                      fill="none"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8v8H4z"
-                    />
-                  </svg>
-                  Processing...
-                </span>
-              ) : (
-                <>
-                  <span>Upload Video</span>
-                  <span>🎥</span>
-                </>
-              )}
-            </button>
-            <button
-              onClick={handleDocumentClick}
-              disabled={documentLoading}
-              className={`bg-gray-800 p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 hover-scale ${
-                documentLoading ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              {documentLoading ? (
-                <span className="flex items-center">
-                  <svg
-                    className="animate-spin h-5 w-5 mr-2 text-white"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                      fill="none"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8v8H4z"
-                    />
-                  </svg>
-                  Processing...
-                </span>
-              ) : (
-                <>
-                  <span>Upload Document</span>
-                  <span>📄</span>
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-
-        <div
-          ref={folderInputRef}
-          className={`mb-6 md:mb-8 ${tutorialStep === 3 ? 'ring-4 ring-purple-500' : ''}`}
-        >
-          <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Create New Folder</h2>
-          <div className="flex items-center">
-            <input
-              type="text"
-              value={newFolderName}
-              onChange={(e) => setNewFolderName(e.target.value)}
-              placeholder="Enter folder name"
-              className="flex-1 p-2 bg-gray-700 text-white rounded-l-lg focus:outline-none"
-              disabled={createFolderLoading}
-            />
-            <button
-              ref={createButtonRef}
-              onClick={handleCreateFolder}
-              disabled={createFolderLoading}
-              className={`bg-purple-600 text-white py-2 px-4 rounded-r-lg hover:bg-purple-700 hover-scale ${
-                createFolderLoading ? 'opacity-50 cursor-not-allowed' : ''
-              } ${tutorialStep === 4 ? 'pulse-glow' : ''}`}
-            >
-              {createFolderLoading ? (
-                <span className="flex items-center">
-                  <svg
-                    className="animate-spin h-5 w-5 mr-2 text-white"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                      fill="none"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8v8H4z"
-                    />
-                  </svg>
-                  Creating...
-                </span>
-              ) : (
-                'Create'
-              )}
-            </button>
-          </div>
-        </div>
-
-        <div
-          ref={foldersSectionRef}
-          className={`mb-6 md:mb-8 ${tutorialStep === 6 ? 'ring-4 ring-purple-500' : ''}`}
-        >
-          <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Your Folders</h2>
-          {foldersLoading ? (
-            <div className="flex items-center justify-center">
-              <svg
-                className="animate-spin h-5 w-5 mr-3 text-white"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                  fill="none"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8v8H4z"
-                />
-              </svg>
-              Loading folders...
+            <div className="flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-full border border-white/10">
+              <Coins size={14} className="text-yellow-400" />
+              <span className="text-sm font-bold">{gCoins}</span>
             </div>
-          ) : folders.length === 0 ? (
-            <p className="text-gray-400">No folders found. Create a new folder to get started!</p>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {folders.map((folder) => (
-                <div
-                  key={folder.id}
-                  className="bg-gray-800 p-4 rounded-lg relative hover-scale"
+          </header>
+
+          <div className="max-w-6xl mx-auto space-y-8">
+            
+            {/* Quick Actions */}
+            <section ref={uploadSectionRef}>
+              <h2 className="text-lg font-semibold text-slate-300 mb-4 flex items-center gap-2">
+                <Plus size={18} className="text-purple-400" /> Quick Upload
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <ActionCard 
+                  icon={<Mic size={24} />} 
+                  label="Record Audio" 
+                  sub="Lecture to Notes" 
+                  color="bg-orange-500" 
+                  onClick={() => handleMockUpload('audio', setAudioLoading)}
+                  loading={audioLoading}
+                />
+                <ActionCard 
+                  icon={<Video size={24} />} 
+                  label="Video Link" 
+                  sub="YouTube to Flashcards" 
+                  color="bg-red-500" 
+                  onClick={() => handleMockUpload('video', setYoutubeLoading)}
+                  loading={youtubeLoading}
+                />
+                <ActionCard 
+                  icon={<FileText size={24} />} 
+                  label="Upload PDF" 
+                  sub="Document Summarizer" 
+                  color="bg-blue-500" 
+                  onClick={() => handleMockUpload('document', setDocumentLoading)}
+                  loading={documentLoading}
+                />
+              </div>
+            </section>
+
+            {/* Folders Section */}
+            <section ref={foldersSectionRef} className="space-y-4">
+              <div className="flex flex-col md:flex-row justify-between items-end md:items-center gap-4 mb-6">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <Folder size={24} className="text-purple-400" /> Your Library
+                </h2>
+                
+                {/* Create Folder Input */}
+                <div ref={folderInputRef} className="flex w-full md:w-auto bg-slate-800/50 backdrop-blur-sm p-1 rounded-xl border border-white/10 focus-within:border-purple-500/50 transition-colors">
+                  <input
+                    type="text"
+                    value={newFolderName}
+                    onChange={(e) => setNewFolderName(e.target.value)}
+                    placeholder="New Folder Name..."
+                    className="bg-transparent border-none outline-none text-sm px-3 w-full md:w-64 placeholder:text-slate-500"
+                  />
+                  <button
+                    ref={createButtonRef}
+                    onClick={handleCreateFolder}
+                    disabled={createFolderLoading}
+                    className="bg-purple-600 hover:bg-purple-500 text-white p-2 rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {createFolderLoading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Plus size={20} />}
+                  </button>
+                </div>
+              </div>
+
+              {foldersLoading ? (
+                <div className="flex flex-col items-center justify-center py-20 text-slate-500">
+                  <div className="w-10 h-10 border-4 border-purple-500/20 border-t-purple-500 rounded-full animate-spin mb-4" />
+                  <p>Loading your library...</p>
+                </div>
+              ) : (
+                <motion.div 
+                  variants={containerVariants}
+                  initial="hidden"
+                  animate="visible"
+                  className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
                 >
-                  <div className="flex justify-between items-center">
-                    {editFolderId === folder.id ? (
-                      <div className="flex-1 flex items-center">
-                        <input
-                          type="text"
-                          value={editFolderName}
-                          onChange={(e) => setEditFolderName(e.target.value)}
-                          className="flex-1 p-2 bg-gray-700 text-white rounded-l-lg focus:outline-none"
-                          disabled={editLoading}
-                        />
-                        <button
-                          onClick={() => handleEditFolder(folder.id)}
-                          disabled={editLoading}
-                          className={`bg-purple-600 text-white py-2 px-4 rounded-r-lg hover:bg-purple-700 hover-scale ${
-                            editLoading ? 'opacity-50 cursor-not-allowed' : ''
-                          }`}
-                        >
-                          {editLoading ? (
-                            <span className="flex items-center">
-                              <svg
-                                className="animate-spin h-5 w-5 mr-2 text-white"
-                                viewBox="0 0 24 24"
-                              >
-                                <circle
-                                  className="opacity-25"
-                                  cx="12"
-                                  cy="12"
-                                  r="10"
-                                  stroke="currentColor"
-                                  strokeWidth="4"
-                                  fill="none"
-                                />
-                                <path
-                                  className="opacity-75"
-                                  fill="currentColor"
-                                  d="M4 12a8 8 0 018-8v8H4z"
-                                />
-                              </svg>
-                              Saving...
-                            </span>
-                          ) : (
-                            'Save'
-                          )}
-                        </button>
-                      </div>
-                    ) : (
-                      <>
-                        <Link
-                          to={`/folder/${folder.id}`}
-                          className="text-lg font-semibold hover:text-purple-400 flex-1"
-                        >
-                          {folder.name}
-                        </Link>
-                        <button
-                          onClick={() => {
-                            toggleDropdown(folder.id);
-                            setEditFolderName(folder.name);
-                          }}
-                          className="text-gray-400 hover:text-white"
-                        >
-                          ⋮
-                        </button>
-                      </>
-                    )}
-                  </div>
-                  {dropdownOpen === folder.id && (
-                    <div className="absolute right-0 mt-2 w-48 bg-gray-700 rounded-lg shadow-lg z-10">
-                      <button
-                        onClick={() => {
+                  {folders.length === 0 ? (
+                    <div className="col-span-full border border-dashed border-slate-700 rounded-2xl p-10 text-center text-slate-500">
+                      <Folder size={48} className="mx-auto mb-4 opacity-50" />
+                      <p>No folders yet. Create one to get started!</p>
+                    </div>
+                  ) : (
+                    folders.map((folder) => (
+                      <FolderCard 
+                        key={folder.id}
+                        folder={folder}
+                        isEditing={editFolderId === folder.id}
+                        editName={editFolderName}
+                        setEditName={setEditFolderName}
+                        onSave={() => handleEditFolder(folder.id)}
+                        onEditStart={() => {
                           setEditFolderId(folder.id);
+                          setEditFolderName(folder.name);
                           setDropdownOpen(null);
                         }}
-                        className="block w-full text-left px-4 py-2 text-white hover:bg-gray-600"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDeleteFolder(folder.id)}
-                        disabled={deleteLoading}
-                        className={`block w-full text-left px-4 py-2 text-white hover:bg-gray-600 ${
-                          deleteLoading ? 'opacity-50 cursor-not-allowed' : ''
-                        }`}
-                      >
-                        {deleteLoading ? (
-                          <span className="flex items-center">
-                            <svg
-                              className="animate-spin h-5 w-5 mr-2 text-white"
-                              viewBox="0 0 24 24"
-                            >
-                              <circle
-                                className="opacity-25"
-                                cx="12"
-                                cy="12"
-                                r="10"
-                                stroke="currentColor"
-                                strokeWidth="4"
-                                fill="none"
-                              />
-                              <path
-                                className="opacity-75"
-                                fill="currentColor"
-                                d="M4 12a8 8 0 018-8v8H4z"
-                              />
-                            </svg>
-                            Deleting...
-                          </span>
-                        ) : (
-                          'Delete'
-                        )}
-                      </button>
-                    </div>
+                        onDelete={() => handleDeleteFolder(folder.id)}
+                        dropdownOpen={dropdownOpen === folder.id}
+                        toggleDropdown={() => setDropdownOpen(dropdownOpen === folder.id ? null : folder.id)}
+                        editLoading={editLoading}
+                        deleteLoading={deleteLoading}
+                      />
+                    ))
                   )}
-                  <p className="text-gray-400 text-sm mt-2">
-                    Created: {folder.createdAt}
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+                </motion.div>
+              )}
+            </section>
+          </div>
+        </main>
 
-      <div
-        className={`md:hidden bottom-nav bg-gray-800 p-4 flex justify-around items-center bottom-nav-enter`}
-      >
-        <Link
-          to="/dashboard"
-          className="text-purple-400 bottom-nav-icon"
-          title="Dashboard"
-        >
-          <svg
-            className="w-6 h-6"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
-            />
-          </svg>
-        </Link>
-        <Link
-          to="/community-support"
-          className="text-purple-400 bottom-nav-icon"
-          title="Support"
-        >
-          <svg
-            className="w-6 h-6"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2m-4 0H7a2 2 0 01-2-2v-6a2 2 0 012-2h2m4 0V6a2 2 0 00-2-2H7a2 2 0 00-2 2v2m4 8h6m-6 4H7a2 2 0 01-2-2v-6a2 2 0 012-2h2"
-            />
-          </svg>
-        </Link>
-        <button
-          onClick={handleBuyGCoins}
-          className="text-purple-400 bottom-nav-icon"
-          title="Buy G_COINS"
-        >
-          <svg
-            className="w-6 h-6"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
-        </button>
-        <button
-          onClick={handleLogout}
-          disabled={logoutLoading}
-          className={`text-purple-400 bottom-nav-icon ${logoutLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-          title="Logout"
-        >
-          {logoutLoading ? (
-            <svg
-              className="animate-spin h-6 w-6 text-white"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-                fill="none"
-              />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-            </svg>
-          ) : (
-            <svg
-              className="w-6 h-6"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M17 16l4-4m0 0l-4-4m4 4H7m5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h3a3 3 0 013 3v1"
-              />
-            </svg>
-          )}
-        </button>
+        {/* Mobile Bottom Navigation */}
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900/90 backdrop-blur-xl border-t border-white/5 px-6 py-4 flex justify-between items-center z-50">
+          <Link to="/dashboard" className="text-purple-400 flex flex-col items-center gap-1">
+            <LayoutDashboard size={24} />
+            <span className="text-[10px]">Home</span>
+          </Link>
+          <div onClick={() => navigate('/buy-coins')} className="text-slate-400 flex flex-col items-center gap-1">
+            <Coins size={24} />
+            <span className="text-[10px]">Store</span>
+          </div>
+          <Link to="/community-support" className="text-slate-400 flex flex-col items-center gap-1">
+            <HelpCircle size={24} />
+            <span className="text-[10px]">Help</span>
+          </Link>
+          <button onClick={handleLogout} className="text-red-400 flex flex-col items-center gap-1">
+            <LogOut size={24} />
+            <span className="text-[10px]">Exit</span>
+          </button>
+        </nav>
+
       </div>
     </div>
   );
 }
+
+// --- SUB COMPONENTS ---
+
+const NavItem = ({ icon, label, to, active }) => {
+  const navigate = useNavigate();
+  return (
+    <div 
+      onClick={() => to && navigate(to)}
+      className={`flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all ${
+        active 
+          ? 'bg-purple-600/20 text-purple-300 border border-purple-500/20' 
+          : 'text-slate-400 hover:bg-white/5 hover:text-white'
+      }`}
+    >
+      {icon}
+      <span className="font-medium text-sm">{label}</span>
+    </div>
+  );
+};
+
+const ActionCard = ({ icon, label, sub, color, onClick, loading }) => (
+  <motion.button
+    whileHover={{ y: -5 }}
+    whileTap={{ scale: 0.95 }}
+    onClick={onClick}
+    disabled={loading}
+    className="bg-slate-800/40 backdrop-blur-sm border border-white/5 p-4 rounded-2xl flex items-center gap-4 text-left hover:bg-slate-800/60 transition-colors group relative overflow-hidden"
+  >
+    <div className={`w-12 h-12 rounded-xl ${color} flex items-center justify-center text-white shadow-lg`}>
+      {loading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : icon}
+    </div>
+    <div>
+      <h3 className="font-bold text-slate-200">{label}</h3>
+      <p className="text-xs text-slate-500 group-hover:text-slate-400 transition-colors">{sub}</p>
+    </div>
+    <div className={`absolute inset-0 opacity-0 group-hover:opacity-10 pointer-events-none transition-opacity ${color}`} />
+  </motion.button>
+);
+
+const FolderCard = ({ folder, isEditing, editName, setEditName, onSave, onEditStart, onDelete, dropdownOpen, toggleDropdown, editLoading, deleteLoading }) => {
+  return (
+    <motion.div 
+      variants={{ hidden: { y: 20, opacity: 0 }, visible: { y: 0, opacity: 1 } }}
+      className="bg-slate-800/40 backdrop-blur-md border border-white/5 p-5 rounded-2xl relative group hover:border-purple-500/30 transition-all"
+    >
+      {/* Folder Tab Visual */}
+      <div className="absolute -top-3 left-6 bg-slate-700/50 w-20 h-4 rounded-t-lg z-0" />
+      
+      <div className="relative z-10 flex justify-between items-start mb-4">
+        <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-slate-700 to-slate-800 flex items-center justify-center text-slate-400 shadow-inner">
+          <Folder size={20} />
+        </div>
+        <div className="relative">
+          <button onClick={toggleDropdown} className="p-1 hover:bg-white/10 rounded-full text-slate-400 transition-colors">
+            <MoreVertical size={16} />
+          </button>
+          {dropdownOpen && (
+            <div className="absolute right-0 top-full mt-2 w-36 bg-slate-800 border border-white/10 rounded-xl shadow-xl overflow-hidden z-20">
+              <button onClick={onEditStart} className="w-full text-left px-4 py-2.5 text-xs hover:bg-white/5 flex items-center gap-2 text-slate-300">
+                <Edit2 size={12} /> Rename
+              </button>
+              <button onClick={onDelete} disabled={deleteLoading} className="w-full text-left px-4 py-2.5 text-xs hover:bg-red-500/10 text-red-400 flex items-center gap-2">
+                {deleteLoading ? <span className="animate-spin">⌛</span> : <Trash2 size={12} />} Delete
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {isEditing ? (
+        <div className="flex items-center gap-2">
+          <input 
+            value={editName} 
+            onChange={(e) => setEditName(e.target.value)} 
+            className="w-full bg-slate-900/50 border border-purple-500/50 rounded-md px-2 py-1 text-sm focus:outline-none"
+            autoFocus
+          />
+          <button onClick={onSave} disabled={editLoading} className="text-purple-400 p-1 hover:bg-purple-500/10 rounded">
+            {editLoading ? '...' : '✓'}
+          </button>
+        </div>
+      ) : (
+        <Link to={`/folder/${folder.id}`} className="block group-hover:text-purple-400 transition-colors">
+          <h3 className="font-bold truncate text-lg mb-1">{folder.name}</h3>
+        </Link>
+      )}
+
+      <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/5 text-xs text-slate-500">
+        <span>{folder.createdAt}</span>
+        <span className="bg-slate-700/30 px-2 py-0.5 rounded text-[10px] text-slate-400">
+          {(folder.notes?.length || 0) + (folder.quizzes?.length || 0)} Items
+        </span>
+      </div>
+    </motion.div>
+  );
+};
 
 export default Dashboard;

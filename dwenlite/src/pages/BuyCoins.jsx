@@ -3,9 +3,16 @@ import { useState, useEffect } from 'react';
 import { auth, db } from '../firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import toast from 'react-hot-toast';
+import { motion } from 'framer-motion';
+import { 
+  Coins, CreditCard, ArrowLeft, LogOut, LayoutDashboard, 
+  LifeBuoy, ShieldCheck, Globe, Loader2, Zap, Check, Wallet
+} from 'lucide-react';
 
 function BuyCoins() {
   const navigate = useNavigate();
+  
+  // --- RESTORED LOGIC FROM OLD CODE ---
   const [gCoinsAmount, setGCoinsAmount] = useState('');
   const [paystackEmail, setPaystackEmail] = useState('');
   const [loading, setLoading] = useState(false);
@@ -14,12 +21,14 @@ function BuyCoins() {
   const [paystackReady, setPaystackReady] = useState(false);
   const [currency, setCurrency] = useState({ symbol: '₵', code: 'GHS', rate: 1 }); // Default to GHS
 
+  // Enhanced with 'popular' flag for the new UI, but keeping values identical
   const predefinedPackages = [
-    { gCoins: 5, amount: 5 },
-    { gCoins: 10, amount: 10 },
-    { gCoins: 25, amount: 25 },
-    { gCoins: 50, amount: 50 },
+    { gCoins: 5, amount: 5, popular: false },
+    { gCoins: 10, amount: 10, popular: true },
+    { gCoins: 25, amount: 25, popular: false },
+    { gCoins: 50, amount: 50, popular: false },
   ];
+  
   const paystackPublicKey = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY;
 
   // Static exchange rates (GHS to other currencies, approximate as of 2025)
@@ -36,7 +45,7 @@ function BuyCoins() {
     ZA: { symbol: 'R', code: 'ZAR', rate: 1.15 }, // 1 GHS ≈ 1.15 ZAR
   };
 
-  // Load Paystack script, auth state, and detect user country
+  // Load Paystack script, auth state, and detect user country (Restored exact useEffect)
   useEffect(() => {
     console.log('Environment variables:', import.meta.env);
     console.log('Paystack Public Key:', paystackPublicKey);
@@ -117,6 +126,8 @@ function BuyCoins() {
 
   const handlePaystackPayment = (amount, gCoins, email) => {
     console.log('Attempting Paystack payment:', { amount, gCoins, email, paystackReady, paystackPublicKey });
+    
+    // Using the specific error handling from old code
     if (!paystackPublicKey) {
       console.error('Paystack public key is missing');
       toast.error('Payment configuration error. Please contact support.');
@@ -223,317 +234,234 @@ function BuyCoins() {
     }, 3000);
   };
 
-  if (!currentUser) return null;
+  if (!currentUser) return (
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white">
+       <div className="w-10 h-10 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col p-4 md:p-8">
-      <style>
-        {`
-          @keyframes pulseGlow {
-            0% { box-shadow: 0 0 0 0 rgba(108, 43, 217, 0.7); }
-            70% { box-shadow: 0 0 0 10px rgba(108, 43, 217, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(108, 43, 217, 0); }
-          }
-          @keyframes coinSpin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-          }
-          @keyframes slideUp {
-            0% { transform: translateY(100%); opacity: 0; }
-            100% { transform: translateY(0); opacity: 1; }
-          }
-          .pulse-glow {
-            animation: pulseGlow 2s infinite;
-          }
-          .coin-icon {
-            animation: coinSpin 2s linear infinite;
-          }
-          .card {
-            background: linear-gradient(135deg, #2d3748, #1a202c);
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-          }
-          .card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 6px 20px rgba(108, 43, 217, 0.4);
-          }
-          .hover-scale {
-            transition: transform 0.2s ease;
-          }
-          .hover-scale:hover {
-            transform: scale(1.05);
-          }
-          .animate-fade-in {
-            animation: fadeInScale 0.3s ease-out forwards;
-          }
-          .bottom-nav-enter {
-            animation: slideUp 0.3s ease-out forwards;
-          }
-          .bottom-nav-icon {
-            transition: transform 0.2s ease, color 0.2s ease;
-          }
-          .bottom-nav-icon:hover {
-            transform: scale(1.2);
-            color: #d1d5db;
-          }
-          .bottom-nav {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            z-index: 20;
-          }
-          .active-nav {
-            color: #9333ea !important;
-            transform: scale(1.2);
-          }
-        `}
-      </style>
-
-      {/* Header */}
-      <div className="flex justify-between items-center mb-6 md:mb-8">
-        <h1 className="text-2xl md:text-3xl font-bold text-purple-400">Buy G_COINS</h1>
+    <div className="min-h-screen bg-slate-900 text-white font-sans selection:bg-purple-500 selection:text-white relative overflow-x-hidden flex flex-col md:flex-row">
+      
+      {/* Background Ambience */}
+      <div className="fixed inset-0 z-0 opacity-30 pointer-events-none">
+        <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-purple-900/40 to-transparent" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-indigo-600 rounded-full blur-[120px]" />
       </div>
 
-      {/* Info Section */}
-      <div className="text-center mb-8">
-        <h2 className="text-lg md:text-xl font-semibold text-purple-300 mb-2">Power Up Your Learning</h2>
-        <p className="text-gray-400 text-sm md:text-base max-w-md mx-auto">
-          Purchase G_COINS to unlock notes, quizzes, and flashcards. The more you buy, the more you can create!
-        </p>
-      </div>
-
-      {/* Payment Wall */}
-      <div className="max-w-4xl mx-auto bg-gray-800 p-6 md:p-8 rounded-xl shadow-lg pulse-glow animate-fade-in">
-        {/* Email Input */}
-        <div className="mb-6">
-          <h3 className="text-base md:text-lg font-semibold text-purple-300 mb-3">Your Payment Email</h3>
-          <input
-            type="email"
-            value={paystackEmail}
-            onChange={(e) => setPaystackEmail(e.target.value)}
-            placeholder="Enter your email"
-            required
-            className="w-full p-3 rounded-lg bg-gray-700 text-white border border-gray-600 focus:border-purple-500 focus:outline-none text-sm md:text-base"
-            disabled={loading}
-          />
-        </div>
-
-        {/* Predefined Packages */}
-        <div className="mb-6">
-          <h3 className="text-base md:text-lg font-semibold text-purple-300 mb-4">Select a Package</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {predefinedPackages.map((pkg) => (
-              <div
-                key={pkg.gCoins}
-                className="card p-4 text-center flex flex-col items-center justify-between h-32"
-              >
-                <span className="text-2xl md:text-3xl mb-2">
-                  <span role="img" aria-label="coin" className="coin-icon">💰</span>
-                </span>
-                <h4 className="text-md md:text-lg font-semibold text-white">{pkg.gCoins} G_COINS</h4>
-                <p className="text-gray-400 text-sm">{currency.symbol}{(pkg.amount * currency.rate).toFixed(2)}</p>
-                <button
-                  onClick={() => handlePredefinedPurchase(pkg)}
-                  disabled={loading || !paystackReady}
-                  className={`mt-2 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 hover-scale text-sm md:text-base ${loading || !paystackReady ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                  {loading && selectedAmount === pkg.amount ? (
-                    <span className="flex items-center justify-center">
-                      <svg
-                        className="animate-spin h-4 w-4 md:h-5 md:w-5 mr-2 text-white"
-                        viewBox="0 0 24 24"
-                      >
-                        <circle
-                          className="opacity-25"
-                          cx="12"
-                          cy="12"
-                          r="10"
-                          stroke="currentColor"
-                          strokeWidth="4"
-                          fill="none"
-                        />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                      </svg>
-                      Processing...
-                    </span>
-                  ) : (
-                    'Buy Now'
-                  )}
-                </button>
-              </div>
-            ))}
+      <div className="relative z-10 flex-1 flex flex-col">
+        
+        {/* HEADER */}
+        <header className="bg-slate-900/80 backdrop-blur-md sticky top-0 z-30 p-4 border-b border-white/5 flex justify-between items-center">
+          <div className="flex items-center gap-3">
+             <div className="p-2 bg-yellow-500/20 rounded-lg">
+                <Coins size={20} className="text-yellow-400" />
+             </div>
+             <span className="text-xl font-bold">Buy G_COINS</span>
           </div>
-        </div>
-
-        {/* Custom Purchase */}
-        <div className="mb-6">
-          <h3 className="text-base md:text-lg font-semibold text-purple-300 mb-3">Custom Amount</h3>
-          <div className="flex items-center gap-4">
-            <input
-              type="number"
-              value={gCoinsAmount}
-              onChange={(e) => setGCoinsAmount(e.target.value)}
-              placeholder={`Enter amount in ${currency.code} (min ${(5 * currency.rate).toFixed(2)})`}
-              min={(5 * currency.rate).toFixed(2)}
-              step="0.01"
-              className="w-full p-3 rounded-lg bg-gray-700 text-white border border-gray-600 focus:border-purple-500 focus:outline-none text-sm md:text-base"
-              disabled={loading}
-            />
+          <nav className="flex items-center gap-3">
+            <Link
+              to="/dashboard"
+              className="hidden md:flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-white/10 text-white py-2 px-4 rounded-lg transition-colors text-sm"
+            >
+              <ArrowLeft size={16} /> Dashboard
+            </Link>
             <button
-              onClick={handleCustomPurchase}
-              disabled={loading || !paystackReady}
-              className={`bg-purple-600 text-white py-2 px-6 rounded-lg hover:bg-purple-700 hover-scale text-sm md:text-base ${loading || !paystackReady ? 'opacity-50 cursor-not-allowed' : ''}`}
+              onClick={handleLogout}
+              className="hidden md:flex items-center gap-2 text-red-400 hover:text-red-300 hover:bg-red-500/10 px-3 py-2 rounded-lg transition-colors"
+              title="Logout"
             >
-              {loading && selectedAmount === parseFloat(gCoinsAmount) / currency.rate ? (
-                <span className="flex items-center justify-center">
-                  <svg
-                    className="animate-spin h-4 w-4 md:h-5 md:w-5 mr-2 text-white"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                      fill="none"
-                    />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                  </svg>
-                  Processing...
-                </span>
-              ) : (
-                'Buy Now'
-              )}
+              <LogOut size={18} />
             </button>
+          </nav>
+        </header>
+
+        {/* MAIN CONTENT */}
+        <div className="max-w-4xl mx-auto p-4 sm:p-8 w-full pb-24">
+          
+          {/* Hero / Info */}
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-center mb-10"
+          >
+             <h1 className="text-3xl md:text-4xl font-bold mb-4 bg-clip-text text-transparent bg-gradient-to-r from-yellow-200 to-yellow-500">
+               Invest in Your Knowledge
+             </h1>
+             <p className="text-slate-400 text-lg max-w-xl mx-auto">
+               G_COINS unlock powerful AI features. Generate instant notes, quizzes, and flashcards to supercharge your study sessions.
+             </p>
+          </motion.div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            {/* LEFT: Packages Grid */}
+            <div className="lg:col-span-2 space-y-6">
+               <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold flex items-center gap-2 text-slate-300">
+                    <Zap size={18} className="text-purple-400" /> Popular Packages
+                  </h2>
+                  <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-800/50 px-3 py-1 rounded-full border border-white/5">
+                     <Globe size={12} />
+                     <span>Prices in {currency.code}</span>
+                  </div>
+               </div>
+
+               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {predefinedPackages.map((pkg) => (
+                    <motion.button
+                      key={pkg.gCoins}
+                      whileHover={{ scale: 1.02, translateY: -2 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => handlePredefinedPurchase(pkg)}
+                      disabled={loading || !paystackReady}
+                      className={`relative flex flex-col items-center justify-center p-6 rounded-2xl border transition-all duration-300 group overflow-hidden ${
+                         pkg.popular 
+                         ? 'bg-purple-900/20 border-purple-500/50 shadow-lg shadow-purple-900/20' 
+                         : 'bg-slate-800/40 border-white/10 hover:bg-slate-800/60 hover:border-purple-500/30'
+                      }`}
+                    >
+                       {/* Background Shine Effect */}
+                       <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                       
+                       {pkg.popular && (
+                          <div className="absolute top-0 right-0 bg-purple-600 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl shadow-lg">
+                             BEST VALUE
+                          </div>
+                       )}
+
+                       <div className="mb-4 relative">
+                          <div className={`w-16 h-16 rounded-full flex items-center justify-center ${pkg.popular ? 'bg-yellow-500/20' : 'bg-slate-700/50'}`}>
+                             <Coins size={32} className="text-yellow-400" />
+                          </div>
+                          {pkg.popular && (
+                             <motion.div 
+                               animate={{ rotate: 360 }}
+                               transition={{ duration: 10, repeat: Infinity, ease: "linear" }}
+                               className="absolute inset-0 border-2 border-dashed border-yellow-500/30 rounded-full"
+                             />
+                          )}
+                       </div>
+
+                       <h3 className="text-2xl font-bold text-white mb-1">
+                          {pkg.gCoins} <span className="text-sm font-normal text-slate-400">G_COINS</span>
+                       </h3>
+                       <p className="text-purple-300 font-medium mb-4">
+                          {currency.symbol}{(pkg.amount * currency.rate).toFixed(2)}
+                       </p>
+
+                       <div className={`w-full py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-colors ${
+                          pkg.popular ? 'bg-purple-600 text-white group-hover:bg-purple-500' : 'bg-slate-700 text-slate-300 group-hover:bg-slate-600 group-hover:text-white'
+                       }`}>
+                          {loading && selectedAmount === pkg.amount ? <Loader2 className="animate-spin" size={16} /> : "Buy Now"}
+                       </div>
+                    </motion.button>
+                  ))}
+               </div>
+            </div>
+
+            {/* RIGHT: Custom Amount & Email */}
+            <div className="space-y-6">
+               <motion.div 
+                 initial={{ opacity: 0, x: 20 }}
+                 animate={{ opacity: 1, x: 0 }}
+                 transition={{ delay: 0.1 }}
+                 className="bg-slate-800/40 backdrop-blur-md border border-white/10 rounded-2xl p-6"
+               >
+                  <h3 className="text-lg font-semibold flex items-center gap-2 text-slate-300 mb-6">
+                     <CreditCard size={18} className="text-purple-400" /> Payment Details
+                  </h3>
+
+                  {/* Email Input */}
+                  <div className="mb-5">
+                     <label className="block text-xs font-medium text-slate-500 mb-1.5 uppercase tracking-wider">Receipt Email</label>
+                     <div className="relative">
+                        <input
+                           type="email"
+                           value={paystackEmail}
+                           onChange={(e) => setPaystackEmail(e.target.value)}
+                           className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:border-purple-500 outline-none transition-all pl-10"
+                           placeholder="name@example.com"
+                        />
+                        <div className="absolute left-3 top-3.5 text-slate-500">
+                           <Wallet size={16} />
+                        </div>
+                     </div>
+                  </div>
+
+                  {/* Custom Amount */}
+                  <div className="mb-6">
+                     <label className="block text-xs font-medium text-slate-500 mb-1.5 uppercase tracking-wider">Custom Amount</label>
+                     <div className="flex gap-2">
+                        <div className="relative flex-1">
+                           <input
+                              type="number"
+                              value={gCoinsAmount}
+                              onChange={(e) => setGCoinsAmount(e.target.value)}
+                              className="w-full bg-slate-900/50 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:border-purple-500 outline-none transition-all pl-8"
+                              placeholder="0.00"
+                              min={(5 * currency.rate).toFixed(2)}
+                           />
+                           <span className="absolute left-3 top-3.5 text-slate-400 text-sm">{currency.symbol}</span>
+                        </div>
+                        <button
+                           onClick={handleCustomPurchase}
+                           disabled={loading || !paystackReady}
+                           className="bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white px-4 rounded-xl font-bold transition-colors"
+                        >
+                           {loading && selectedAmount === parseFloat(gCoinsAmount) / currency.rate ? <Loader2 className="animate-spin" size={20} /> : <Check size={20} />}
+                        </button>
+                     </div>
+                     <p className="text-[10px] text-slate-500 mt-2">
+                        Min purchase: {(5 * currency.rate).toFixed(2)} {currency.code}. <br/>
+                        Rate: 1 {currency.code} ≈ {(1 / currency.rate).toFixed(2)} G_COINS
+                     </p>
+                  </div>
+
+                  {/* Trust Footer */}
+                  <div className="pt-4 border-t border-white/5 text-center">
+                     <p className="text-xs text-slate-500 flex items-center justify-center gap-1.5">
+                        <ShieldCheck size={12} className="text-green-500" />
+                        Secured by Paystack
+                     </p>
+                     <p className="text-[10px] text-slate-600 mt-1">
+                        We support Cards, Mobile Money & Bank Transfers.
+                     </p>
+                  </div>
+               </motion.div>
+            </div>
+
           </div>
-          <p className="text-gray-500 text-xs mt-2">
-            Note: 1 {currency.code} = {(1 / currency.rate).toFixed(2)} G_COINS. Minimum purchase is {(5 * currency.rate).toFixed(2)} {currency.code} (5 GHS).
-          </p>
+
+          <div className="text-center mt-12">
+            <Link to="/community-support" className="inline-flex items-center gap-2 text-sm text-slate-400 hover:text-purple-400 transition-colors">
+               <LifeBuoy size={16} /> Have billing questions? Contact Support
+            </Link>
+          </div>
+
         </div>
-
-        {/* Note */}
-        <p className="text-gray-400 text-sm text-center">
-          Payments are processed securely via Paystack in GHS using mobile money, bank account, or credit/debit card. Check rates for Supported Currencies <Link className='text-purple-300 hover:underline' to="/community-support">Here</Link>.
-        </p>
       </div>
 
-      {/* Bottom Navigation for Mobile */}
-      <div
-        className="md:hidden bottom-nav bg-gray-800 p-4 flex justify-around items-center bottom-nav-enter"
-      >
-        <Link
-          to="/dashboard"
-          className="text-purple-400 bottom-nav-icon"
-          title="Dashboard"
-        >
-          <svg
-            className="w-6 h-6"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
-            />
-          </svg>
+      {/* MOBILE BOTTOM NAV */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900/90 backdrop-blur-xl border-t border-white/10 p-4 z-40 flex justify-around items-center pb-6">
+        <Link to="/dashboard" className="flex flex-col items-center gap-1 text-slate-400 hover:text-purple-400 transition-colors">
+           <LayoutDashboard size={20} />
+           <span className="text-[10px]">Home</span>
         </Link>
-        <Link
-          to="/community-support"
-          className="text-purple-400 bottom-nav-icon"
-          title="Support"
-        >
-          <svg
-            className="w-6 h-6"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              d="M17 8h2a2 2 0 012 2v6a2 2 0 01-2 2h-2m-4 0H7a2 2 0 01-2-2v-6a2 2 0 012-2h2m4 0V6a2 2 0 00-2-2H7a2 2 0 00-2 2v2m4 8h6m-6 4H7a2 2 0 01-2-2v-6a2 2 0 012-2h2"
-            />
-          </svg>
+        <Link to="/community-support" className="flex flex-col items-center gap-1 text-slate-400 hover:text-purple-400 transition-colors">
+           <LifeBuoy size={20} />
+           <span className="text-[10px]">Support</span>
         </Link>
-        <button
-          className="text-purple-400 bottom-nav-icon active-nav"
-          title="Buy G_COINS"
-        >
-          <svg
-            className="w-6 h-6"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth="2"
-              d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-            />
-          </svg>
+        <button className="flex flex-col items-center gap-1 text-purple-400">
+           <Coins size={20} />
+           <span className="text-[10px]">Coins</span>
         </button>
-        <button
-          onClick={handleLogout}
-          disabled={loading}
-          className={`text-purple-400 bottom-nav-icon ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
-          title="Logout"
-        >
-          {loading ? (
-            <svg
-              className="animate-spin h-6 w-6 text-white"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-                fill="none"
-              />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-            </svg>
-          ) : (
-            <svg
-              className="w-6 h-6"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M17 16l4-4m0 0l-4-4m4 4H7m5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h3a3 3 0 013 3v1"
-              />
-            </svg>
-          )}
+        <button onClick={handleLogout} className="flex flex-col items-center gap-1 text-slate-400 hover:text-red-400 transition-colors">
+           <LogOut size={20} />
+           <span className="text-[10px]">Logout</span>
         </button>
       </div>
 
-      {/* Footer Note */}
-      <div className="text-center mt-8 text-gray-400 text-sm">
-        <p>
-          Need help?{' '}
-          <Link to="/community-support" className="text-purple-300 hover:underline">
-            Contact Support
-          </Link>
-        </p>
-      </div>
     </div>
   );
 }

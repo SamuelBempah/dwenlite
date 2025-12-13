@@ -1,14 +1,21 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { db, auth } from '../firebase';
 import { doc, getDoc, updateDoc, addDoc, collection, setDoc, query, where, getDocs } from 'firebase/firestore';
-import { arrayUnion } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  ArrowLeft, Zap, Coins, Brain, RotateCw, ChevronLeft, ChevronRight, 
+  MessageSquare, Send, AlertTriangle, Trash2, Star, ChevronDown, 
+  ChevronUp, Sparkles, FolderOpen, MoreVertical 
+} from 'lucide-react';
 
 function Flashcards() {
   const { folderId } = useParams();
   const navigate = useNavigate();
+
+  // --- ORIGINAL STATE MANAGEMENT ---
   const [folder, setFolder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [flashcardsLoading, setFlashcardsLoading] = useState(false);
@@ -30,7 +37,15 @@ function Flashcards() {
   const [ratings, setRatings] = useState({});
   const [ratingLoading, setRatingLoading] = useState({});
   const [hasRated, setHasRated] = useState({});
+  
+  const chatEndRef = useRef(null);
 
+  // Scroll to bottom of chat
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatHistory, showReportForm]);
+
+  // --- ORIGINAL LOGIC & EFFECTS ---
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
       if (!user) {
@@ -145,41 +160,16 @@ function Flashcards() {
   const transcribeAudio = async (audioUrl) => {
     try {
       const apiKey = import.meta.env.VITE_ASSEMBLYAI_API_KEY;
-      if (!apiKey) {
-        throw new Error('AssemblyAI API key not found. Please set VITE_ASSEMBLYAI_API_KEY in your .env file.');
-      }
-
+      if (!apiKey) throw new Error('AssemblyAI API key not found.');
       console.log('Transcribing audio URL:', audioUrl);
 
       const response = await axios.post(
         'https://api.assemblyai.com/v2/transcript',
-        {
-          audio_url: audioUrl,
-          auto_highlights: false,
-          sentiment_analysis: false,
-          content_safety: false,
-          iab_categories: false,
-          auto_chapters: false,
-          format_text: false,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      ).catch(err => {
-        console.error('Audio transcription request error:', {
-          status: err.response?.status,
-          statusText: err.response?.statusText,
-          data: err.response?.data,
-          message: err.message,
-        });
-        throw new Error(`Audio transcription request failed: ${err.message}`);
-      });
+        { audio_url: audioUrl, auto_highlights: false, sentiment_analysis: false, content_safety: false, iab_categories: false, auto_chapters: false, format_text: false },
+        { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } }
+      );
 
       const transcriptId = response.data.id;
-
       let status = 'queued';
       let transcribedText = '';
       const maxAttempts = 30;
@@ -188,39 +178,17 @@ function Flashcards() {
       while (status !== 'completed' && status !== 'error' && attempts < maxAttempts) {
         const checkResponse = await axios.get(
           `https://api.assemblyai.com/v2/transcript/${transcriptId}`,
-          {
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-            },
-          }
-        ).catch(err => {
-          console.error('Audio transcription polling error:', {
-            status: err.response?.status,
-            statusText: err.response?.statusText,
-            data: err.response?.data,
-            message: err.message,
-          });
-          throw new Error(`Audio transcription polling failed: ${err.message}`);
-        });
-
+          { headers: { Authorization: `Bearer ${apiKey}` } }
+        );
         status = checkResponse.data.status;
-        if (status === 'completed') {
-          transcribedText = checkResponse.data.text || '';
-        } else if (status === 'error') {
-          throw new Error(`Audio transcription failed: ${checkResponse.data.error || 'Unknown error'}`);
-        }
+        if (status === 'completed') transcribedText = checkResponse.data.text || '';
+        else if (status === 'error') throw new Error(`Audio transcription failed: ${checkResponse.data.error || 'Unknown error'}`);
         attempts++;
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
 
-      if (attempts >= maxAttempts) {
-        throw new Error('Audio transcription timed out.');
-      }
-
-      if (!transcribedText) {
-        throw new Error('Audio transcription returned empty text.');
-      }
-
+      if (attempts >= maxAttempts) throw new Error('Audio transcription timed out.');
+      if (!transcribedText) throw new Error('Audio transcription returned empty text.');
       return transcribedText;
     } catch (err) {
       console.error('Audio transcription error:', err);
@@ -231,49 +199,16 @@ function Flashcards() {
   const transcribeVideo = async (videoUrl) => {
     try {
       const apiKey = import.meta.env.VITE_ASSEMBLYAI_API_KEY;
-      if (!apiKey) {
-        throw new Error('AssemblyAI API key not found. Please set VITE_ASSEMBLYAI_API_KEY in your .env file.');
-      }
-
+      if (!apiKey) throw new Error('AssemblyAI API key not found.');
       console.log('Transcribing video URL:', videoUrl);
 
       const response = await axios.post(
         'https://api.assemblyai.com/v2/transcript',
-        {
-          audio_url: videoUrl,
-          auto_highlights: false,
-          sentiment_analysis: false,
-          content_safety: false,
-          iab_categories: false,
-          auto_chapters: false,
-          format_text: false,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      ).catch(err => {
-        console.error('Video transcription request error:', {
-          status: err.response?.status,
-          statusText: err.response?.statusText,
-          data: err.response?.data,
-          message: err.message,
-        });
-        let errorMessage = 'Video transcription request failed';
-        if (err.response?.status === 400 && err.response?.data?.error?.includes('transcoding failed')) {
-          errorMessage = 'Video file does not contain audio or is corrupted. Please ensure the video has audio and is in a supported format (mp4, mov, avi, mkv, webm).';
-        } else if (err.response?.status === 401) {
-          errorMessage = 'Invalid AssemblyAI API key. Please check your API key in the .env file.';
-        } else if (err.response?.status === 429) {
-          errorMessage = 'AssemblyAI rate limit exceeded. Please wait a few minutes and try again.';
-        }
-        throw new Error(`${errorMessage}: ${err.message}`);
-      });
+        { audio_url: videoUrl, auto_highlights: false, sentiment_analysis: false, content_safety: false, iab_categories: false, auto_chapters: false, format_text: false },
+        { headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' } }
+      );
 
       const transcriptId = response.data.id;
-
       let status = 'queued';
       let transcribedText = '';
       const maxAttempts = 60;
@@ -282,43 +217,21 @@ function Flashcards() {
       while (status !== 'completed' && status !== 'error' && attempts < maxAttempts) {
         const checkResponse = await axios.get(
           `https://api.assemblyai.com/v2/transcript/${transcriptId}`,
-          {
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-            },
-          }
-        ).catch(err => {
-          console.error('Video transcription polling error:', {
-            status: err.response?.status,
-            statusText: err.response?.statusText,
-            data: err.response?.data,
-            message: err.message,
-          });
-          throw new Error(`Video transcription polling failed: ${err.message}`);
-        });
-
+          { headers: { Authorization: `Bearer ${apiKey}` } }
+        );
         status = checkResponse.data.status;
-        if (status === 'completed') {
-          transcribedText = checkResponse.data.text || '';
-        } else if (status === 'error') {
-          let errorMessage = checkResponse.data.error || 'Unknown error';
-          if (errorMessage.includes('transcoding failed')) {
-            errorMessage = 'Video file does not contain audio or is corrupted. Please ensure the video has audio and is in a supported format.';
-          }
-          throw new Error(`Video transcription failed: ${errorMessage}`);
+        if (status === 'completed') transcribedText = checkResponse.data.text || '';
+        else if (status === 'error') {
+           let errorMessage = checkResponse.data.error || 'Unknown error';
+           if (errorMessage.includes('transcoding failed')) errorMessage = 'Video file does not contain audio or is corrupted.';
+           throw new Error(`Video transcription failed: ${errorMessage}`);
         }
         attempts++;
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
 
-      if (attempts >= maxAttempts) {
-        throw new Error('Video transcription timed out.');
-      }
-
-      if (!transcribedText) {
-        throw new Error('Video transcription returned empty text.');
-      }
-
+      if (attempts >= maxAttempts) throw new Error('Video transcription timed out.');
+      if (!transcribedText) throw new Error('Video transcription returned empty text.');
       return transcribedText;
     } catch (err) {
       console.error('Video transcription error:', err);
@@ -328,8 +241,6 @@ function Flashcards() {
 
   const generateContent = async () => {
     try {
-      // --- CORS FIX ---
-      // Using the same proxy function as Notes.jsx
       const functionUrl = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
 
       const latestDocument = folder.documents.length > 0
@@ -340,68 +251,29 @@ function Flashcards() {
 
       let context = folder.name;
       if (latestDocument) {
-        if (latestDocument.isAudio) {
-          context = await transcribeAudio(latestDocument.url);
-        } else if (latestDocument.isVideo) {
-          context = await transcribeVideo(latestDocument.url);
-        } else {
-          context = latestDocument.extractedText || folder.name;
-        }
+        if (latestDocument.isAudio) context = await transcribeAudio(latestDocument.url);
+        else if (latestDocument.isVideo) context = await transcribeVideo(latestDocument.url);
+        else context = latestDocument.extractedText || folder.name;
       }
 
       const prompt = `Generate 20 flashcards based on the following content: "${context}". Each flashcard should have a question and an answer. Format as a JSON array: [{ "question": "...", "answer": "..." }, ...]. Return only the JSON array string, without any markdown, code block markers (like \`\`\`json), or additional text. Ensure the output is valid JSON.`;
 
-      // Call the Firebase Cloud Function Proxy
-      const response = await axios.post(functionUrl, { prompt })
-        .catch(err => {
-          console.error('Proxy API error:', {
-            status: err.response?.status,
-            statusText: err.response?.statusText,
-            data: err.response?.data,
-            message: err.message,
-          });
-          
-          if (err.response?.status === 404) {
-             throw new Error('Backend function not found.');
-          } else if (err.response?.status === 500) {
-             throw new Error(`Server Error: ${err.response?.data?.details || err.message}`);
-          } else {
-             throw new Error(`Generation failed: ${err.message}`);
-          }
-        });
-
+      const response = await axios.post(functionUrl, { prompt });
+      
       let generatedText;
-      // Handle the structure returned by the proxy
-      if (response.data.choices?.[0]?.message?.content) {
-        generatedText = response.data.choices[0].message.content.trim();
-      } else if (response.data.choices?.[0]?.text) {
-        generatedText = response.data.choices[0].text.trim();
-      } else {
-        throw new Error('Invalid API response: No generated content found.');
-      }
+      if (response.data.choices?.[0]?.message?.content) generatedText = response.data.choices[0].message.content.trim();
+      else if (response.data.choices?.[0]?.text) generatedText = response.data.choices[0].text.trim();
+      else throw new Error('Invalid API response: No generated content found.');
 
-      generatedText = generatedText
-        .replace(/```json/g, '')
-        .replace(/```/g, '')
-        .replace(/^\s*[\w\s]*?(\[.*\])\s*[\w\s]*$/s, '$1')
-        .trim();
+      generatedText = generatedText.replace(/```json/g, '').replace(/```/g, '').replace(/^\s*[\w\s]*?(\[.*\])\s*[\w\s]*$/s, '$1').trim();
 
       let flashcards;
-      try {
-        flashcards = JSON.parse(generatedText);
-      } catch (parseErr) {
-        console.error('JSON parse error:', parseErr, 'Cleaned response:', generatedText);
-        throw new Error('Failed to parse flashcard data. Please try again.');
-      }
+      try { flashcards = JSON.parse(generatedText); } 
+      catch (parseErr) { console.error('JSON parse error:', parseErr); throw new Error('Failed to parse flashcard data. Please try again.'); }
 
-      if (!Array.isArray(flashcards)) {
-        throw new Error('API response must be a JSON array.');
-      }
+      if (!Array.isArray(flashcards)) throw new Error('API response must be a JSON array.');
 
-      return flashcards.map(card => ({
-        id: Date.now().toString() + Math.random().toString(36).substring(2),
-        ...card,
-      }));
+      return flashcards.map(card => ({ id: Date.now().toString() + Math.random().toString(36).substring(2), ...card }));
     } catch (err) {
       console.error('Error generating flashcards:', err);
       throw new Error(err.message);
@@ -409,18 +281,12 @@ function Flashcards() {
   };
 
   const handleGenerateFlashcards = async () => {
-    if (!auth.currentUser) {
-      toast.error('Please log in to generate flashcards.');
-      return;
-    }
-
+    if (!auth.currentUser) { toast.error('Please log in to generate flashcards.'); return; }
     if (gCoins < 3) {
       toast.error(
         <div>
           Insufficient G_COINS. You need 3 G_COINS to generate flashcards.{' '}
-          <Link to="/buy-coins" className="underline text-purple-400 hover:text-purple-300">
-            Buy more G_COINS
-          </Link>.
+          <Link to="/buy-coins" className="underline text-purple-400 hover:text-purple-300">Buy more G_COINS</Link>.
         </div>,
         { duration: 5000 }
       );
@@ -430,7 +296,6 @@ function Flashcards() {
     setFlashcardsLoading(true);
     try {
       const newFlashcards = await generateContent();
-
       const newFlashcardGroup = {
         id: Date.now().toString(),
         flashcards: newFlashcards,
@@ -440,67 +305,35 @@ function Flashcards() {
 
       const folderRef = doc(db, 'folders', folderId);
       const updatedFlashcardGroups = [...(folder.flashcardGroups || []), newFlashcardGroup];
-
-      await updateDoc(folderRef, {
-        flashcardGroups: updatedFlashcardGroups,
-      });
-
+      await updateDoc(folderRef, { flashcardGroups: updatedFlashcardGroups });
       await deductGCoins(auth.currentUser.uid, 3);
 
-      setFolder(prev => ({
-        ...prev,
-        flashcardGroups: updatedFlashcardGroups,
-      }));
-      setRatings(prev => ({
-        ...prev,
-        [newFlashcardGroup.id]: newFlashcardGroup.rating,
-      }));
-      setHasRated(prev => ({
-        ...prev,
-        [newFlashcardGroup.id]: false,
-      }));
+      setFolder(prev => ({ ...prev, flashcardGroups: updatedFlashcardGroups }));
+      setRatings(prev => ({ ...prev, [newFlashcardGroup.id]: newFlashcardGroup.rating }));
+      setHasRated(prev => ({ ...prev, [newFlashcardGroup.id]: false }));
       toast.success('New flashcard group generated successfully! 3 G_COINS deducted.');
       setSelectedFlashcardGroup(newFlashcardGroup);
       setCurrentFlashcardIndex(0);
       setShowAnswer(false);
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setFlashcardsLoading(false);
-    }
+    } catch (err) { toast.error(err.message); } 
+    finally { setFlashcardsLoading(false); }
   };
 
   const handleDeleteFlashcardGroup = async (groupId) => {
     try {
       const folderRef = doc(db, 'folders', folderId);
       const updatedFlashcardGroups = folder.flashcardGroups.filter(group => group.id !== groupId);
+      await updateDoc(folderRef, { flashcardGroups: updatedFlashcardGroups });
 
-      await updateDoc(folderRef, {
-        flashcardGroups: updatedFlashcardGroups,
-      });
-
-      setFolder(prev => ({
-        ...prev,
-        flashcardGroups: updatedFlashcardGroups,
-      }));
-
-      setRatings(prev => {
-        const newRatings = { ...prev };
-        delete newRatings[groupId];
-        return newRatings;
-      });
-      setHasRated(prev => {
-        const newHasRated = { ...prev };
-        delete newHasRated[groupId];
-        return newHasRated;
-      });
+      setFolder(prev => ({ ...prev, flashcardGroups: updatedFlashcardGroups }));
+      setRatings(prev => { const newRatings = { ...prev }; delete newRatings[groupId]; return newRatings; });
+      setHasRated(prev => { const newHasRated = { ...prev }; delete newHasRated[groupId]; return newHasRated; });
 
       if (selectedFlashcardGroup?.id === groupId) {
         setSelectedFlashcardGroup(null);
         setCurrentFlashcardIndex(0);
         setShowAnswer(false);
       }
-
       toast.success('Flashcard group deleted successfully!');
     } catch (err) {
       console.error('Error deleting flashcard group:', err);
@@ -509,15 +342,8 @@ function Flashcards() {
   };
 
   const handleRateFlashcardGroup = async (groupId, rating) => {
-    if (!auth.currentUser) {
-      toast.error('Please log in to rate flashcard groups.');
-      return;
-    }
-
-    if (hasRated[groupId]) {
-      toast.error('You have already rated this flashcard group.');
-      return;
-    }
+    if (!auth.currentUser) { toast.error('Please log in to rate flashcard groups.'); return; }
+    if (hasRated[groupId]) { toast.error('You have already rated this flashcard group.'); return; }
 
     setRatingLoading(prev => ({ ...prev, [groupId]: true }));
     try {
@@ -526,22 +352,10 @@ function Flashcards() {
         group.id === groupId ? { ...group, rating } : group
       );
 
-      await updateDoc(folderRef, {
-        flashcardGroups: updatedFlashcardGroups,
-      });
-
-      setFolder(prev => ({
-        ...prev,
-        flashcardGroups: updatedFlashcardGroups,
-      }));
-      setRatings(prev => ({
-        ...prev,
-        [groupId]: rating,
-      }));
-      setHasRated(prev => ({
-        ...prev,
-        [groupId]: true,
-      }));
+      await updateDoc(folderRef, { flashcardGroups: updatedFlashcardGroups });
+      setFolder(prev => ({ ...prev, flashcardGroups: updatedFlashcardGroups }));
+      setRatings(prev => ({ ...prev, [groupId]: rating }));
+      setHasRated(prev => ({ ...prev, [groupId]: true }));
 
       await addDoc(collection(db, 'ratings'), {
         userId: auth.currentUser.uid,
@@ -550,7 +364,6 @@ function Flashcards() {
         rating,
         createdAt: new Date().toISOString(),
       });
-
       toast.success('Rating submitted successfully!');
     } catch (err) {
       console.error('Rate flashcard group error:', err);
@@ -567,10 +380,7 @@ function Flashcards() {
   };
 
   const handleToggleGroup = (groupId) => {
-    setExpandedGroups(prev => ({
-      ...prev,
-      [groupId]: !prev[groupId],
-    }));
+    setExpandedGroups(prev => ({ ...prev, [groupId]: !prev[groupId] }));
   };
 
   const handleToggleAnswer = () => {
@@ -591,10 +401,7 @@ function Flashcards() {
     setReportLoading(true);
     try {
       const user = auth.currentUser;
-      if (!user) {
-        toast.error('You must be logged in to report content.');
-        return;
-      }
+      if (!user) { toast.error('You must be logged in to report content.'); return; }
 
       const message = chatHistory[messageIndex];
       const reportData = {
@@ -612,12 +419,8 @@ function Flashcards() {
       setShowReportForm(null);
       setReportReason('');
     } catch (err) {
-      console.error('Error reporting content:', {
-        message: err.message,
-        code: err.code,
-        details: err.details,
-      });
-      toast.error(`Failed to report content: ${err.message}. Please try again.`);
+      console.error('Error reporting content:', err);
+      toast.error(`Failed to report content: ${err.message}`);
     } finally {
       setReportLoading(false);
     }
@@ -662,22 +465,13 @@ function Flashcards() {
   };
 
   const handleFlashcardGroupSelection = async () => {
-    if (!selectedFlashcardGroupId) {
-      toast.error('Please select a flashcard group.');
-      return;
-    }
+    if (!selectedFlashcardGroupId) { toast.error('Please select a flashcard group.'); return; }
 
     const selectedFlashcardGroup = folder.flashcardGroups.find(group => group.id === selectedFlashcardGroupId);
-    if (!selectedFlashcardGroup) {
-      toast.error('Selected flashcard group not found.');
-      return;
-    }
+    if (!selectedFlashcardGroup) { toast.error('Selected flashcard group not found.'); return; }
 
     const lastQuestion = chatHistory.findLast(item => item.type === 'user')?.content;
-    if (!lastQuestion) {
-      toast.error('No question found to process.');
-      return;
-    }
+    if (!lastQuestion) { toast.error('No question found to process.'); return; }
 
     setShowFlashcardGroupPrompt(false);
     await processQuestion(lastQuestion, selectedFlashcardGroup);
@@ -686,42 +480,17 @@ function Flashcards() {
   const scrapeWeb = async (query) => {
     try {
       const apiKey = import.meta.env.VITE_SERPAPI_API_KEY;
-      if (!apiKey) {
-        throw new Error('SerpApi API key not found. Please set VITE_SERPAPI_API_KEY in your .env file.');
-      }
+      if (!apiKey) throw new Error('SerpApi API key not found.');
 
-      const params = new URLSearchParams({
-        q: query,
-        api_key: apiKey,
-      });
-
-      const response = await axios.get(`https://serpapi.com/search?${params.toString()}`).catch(err => {
-        console.error('SerpApi request error:', {
-          status: err.response?.status,
-          statusText: err.response?.statusText,
-          data: err.response?.data,
-          message: err.message,
-        });
-        let errorMessage = 'Web search request failed';
-        if (err.response?.status === 401) {
-          errorMessage = 'Invalid SerpApi API key. Please check your API key in the .env file.';
-        } else if (err.response?.status === 429) {
-          errorMessage = 'SerpApi rate limit exceeded. Please wait a few minutes and try again.';
-        }
-        throw new Error(`${errorMessage}: ${err.message}`);
-      });
-
+      const params = new URLSearchParams({ q: query, api_key: apiKey });
+      const response = await axios.get(`https://serpapi.com/search?${params.toString()}`);
+      
       const organicResults = response.data.organic_results || [];
-      let searchResults = organicResults.slice(0, 3).map(result => ({
-        title: result.title,
-        snippet: result.snippet,
-        link: result.link,
-      }));
+      let searchResults = organicResults.slice(0, 3).map(result => ({ title: result.title, snippet: result.snippet, link: result.link }));
 
       if (searchResults.length === 0) {
         searchResults = [{ title: 'No results found', snippet: 'No relevant information was found for your query.', link: '' }];
       }
-
       return searchResults;
     } catch (err) {
       console.error('Web scraping error:', err);
@@ -737,68 +506,34 @@ function Flashcards() {
       }).join('\n\n');
 
       const flashcardGroupIndex = folder.flashcardGroups.findIndex(g => g.id === flashcardGroup.id) + 1;
-      setChatHistory(prev => [
-        ...prev,
-        { type: 'system', content: `DwenLite AI is reading Flashcard Group ${flashcardGroupIndex}...` },
-      ]);
+      setChatHistory(prev => [...prev, { type: 'system', content: `DwenLite AI is reading Flashcard Group ${flashcardGroupIndex}...` }]);
 
       await new Promise(resolve => setTimeout(resolve, 1500));
 
-      // --- CORS FIX ---
       const functionUrl = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
-
       let prompt = `You are DwenLite AI, an assistant that answers questions based on provided flashcard group content. Here is the content of the flashcard group:\n\n${flashcardContent}\n\nQuestion: ${question}\n\nProvide a clear, concise, and accurate answer based on the flashcard group content. If the question cannot be answered from the flashcard group, state so and provide a brief explanation. Format the answer as plain text suitable for rendering in a React component.`;
 
-      setChatHistory(prev => [
-        ...prev,
-        { type: 'system', content: 'DwenLite AI is typing...' },
-      ]);
-
+      setChatHistory(prev => [...prev, { type: 'system', content: 'DwenLite AI is typing...' }]);
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // Call Proxy
-      let response = await axios.post(functionUrl, { prompt })
-        .catch(err => {
-             console.error('Chat API error:', err);
-             throw new Error(`Chat failed: ${err.message}`);
-        });
-
+      let response = await axios.post(functionUrl, { prompt });
       let answer;
-      if (response.data.choices?.[0]?.message?.content) {
-        answer = response.data.choices[0].message.content.trim();
-      } else if (response.data.choices?.[0]?.text) {
-        answer = response.data.choices[0].text.trim();
-      } else {
-        throw new Error('Invalid API response: No answer found.');
-      }
+      if (response.data.choices?.[0]?.message?.content) answer = response.data.choices[0].message.content.trim();
+      else if (response.data.choices?.[0]?.text) answer = response.data.choices[0].text.trim();
+      else throw new Error('Invalid API response: No answer found.');
 
       if (answer.includes('cannot be answered from the flashcard group')) {
-        setChatHistory(prev => [
-          ...prev,
-          { type: 'system', content: 'DwenLite AI is searching the web for additional information...' },
-        ]);
-
+        setChatHistory(prev => [...prev, { type: 'system', content: 'DwenLite AI is searching the web for additional information...' }]);
         await new Promise(resolve => setTimeout(resolve, 1000));
 
         const searchResults = await scrapeWeb(question);
         const searchContent = searchResults.map(result => `Title: ${result.title}\nSnippet: ${result.snippet}\nLink: ${result.link}`).join('\n\n');
-
         prompt = `You are DwenLite AI, an assistant that answers questions using provided flashcard group content and web search results. The flashcard group content did not provide enough information to answer the question. Here is the flashcard group content:\n\n${flashcardContent}\n\nHere are the web search results:\n\n${searchContent}\n\nQuestion: ${question}\n\nProvide a clear, concise, and accurate answer based on the web search results. If the question still cannot be answered, state so and provide a brief explanation. Format the answer as plain text suitable for rendering in a React component.`;
 
-        // Call Proxy again for web search context
-        response = await axios.post(functionUrl, { prompt })
-          .catch(err => {
-             console.error('Chat API error (web search):', err);
-             throw new Error(`Chat failed: ${err.message}`);
-          });
-
-        if (response.data.choices?.[0]?.message?.content) {
-          answer = response.data.choices[0].message.content.trim();
-        } else if (response.data.choices?.[0]?.text) {
-          answer = response.data.choices[0].text.trim();
-        } else {
-          throw new Error('Invalid API response: No answer found after web search.');
-        }
+        response = await axios.post(functionUrl, { prompt });
+        if (response.data.choices?.[0]?.message?.content) answer = response.data.choices[0].message.content.trim();
+        else if (response.data.choices?.[0]?.text) answer = response.data.choices[0].text.trim();
+        else throw new Error('Invalid API response: No answer found after web search.');
       }
 
       setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...' && item.content !== 'DwenLite AI is searching the web for additional information...').concat({
@@ -815,517 +550,402 @@ function Flashcards() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
-        <div className="flex items-center">
-          <svg className="animate-spin h-5 w-5 mr-3 text-white" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-          </svg>
-          Loading...
-        </div>
-      </div>
-    );
-  }
+  if (loading) return (
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white">
+       <div className="w-10 h-10 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+    </div>
+  );
 
-  if (!folder) {
-    return (
-      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-400 text-lg">Unable to load folder.</p>
-          <Link
-            to="/dashboard"
-            className={`mt-4 inline-block bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
-          >
-            Back to Dashboard
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  if (!folder) return null;
 
   const currentFlashcard = selectedFlashcardGroup?.flashcards[currentFlashcardIndex];
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-4 md:p-8">
-      <style>
-        {`
-          @keyframes slideInFromRight {
-            0% { transform: translateX(100%); opacity: 0; }
-            100% { transform: translateX(0); opacity: 1; }
-          }
-          @keyframes slideInFromLeft {
-            0% { transform: translateX(-100%); opacity: 0; }
-            100% { transform: translateX(0); opacity: 1; }
-          }
-          @keyframes fadeIn {
-            0% { opacity: 0; }
-            100% { opacity: 1; }
-          }
-          @keyframes pulseDots {
-            0% { transform: translateY(0); }
-            50% { transform: translateY(-5px); }
-            100% { transform: translateY(0); }
-          }
-          @keyframes pulseContainer {
-            0% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0.4); }
-            70% { box-shadow: 0 0 0 10px rgba(147, 51, 234, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(147, 51, 234, 0); }
-          }
-          @keyframes flipCard {
-            0% { transform: rotateY(0deg); }
-            100% { transform: rotateY(180deg); }
-          }
-          @keyframes flipCardBack {
-            0% { transform: rotateY(180deg); }
-            100% { transform: rotateY(0deg); }
-          }
-          @keyframes coinsDeduction {
-            0% { transform: translateY(0); opacity: 1; }
-            50% { transform: translateY(-20px); opacity: 0.5; }
-            100% { transform: translateY(-40px); opacity: 0; }
-          }
-          .animate-slide-in-right {
-            animation: slideInFromRight 0.3s ease-out forwards;
-          }
-          .animate-slide-in-left {
-            animation: slideInFromLeft 0.3s ease-out forwards;
-          }
-          .animate-fade-in {
-            animation: fadeIn 0.5s ease-in forwards;
-          }
-          .typing-dots span {
-            display: inline-block;
-            animation: pulseDots 0.5s infinite alternate;
-          }
-          .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
-          .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
-          .pulse-container {
-            animation: pulseContainer 2s infinite;
-          }
-          .coins-deduct {
-            animation: coinsDeduction 1s ease-out forwards;
-          }
-          .hover-scale {
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-          }
-          .hover-scale:hover {
-            transform: scale(1.05);
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-          }
-          .flashcard-container {
-            perspective: 1000px;
-            width: 100%;
-            max-width: 600px;
-            height: 300px;
-            margin: 0 auto;
-          }
-          .flashcard {
-            position: relative;
-            width: 100%;
-            height: 100%;
-            transition: transform 0.6s;
-            transform-style: preserve-3d;
-          }
-          .flashcard.flipped {
-            transform: rotateY(180deg);
-          }
-          .flashcard-front, .flashcard-back {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            backface-visibility: hidden;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-            text-align: center;
-          }
-          .flashcard-front {
-            background-color: #4B5563;
-            color: white;
-          }
-          .flashcard-back {
-            background-color: #6B7280;
-            color: white;
-            transform: rotateY(180deg);
-          }
-          .star-rating {
-            display: inline-flex;
-            cursor: pointer;
-          }
-          .star {
-            color: #d1d5db;
-            transition: color 0.2s ease;
-          }
-          .star.filled {
-            color: #facc15;
-          }
-          .star:hover,
-          .star.filled:hover {
-            color: #eab308;
-          }
-          .star-rating.disabled {
-            cursor: not-allowed;
-            opacity: 0.5;
-          }
-        `}
-      </style>
-
-      <div className="mb-6 md:mb-8">
-        <h1 className="text-2xl md:text-3xl font-bold">{folder.name} - Flashcards</h1>
-        <div className="mt-2 flex items-center space-x-3">
-          <Link
-            to={`/folder/${folderId}`}
-            className={`bg-purple-600 text-white py-1 px-3 rounded-md hover:bg-purple-700 text-xs md:text-sm ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
-          >
-            Back to Folder
-          </Link>
-          <p className={`text-sm md:text-base ml-2 ${gCoinsAnimating ? 'coins-deduct' : ''}`}>
-            💰 G_COINS: {gCoins}
-          </p>
-        </div>
+    <div className="min-h-screen bg-slate-900 text-white font-sans selection:bg-purple-500 selection:text-white relative overflow-x-hidden">
+      
+      {/* Background Ambience */}
+      <div className="fixed inset-0 z-0 opacity-30 pointer-events-none">
+        <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-purple-900/40 to-transparent" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-indigo-600 rounded-full blur-[120px]" />
       </div>
 
-      <div className="mb-6 md:mb-8">
-        <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Generate Flashcards</h2>
-        <p className="text-gray-400 text-sm md:text-base mb-3 md:mb-4">
-          FlashCards generation typically takes 30-60 seconds and costs 3 G_COINS. Processing time may vary based on server load and document size.
-        </p>
-        <button
-          onClick={handleGenerateFlashcards}
-          disabled={flashcardsLoading}
-          className={`bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base w-full ${flashcardsLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-        >
-          {flashcardsLoading ? (
-            <span className="flex items-center">
-              <svg
-                className="animate-spin h-4 w-4 md:h-5 md:w-5 mr-2 text-white"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                  fill="none"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8v8H4z"
-                />
-              </svg>
-              Generating Flashcards...
-            </span>
-          ) : (
-            <>
-              <span>Generate Flashcards (3 G_COINS)</span>
-              <span>➔</span>
-            </>
-          )}
-        </button>
-      </div>
-
-      <div className="mb-6">
-        <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Review Flashcards</h2>
-        {!selectedFlashcardGroup ? (
-          <p className="text-gray-400 text-sm md:text-base">Select a flashcard group from the stored flashcards to start!</p>
-        ) : currentFlashcardIndex >= selectedFlashcardGroup.flashcards.length ? (
-          <p className="text-gray-400 text-sm md:text-base">You've completed this flashcard group! Select another to continue.</p>
-        ) : currentFlashcard ? (
-          <div className="mb-3 md:mb-4">
-            <h3 className="text-base md:text-lg font-semibold mb-4 text-center">
-              Flashcard {currentFlashcardIndex + 1} of {selectedFlashcardGroup.flashcards.length}
-            </h3>
-            <div className="flashcard-container">
-              <div className={`flashcard ${showAnswer ? 'flipped' : ''}`}>
-                <div className="flashcard-front">
-                  <p className="text-gray-300 text-sm md:text-base">{currentFlashcard.question}</p>
-                </div>
-                <div className="flashcard-back">
-                  <p className="text-gray-300 text-sm md:text-base">{currentFlashcard.answer}</p>
-                </div>
-              </div>
-            </div>
-            <div className="mt-4 flex justify-center max-w-[600px] mx-auto">
-              <button
-                onClick={handleToggleAnswer}
-                className={`bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
-                disabled={flashcardsLoading}
-              >
-                {showAnswer ? 'Show Question' : 'Show Answer'}
-              </button>
-            </div>
-            <div className="mt-4 flex justify-between max-w-[600px] mx-auto">
-              <button
-                onClick={handlePreviousFlashcard}
-                disabled={currentFlashcardIndex === 0 || flashcardsLoading}
-                className={`bg-gray-700 text-white py-2 px-4 rounded-lg hover:bg-gray-600 ${currentFlashcardIndex === 0 || flashcardsLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                Previous
-              </button>
-              <button
-                onClick={handleNextFlashcard}
-                disabled={flashcardsLoading}
-                className={`bg-gray-700 text-white py-2 px-4 rounded-lg hover:bg-gray-600 ${flashcardsLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        ) : (
-          <p className="text-gray-400 text-sm md:text-base">Loading flashcard...</p>
-        )}
-      </div>
-
-      <div className="mb-6">
-        <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Stored Flashcard Groups</h2>
-        {folder.flashcardGroups.length === 0 ? (
-          <p className="text-gray-400 text-sm">No flashcard groups available. Generate a new group to start!</p>
-        ) : (
-          <div>
-            <button
-              onClick={() => setShowStoredFlashcards(!showStoredFlashcards)}
-              className={`bg-gray-800 p-3 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm w-full mb-3 ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
-              disabled={flashcardsLoading}
+      <div className="relative z-10 max-w-6xl mx-auto p-4 md:p-8 pb-20">
+        
+        {/* Header */}
+        <header className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-4">
+            <Link 
+              to={`/folder/${folderId}`}
+              className="w-10 h-10 rounded-xl bg-slate-800/50 backdrop-blur-sm border border-white/10 flex items-center justify-center hover:bg-slate-700 transition-colors"
             >
-              <span>{showStoredFlashcards ? 'Hide Stored Flashcard Groups' : 'Show Stored Flashcard Groups'}</span>
-              <span>{showStoredFlashcards ? '▼' : '▶'}</span>
-            </button>
-            {showStoredFlashcards && (
-              <div className="space-y-3">
-                {folder.flashcardGroups.map((group, index) => (
-                  <div
-                    key={group.id}
-                    className="bg-gray-800 p-3 sm:p-4 rounded-lg"
-                  >
-                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-2 space-y-2 sm:space-y-0">
-                      <button
-                        onClick={() => handleSelectFlashcardGroup(group)}
-                        className={`text-left flex-1 text-sm sm:text-base font-semibold hover:text-purple-400 ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
-                        disabled={flashcardsLoading}
-                      >
-                        Flashcard Group {index + 1} (Created: {new Date(group.createdAt).toLocaleDateString()})
-                      </button>
-                      <div className="flex items-center space-x-2 sm:space-x-3">
-                        <div className={`star-rating ${hasRated[group.id] ? 'disabled' : ''}`}>
-                          {[1, 2, 3, 4, 5].map(star => (
-                            <svg
-                              key={star}
-                              onClick={() => !hasRated[group.id] && handleRateFlashcardGroup(group.id, star)}
-                              className={`w-4 h-4 sm:w-5 sm:h-5 star ${ratings[group.id] >= star ? 'filled' : ''}`}
-                              fill="currentColor"
-                              viewBox="0 0 20 20"
-                              xmlns="http://www.w3.org/2000/svg"
-                            >
-                              <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                            </svg>
-                          ))}
-                        </div>
-                        {ratingLoading[group.id] && (
-                          <svg
-                            className="animate-spin h-4 w-4 sm:h-5 sm:w-5 text-white"
-                            viewBox="0 0 24 24"
-                          >
-                            <circle
-                              className="opacity-25"
-                              cx="12"
-                              cy="12"
-                              r="10"
-                              stroke="currentColor"
-                              strokeWidth="4"
-                              fill="none"
-                            />
-                            <path
-                              className="opacity-75"
-                              fill="currentColor"
-                              d="M4 12a8 8 0 018-8v8H4z"
-                            />
-                          </svg>
-                        )}
-                        <button
-                          onClick={() => handleToggleGroup(group.id)}
-                          className={`text-gray-400 hover:text-white text-sm sm:text-base ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
-                          disabled={flashcardsLoading}
-                        >
-                          {expandedGroups[group.id] ? 'Hide Flashcards' : 'Show Flashcards'}
-                        </button>
-                        <button
-                          onClick={() => handleDeleteFlashcardGroup(group.id)}
-                          className={`bg-red-600 text-white py-1 px-3 sm:px-4 rounded-lg hover:bg-red-700 text-sm ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
-                          disabled={flashcardsLoading}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                    {expandedGroups[group.id] && (
-                      <div className="mt-2 space-y-3">
-                        {group.flashcards.map((card, cIndex) => (
-                          <div key={card.id} className="bg-gray-700 p-3 rounded-lg">
-                            <p className="text-sm font-semibold">
-                              Flashcard {cIndex + 1}
-                            </p>
-                            <p className="text-gray-300 text-sm break-words">
-                              <strong>Question:</strong> {card.question}
-                            </p>
-                            <p className="text-gray-300 text-sm break-words">
-                              <strong>Answer:</strong> {card.answer}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="mb-6">
-        <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">DwenLite AI Chat</h2>
-        <p className="text-gray-400 text-sm md:text-base mb-3 md:mb-4">
-          Ask questions about your flashcard groups, and DwenLite AI will provide answers based on the selected flashcard group.
-        </p>
-        <div className={`bg-gray-800 p-3 md:p-4 rounded-lg ${chatLoading ? 'pulse-container' : ''}`}>
-          <div className="mb-3 max-h-96 overflow-y-auto">
-            {chatHistory.map((message, index) => (
-              <div
-                key={index}
-                className={`mb-2 relative ${message.type === 'user' ? 'text-right' : 'text-left'} ${
-                  message.type === 'user' ? 'animate-slide-in-right' : 'animate-slide-in-left'
-                }`}
-              >
-                <span
-                  className={`inline-block p-2 rounded-lg text-sm md:text-base ${
-                    message.type === 'user'
-                      ? 'bg-purple-600'
-                      : message.type === 'ai'
-                      ? 'bg-gray-700'
-                      : 'text-gray-400 italic typing-dots'
-                  }`}
-                >
-                  {message.content.includes('DwenLite AI is typing...') || message.content.includes('DwenLite AI is searching the web...') ? (
-                    <>
-                      {message.content.replace('...', '')}
-                      <span>.</span>
-                      <span>.</span>
-                      <span>.</span>
-                    </>
-                  ) : (
-                    message.content
-                  )}
-                </span>
-                {message.type === 'ai' && !message.content.includes('DwenLite AI is typing...') && !message.content.includes('DwenLite AI is searching the web...') && (
-                  <button
-                    onClick={() => setShowReportForm(showReportForm === index ? null : index)}
-                    className={`absolute top-0 right-0 text-red-500 hover:text-red-400 text-xs p-1 ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
-                    disabled={flashcardsLoading}
-                  >
-                    {showReportForm === index ? 'Cancel' : 'Report'}
-                  </button>
-                )}
-                {showReportForm === index && (
-                  <div className="mt-2 p-2 bg-gray-700 rounded-lg animate-fade-in">
-                    <textarea
-                      value={reportReason}
-                      onChange={(e) => setReportReason(e.target.value)}
-                      placeholder="Why is this content offensive or inappropriate?"
-                      className="w-full p-2 bg-gray-600 text-white rounded-lg focus:outline-none text-sm"
-                      rows="3"
-                    />
-                    <button
-                      onClick={() => handleReportContent(index, reportReason)}
-                      disabled={reportLoading || !reportReason.trim() || flashcardsLoading}
-                      className={`mt-2 bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700 text-sm ${
-                        reportLoading || !reportReason.trim() || flashcardsLoading ? 'opacity-50 cursor-not-allowed' : ''
-                      }`}
-                    >
-                      {reportLoading ? (
-                        <span className="flex items-center">
-                          <svg
-                            className="animate-spin h-4 w-4 mr-2 text-white"
-                            viewBox="0 0 24 24"
-                          >
-                            <circle
-                              className="opacity-25"
-                              cx="12"
-                              cy="12"
-                              r="10"
-                              stroke="currentColor"
-                              strokeWidth="4"
-                              fill="none"
-                            />
-                            <path
-                              className="opacity-75"
-                              fill="currentColor"
-                              d="M4 12a8 8 0 018-8v8H4z"
-                            />
-                          </svg>
-                          Reporting...
-                        </span>
-                      ) : (
-                        'Submit Report'
-                      )}
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-          {showFlashcardGroupPrompt && (
-            <div className="mb-3 animate-fade-in">
-              <select
-                value={selectedFlashcardGroupId}
-                onChange={(e) => setSelectedFlashcardGroupId(e.target.value)}
-                className="w-full p-2 bg-gray-700 text-white rounded-lg text-sm"
-                disabled={flashcardsLoading}
-              >
-                <option value="">Select a flashcard group</option>
-                {folder.flashcardGroups.map((group, index) => (
-                  <option key={group.id} value={group.id}>
-                    Flashcard Group {index + 1} (Created: {new Date(group.createdAt).toLocaleDateString()})
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={handleFlashcardGroupSelection}
-                className={`mt-2 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 w-full hover-scale text-sm ${flashcardsLoading ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
-                disabled={flashcardsLoading}
-              >
-                Submit
-              </button>
+              <ArrowLeft size={20} className="text-slate-300" />
+            </Link>
+            <div>
+              <h1 className="text-xl md:text-2xl font-bold flex items-center gap-2">
+                <Brain className="text-purple-400" size={24} /> 
+                {folder.name}
+              </h1>
+              <p className="text-xs text-slate-400">Flashcard Study Mode</p>
             </div>
-          )}
-          {!showFlashcardGroupPrompt && (
-            <form onSubmit={handleChatSubmit} className="flex items-center">
-              <input
-                type="text"
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                placeholder="Ask DwenLite AI a question..."
-                className="flex-1 p-2 bg-gray-700 text-white rounded-l-lg focus:outline-none text-sm"
-                disabled={chatLoading || flashcardsLoading}
-              />
-              <button
-                type="submit"
-                disabled={chatLoading || flashcardsLoading}
-                className={`bg-purple-600 text-white py-2 px-4 rounded-r-lg hover:bg-purple-700 hover-scale text-sm ${
-                  chatLoading || flashcardsLoading ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
-              >
-                Send
-              </button>
-            </form>
-          )}
+          </div>
+
+          <div className="bg-slate-800/80 backdrop-blur-md px-4 py-2 rounded-full border border-purple-500/30 flex items-center gap-2 shadow-lg shadow-purple-900/20">
+             <Coins size={16} className={`text-yellow-400 ${gCoinsAnimating ? 'animate-bounce' : ''}`} />
+             <span className="font-mono font-bold">{gCoins}</span>
+          </div>
+        </header>
+
+        {/* Generator Banner */}
+        <motion.div 
+           initial={{ opacity: 0, y: 20 }}
+           animate={{ opacity: 1, y: 0 }}
+           className="bg-gradient-to-r from-purple-900/60 to-indigo-900/60 backdrop-blur-md border border-purple-500/30 rounded-2xl p-6 mb-8 flex flex-col md:flex-row justify-between items-center gap-4"
+        >
+           <div className="flex items-start gap-4">
+              <div className="p-3 bg-purple-500/20 rounded-xl">
+                 <Sparkles className="text-purple-300" size={24} />
+              </div>
+              <div>
+                 <h2 className="font-bold text-lg">AI Flashcard Generator</h2>
+                 <p className="text-sm text-purple-200/70 max-w-md">
+                    Instantly create study cards from your documents, audio, or video notes. 
+                    <span className="text-yellow-400 font-bold ml-1">Cost: 3 GC</span>
+                 </p>
+              </div>
+           </div>
+           <button
+              onClick={handleGenerateFlashcards}
+              disabled={flashcardsLoading}
+              className="w-full md:w-auto px-6 py-3 bg-white text-purple-900 rounded-xl font-bold hover:scale-105 active:scale-95 transition-all shadow-lg shadow-white/10 disabled:opacity-50 disabled:scale-100 flex items-center justify-center gap-2"
+           >
+              {flashcardsLoading ? (
+                 <div className="w-5 h-5 border-2 border-purple-900 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                 <> <Zap size={18} fill="currentColor" /> Generate </>
+              )}
+           </button>
+        </motion.div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            
+            {/* LEFT COLUMN: Study Area */}
+            <div className="lg:col-span-2 space-y-6">
+                
+                {/* Active Flashcard Stage */}
+                <div className="relative">
+                   {!selectedFlashcardGroup ? (
+                      <div className="aspect-[16/9] bg-slate-800/30 border-2 border-dashed border-slate-700 rounded-3xl flex flex-col items-center justify-center text-slate-500 p-8 text-center">
+                         <FolderOpen size={48} className="mb-4 opacity-50" />
+                         <p className="text-lg font-medium">No Collection Selected</p>
+                         <p className="text-sm">Choose a flashcard group from the list below or generate a new one.</p>
+                      </div>
+                   ) : currentFlashcardIndex >= selectedFlashcardGroup.flashcards.length ? (
+                      <div className="aspect-[16/9] bg-slate-800/50 backdrop-blur-md border border-white/5 rounded-3xl flex flex-col items-center justify-center text-center p-8">
+                         <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mb-6">
+                            <Star size={40} className="text-green-400" fill="currentColor" />
+                         </div>
+                         <h2 className="text-2xl font-bold mb-2">Great Job!</h2>
+                         <p className="text-slate-400 mb-6">You've reviewed all cards in this group.</p>
+                         <button 
+                            onClick={() => { setCurrentFlashcardIndex(0); setShowAnswer(false); }}
+                            className="px-6 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors"
+                         >
+                            Restart Review
+                         </button>
+                      </div>
+                   ) : (
+                      <>
+                        <div className="flex justify-between items-center mb-4 px-2">
+                            <span className="text-sm font-mono text-purple-400">
+                                Card {currentFlashcardIndex + 1} / {selectedFlashcardGroup.flashcards.length}
+                            </span>
+                            <div className="h-2 flex-1 mx-4 bg-slate-800 rounded-full overflow-hidden">
+                                <div 
+                                    className="h-full bg-purple-500 transition-all duration-300" 
+                                    style={{ width: `${((currentFlashcardIndex + 1) / selectedFlashcardGroup.flashcards.length) * 100}%` }}
+                                />
+                            </div>
+                        </div>
+
+                        {/* The 3D Card - FIXED VERSION */}
+                        <div className="perspective-1000 w-full aspect-[1.6/1] md:aspect-[2/1] relative cursor-pointer group" onClick={handleToggleAnswer}>
+                            <motion.div
+                                initial={false}
+                                animate={{ rotateY: showAnswer ? 180 : 0 }}
+                                transition={{ duration: 0.6, type: "spring", stiffness: 260, damping: 20 }}
+                                className="w-full h-full relative"
+                                style={{ transformStyle: "preserve-3d" }}
+                            >
+                                {/* Front (Question) */}
+                                <div 
+                                    className="absolute inset-0 bg-slate-800 border border-white/10 rounded-3xl p-8 md:p-12 flex flex-col items-center justify-center text-center shadow-2xl shadow-black/50"
+                                    style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
+                                >
+                                    <h3 className="text-sm text-purple-400 font-bold uppercase tracking-wider mb-4">Question</h3>
+                                    <p className="text-xl md:text-3xl font-medium leading-relaxed overflow-y-auto max-h-[80%] scrollbar-hide">{currentFlashcard.question}</p>
+                                    <div className="absolute bottom-6 text-xs text-slate-500 flex items-center gap-1 opacity-50 group-hover:opacity-100 transition-opacity">
+                                        <RotateCw size={12} /> Click to flip
+                                    </div>
+                                </div>
+
+                                {/* Back (Answer) */}
+                                <div 
+                                    className="absolute inset-0 bg-gradient-to-br from-purple-900 to-slate-900 border border-purple-500/30 rounded-3xl p-8 md:p-12 flex flex-col items-center justify-center text-center shadow-2xl shadow-purple-900/20"
+                                    style={{ 
+                                        transform: "rotateY(180deg)", 
+                                        backfaceVisibility: 'hidden', 
+                                        WebkitBackfaceVisibility: 'hidden' 
+                                    }}
+                                >
+                                    <h3 className="text-sm text-green-400 font-bold uppercase tracking-wider mb-4">Answer</h3>
+                                    <p className="text-xl md:text-2xl font-medium leading-relaxed text-slate-100 overflow-y-auto max-h-[80%] scrollbar-hide">{currentFlashcard.answer}</p>
+                                </div>
+                            </motion.div>
+                        </div>
+
+                        {/* Controls */}
+                        <div className="flex items-center justify-center gap-4 mt-8">
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); handlePreviousFlashcard(); }}
+                                disabled={currentFlashcardIndex === 0 || flashcardsLoading}
+                                className="w-12 h-12 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                            >
+                                <ChevronLeft size={24} />
+                            </button>
+
+                            <button
+                                onClick={(e) => { e.stopPropagation(); handleToggleAnswer(); }}
+                                className="px-8 py-3 bg-purple-600 hover:bg-purple-500 rounded-xl font-semibold shadow-lg shadow-purple-900/40 transition-all active:scale-95"
+                            >
+                                {showAnswer ? 'Hide Answer' : 'Show Answer'}
+                            </button>
+
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); handleNextFlashcard(); }}
+                                disabled={flashcardsLoading}
+                                className="w-12 h-12 rounded-full bg-slate-800 border border-white/10 flex items-center justify-center hover:bg-slate-700 transition-all"
+                            >
+                                <ChevronRight size={24} />
+                            </button>
+                        </div>
+                      </>
+                   )}
+                </div>
+
+                {/* Stored Groups List */}
+                <div className="bg-slate-800/30 backdrop-blur-sm border border-white/5 rounded-2xl p-6">
+                    <div 
+                        className="flex items-center justify-between cursor-pointer mb-4"
+                        onClick={() => setShowStoredFlashcards(!showStoredFlashcards)}
+                    >
+                        <h3 className="text-lg font-semibold flex items-center gap-2">
+                           <FolderOpen size={20} className="text-slate-400" /> Collection Library
+                        </h3>
+                        {showStoredFlashcards ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                    </div>
+
+                    <AnimatePresence>
+                        {showStoredFlashcards && (
+                            <motion.div 
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                className="overflow-hidden space-y-3"
+                            >
+                                {folder.flashcardGroups.length === 0 && <p className="text-slate-500 italic">No stored groups.</p>}
+                                {folder.flashcardGroups.map((group, idx) => (
+                                    <div key={group.id} className="bg-slate-800/80 rounded-xl p-4 border border-white/5 hover:border-purple-500/30 transition-colors">
+                                        <div className="flex flex-col md:flex-row justify-between md:items-center gap-4">
+                                            <div 
+                                                className="flex-1 cursor-pointer"
+                                                onClick={() => handleSelectFlashcardGroup(group)}
+                                            >
+                                                <h4 className="font-bold text-slate-200">Group {idx + 1}</h4>
+                                                <p className="text-xs text-slate-500">Created: {new Date(group.createdAt).toLocaleDateString()}</p>
+                                            </div>
+                                            
+                                            <div className="flex items-center gap-3">
+                                                {/* Rating Stars */}
+                                                <div className="flex gap-1 bg-slate-900/50 p-1.5 rounded-lg">
+                                                    {[1,2,3,4,5].map(star => (
+                                                        <Star 
+                                                            key={star} 
+                                                            size={14} 
+                                                            className={`cursor-pointer transition-colors ${ratings[group.id] >= star ? 'text-yellow-400 fill-yellow-400' : 'text-slate-600 hover:text-yellow-400'}`}
+                                                            onClick={() => !hasRated[group.id] && handleRateFlashcardGroup(group.id, star)}
+                                                        />
+                                                    ))}
+                                                </div>
+                                                
+                                                <button 
+                                                    onClick={() => handleToggleGroup(group.id)}
+                                                    className="p-2 hover:bg-white/10 rounded-lg text-slate-400"
+                                                >
+                                                    {expandedGroups[group.id] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                                </button>
+                                                
+                                                <button 
+                                                    onClick={() => handleDeleteFlashcardGroup(group.id)}
+                                                    className="p-2 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-lg"
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <AnimatePresence>
+                                            {expandedGroups[group.id] && (
+                                                <motion.div 
+                                                    initial={{ height: 0, opacity: 0 }}
+                                                    animate={{ height: 'auto', opacity: 1 }}
+                                                    exit={{ height: 0, opacity: 0 }}
+                                                    className="mt-4 pt-4 border-t border-white/5 grid gap-3 overflow-hidden"
+                                                >
+                                                    {group.flashcards.map((card, i) => (
+                                                        <div key={i} className="bg-slate-900/50 p-3 rounded-lg text-sm border border-white/5">
+                                                            <div className="font-semibold text-purple-300 mb-1">Q: {card.question}</div>
+                                                            <div className="text-slate-400">A: {card.answer}</div>
+                                                        </div>
+                                                    ))}
+                                                </motion.div>
+                                            )}
+                                        </AnimatePresence>
+                                    </div>
+                                ))}
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+                </div>
+            </div>
+
+            {/* RIGHT COLUMN: Chat AI */}
+            <div className="lg:col-span-1">
+                <div className="bg-slate-800/40 backdrop-blur-md border border-white/10 rounded-2xl flex flex-col h-[600px] sticky top-8">
+                    <div className="p-4 border-b border-white/5 bg-slate-800/50 rounded-t-2xl flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                        <h3 className="font-bold flex items-center gap-2">DwenLite AI <span className="text-xs font-normal text-slate-400 px-2 py-0.5 bg-slate-700 rounded">Beta</span></h3>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
+                        {chatHistory.length === 0 && (
+                            <div className="text-center text-slate-500 mt-10 text-sm">
+                                <MessageSquare size={32} className="mx-auto mb-2 opacity-50" />
+                                <p>Ask me anything about the selected flashcards!</p>
+                            </div>
+                        )}
+                        
+                        {chatHistory.map((msg, idx) => (
+                            <motion.div 
+                                key={idx} 
+                                initial={{ opacity: 0, scale: 0.95 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                className={`flex flex-col ${msg.type === 'user' ? 'items-end' : 'items-start'}`}
+                            >
+                                <div 
+                                    className={`max-w-[85%] p-3 rounded-2xl text-sm ${
+                                        msg.type === 'user' 
+                                            ? 'bg-purple-600 text-white rounded-br-none' 
+                                            : msg.type === 'system' 
+                                                ? 'bg-transparent text-slate-500 italic text-xs w-full text-center border border-dashed border-slate-700' 
+                                                : 'bg-slate-700 text-slate-200 rounded-bl-none'
+                                    }`}
+                                >
+                                     {/* Simple "Typing..." check logic from original code */}
+                                     {msg.content.includes('DwenLite AI is typing...') || msg.content.includes('DwenLite AI is searching the web...') ? (
+                                        <div className="flex items-center gap-1">
+                                            {msg.content.replace('...', '')}
+                                            <span className="animate-bounce">.</span>
+                                            <span className="animate-bounce delay-100">.</span>
+                                            <span className="animate-bounce delay-200">.</span>
+                                        </div>
+                                      ) : (
+                                        msg.content
+                                      )}
+                                </div>
+                                
+                                {msg.type === 'ai' && !msg.content.includes('typing') && (
+                                    <button 
+                                        onClick={() => setShowReportForm(showReportForm === idx ? null : idx)}
+                                        className="text-[10px] text-slate-500 mt-1 hover:text-red-400 flex items-center gap-1"
+                                    >
+                                        <AlertTriangle size={10} /> {showReportForm === idx ? 'Cancel' : 'Report'}
+                                    </button>
+                                )}
+
+                                {/* Report Form Modal Inside Chat */}
+                                <AnimatePresence>
+                                    {showReportForm === idx && (
+                                        <motion.div 
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            exit={{ opacity: 0, height: 0 }}
+                                            className="w-full bg-slate-800 border border-red-500/30 rounded-lg p-3 mt-2 overflow-hidden"
+                                        >
+                                            <p className="text-xs text-red-300 mb-2">Report inappropriate content:</p>
+                                            <textarea 
+                                                value={reportReason}
+                                                onChange={(e) => setReportReason(e.target.value)}
+                                                className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs mb-2 focus:border-red-500 outline-none"
+                                                rows="2"
+                                            />
+                                            <div className="flex gap-2">
+                                                <button 
+                                                    onClick={() => handleReportContent(idx, reportReason)} 
+                                                    disabled={reportLoading || !reportReason.trim()}
+                                                    className="bg-red-500/20 text-red-400 text-xs px-3 py-1 rounded hover:bg-red-500/30 disabled:opacity-50"
+                                                >
+                                                    {reportLoading ? 'Sending...' : 'Submit'}
+                                                </button>
+                                            </div>
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+                            </motion.div>
+                        ))}
+                        <div ref={chatEndRef} />
+                    </div>
+
+                    <div className="p-3 bg-slate-800/50 rounded-b-2xl border-t border-white/5">
+                        {showFlashcardGroupPrompt ? (
+                            <div className="flex flex-col gap-2 animate-fade-in">
+                                <select 
+                                    value={selectedFlashcardGroupId}
+                                    onChange={(e) => setSelectedFlashcardGroupId(e.target.value)}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm focus:border-purple-500 outline-none"
+                                >
+                                    <option value="">Select context...</option>
+                                    {folder.flashcardGroups.map((g, i) => (
+                                        <option key={g.id} value={g.id}>Group {i+1} ({g.flashcards.length} cards)</option>
+                                    ))}
+                                </select>
+                                <button 
+                                    onClick={handleFlashcardGroupSelection}
+                                    className="w-full bg-purple-600 hover:bg-purple-500 text-white py-2 rounded-lg text-sm"
+                                >
+                                    Confirm Context
+                                </button>
+                            </div>
+                        ) : (
+                            <form onSubmit={handleChatSubmit} className="flex gap-2">
+                                <input 
+                                    value={chatInput}
+                                    onChange={(e) => setChatInput(e.target.value)}
+                                    placeholder="Type a question..." 
+                                    className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition-all"
+                                    disabled={chatLoading}
+                                />
+                                <button 
+                                    type="submit" 
+                                    disabled={chatLoading || !chatInput.trim()}
+                                    className="p-2 bg-purple-600 hover:bg-purple-500 rounded-xl text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    <Send size={18} />
+                                </button>
+                            </form>
+                        )}
+                    </div>
+                </div>
+            </div>
         </div>
       </div>
     </div>

@@ -6,10 +6,19 @@ import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import JSZip from 'jszip';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  ArrowLeft, UploadCloud, Mic, FileText, Trash2, 
+  HelpCircle, BookOpen, Brain, Layers, File, 
+  Video, Music, FileType, CheckCircle, X, ChevronRight,
+  Loader2, Square
+} from 'lucide-react';
 
 function ViewFolder() {
   const { folderId } = useParams();
   const navigate = useNavigate();
+  
+  // --- STATE ---
   const [folder, setFolder] = useState(null);
   const [loading, setLoading] = useState(true);
   const [file, setFile] = useState(null);
@@ -19,6 +28,7 @@ function ViewFolder() {
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
+  // --- REFS ---
   const fileInputRef = useRef(null);
   const uploadButtonRef = useRef(null);
   const documentsSectionRef = useRef(null);
@@ -40,17 +50,12 @@ function ViewFolder() {
     },
     {
       title: "Select a File",
-      description: "Choose a file to upload here. You can upload PDF (.pdf), Word (.docx), text (.txt), PowerPoint (.pptx), audio, or video files.",
+      description: "Choose a file to upload here. You can upload PDF, Word, text, PowerPoint, audio, or video files.",
       highlightRef: fileInputRef,
     },
     {
-      title: "Upload the File",
-      description: "Click to upload your file. Text files will be extracted and saved as .txt for processing.",
-      highlightRef: uploadButtonRef,
-    },
-    {
-      title: "Record Audio",
-      description: "Record live audio as an alternative way to add content. Note: Audio recording is only available on desktop devices.",
+      title: "Upload & Record",
+      description: "Click to upload your selected file or record audio directly from your browser.",
       highlightRef: uploadButtonRef,
     },
     {
@@ -60,7 +65,7 @@ function ViewFolder() {
     },
     {
       title: "Study Materials",
-      description: "Access notes, quizzes, flashcards, and podcasts for this folder from these links.",
+      description: "Access AI-generated notes, quizzes, and flashcards based on your uploads here.",
       highlightRef: studyMaterialsRef,
     },
     {
@@ -70,8 +75,8 @@ function ViewFolder() {
     },
   ];
 
+  // --- EFFECTS ---
   useEffect(() => {
-    // Detect mobile devices
     const userAgent = navigator.userAgent || navigator.vendor || window.opera;
     const isMobileDevice = /android|iphone|ipad|ipod|webos|blackberry|windows phone/i.test(userAgent);
     setIsMobile(isMobileDevice);
@@ -90,6 +95,7 @@ function ViewFolder() {
     return () => unsubscribe();
   }, [navigate, folderId]);
 
+  // --- LOGIC ---
   const fetchFolder = async (userId) => {
     try {
       const folderRef = doc(db, 'folders', folderId);
@@ -131,14 +137,12 @@ function ViewFolder() {
       const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       let fullText = '';
       const numPages = pdf.numPages;
-
       for (let pageNum = 1; pageNum <= numPages; pageNum++) {
         const page = await pdf.getPage(pageNum);
         const textContent = await page.getTextContent();
         const pageText = textContent.items.map(item => item.str).join(' ');
         fullText += pageText + ' ';
       }
-
       return fullText.trim() || 'No text found in the PDF.';
     } catch (error) {
       throw new Error('PDF text extraction failed: ' + error.message);
@@ -190,15 +194,11 @@ function ViewFolder() {
 
   const sendToDeepSeek = async (text) => {
     try {
+      // Placeholder for actual DeepSeek integration
       const response = await axios.post(
         'https://api.deepseek.com/v1/process',
         { text },
-        {
-          headers: {
-            'Authorization': 'Bearer YOUR_DEEPSEEK_API_KEY',
-            'Content-Type': 'application/json',
-          },
-        }
+        { headers: { 'Authorization': 'Bearer YOUR_DEEPSEEK_API_KEY', 'Content-Type': 'application/json' } }
       );
       return response.data.results || 'No results from DeepSeek.';
     } catch (error) {
@@ -211,14 +211,10 @@ function ViewFolder() {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
       const fileName = selectedFile.name.toLowerCase();
-      const allowedExtensions = [
-        '.pdf', '.docx', '.txt', '.pptx',
-        '.mp3', '.wav', '.m4a', '.ogg', '.flac',
-        '.mp4', '.mov', '.avi', '.mkv', '.webm'
-      ];
+      const allowedExtensions = ['.pdf', '.docx', '.txt', '.pptx', '.mp3', '.wav', '.m4a', '.ogg', '.flac', '.mp4', '.mov', '.avi', '.mkv', '.webm'];
       const isValidFile = allowedExtensions.some(ext => fileName.endsWith(ext));
       if (!isValidFile) {
-        toast.error('Only .pdf, .docx, .txt, .pptx, audio (mp3, wav, m4a, ogg, flac), or video (mp4, mov, avi, mkv, webm) files are allowed.');
+        toast.error('Invalid file type. Please check supported formats.');
         setFile(null);
         return;
       }
@@ -227,16 +223,8 @@ function ViewFolder() {
   };
 
   const handleUpload = async () => {
-    if (!file) {
-      toast.error('Please select a file to upload.');
-      return;
-    }
-
-    if (folder.documents.length >= 1) {
-      toast.error('This folder already has a document. Only one document is allowed per folder. Delete the existing document to upload a new one.');
-      setFile(null);
-      return;
-    }
+    if (!file) { toast.error('Please select a file to upload.'); return; }
+    if (folder.documents.length >= 1) { toast.error('Limit reached: 1 document per folder.'); setFile(null); return; }
 
     setUploading(true);
     try {
@@ -252,39 +240,22 @@ function ViewFolder() {
         if (['pdf', 'docx', 'txt', 'pptx'].includes(fileExtension)) {
           isText = true;
           switch (fileExtension) {
-            case 'pdf':
-              extractedText = await extractPdfText(file);
-              break;
-            case 'docx':
-              extractedText = await extractDocxText(file);
-              break;
-            case 'txt':
-              extractedText = await extractTxtText(file);
-              break;
-            case 'pptx':
-              extractedText = await extractPptxText(file);
-              break;
+            case 'pdf': extractedText = await extractPdfText(file); break;
+            case 'docx': extractedText = await extractDocxText(file); break;
+            case 'txt': extractedText = await extractTxtText(file); break;
+            case 'pptx': extractedText = await extractPptxText(file); break;
           }
           const txtBlob = new Blob([extractedText], { type: 'text/plain' });
-          const txtFileName = `extracted_${file.name}.txt`;
-          const txtStorageRef = ref(storage, `documents/${folderId}/${txtFileName}`);
+          const txtStorageRef = ref(storage, `documents/${folderId}/extracted_${file.name}.txt`);
           await uploadBytes(txtStorageRef, txtBlob);
           extractedTextUrl = await getDownloadURL(txtStorageRef);
           deepSeekResults = await sendToDeepSeek(extractedText);
-        } else if (['mp3', 'wav', 'm4a', 'ogg', 'flac'].includes(fileExtension)) {
-          isAudio = true;
-        } else if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(fileExtension)) {
-          isVideo = true;
-        }
+        } else if (['mp3', 'wav', 'm4a', 'ogg', 'flac'].includes(fileExtension)) isAudio = true;
+        else if (['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(fileExtension)) isVideo = true;
       } catch (err) {
         if (isText) {
-          console.warn('Text extraction or DeepSeek processing failed:', err.message);
-          toast('Text extraction or processing failed. File will still be uploaded.', {
-            style: {
-              background: '#fefcbf',
-              color: '#744210',
-            },
-          });
+          console.warn('Text extraction failed:', err.message);
+          toast.error('Text extraction failed, but file will be uploaded.');
         }
       }
 
@@ -300,54 +271,30 @@ function ViewFolder() {
         extractedTextUrl: isText ? extractedTextUrl : '',
         deepSeekResults: isText ? deepSeekResults : '',
         uploadedAt: new Date().toISOString(),
-        isText,
-        isAudio,
-        isVideo,
+        isText, isAudio, isVideo,
       };
 
-      const folderRef = doc(db, 'folders', folderId);
-      await updateDoc(folderRef, {
-        documents: [...(folder.documents || []), documentData],
-      });
-
-      setFolder(prev => ({
-        ...prev,
-        documents: [...prev.documents, documentData],
-      }));
-
+      await updateDoc(doc(db, 'folders', folderId), { documents: [...(folder.documents || []), documentData] });
+      setFolder(prev => ({ ...prev, documents: [...prev.documents, documentData] }));
       toast.success('Document uploaded successfully!');
       setFile(null);
     } catch (err) {
       console.error('Upload error:', err);
-      toast.error(err.message || 'Failed to upload document. Please try again.');
+      toast.error('Failed to upload document.');
     } finally {
       setUploading(false);
     }
   };
 
   const startAudioRecording = async () => {
-    if (isMobile) {
-      toast.error('Audio recording is only available on desktop devices. Please use your device\'s built-in recorder and upload the file.');
-      return;
-    }
+    if (isMobile) { toast.error('Use your device recorder and upload the file instead.'); return; }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }
-      });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
       audioRecorderRef.current = new MediaRecorder(stream, { mimeType });
       audioChunksRef.current = [];
 
-      audioRecorderRef.current.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
+      audioRecorderRef.current.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       audioRecorderRef.current.onstop = async () => {
         const extension = mimeType === 'audio/webm' ? 'webm' : 'mp4';
         const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
@@ -357,10 +304,9 @@ function ViewFolder() {
 
       audioRecorderRef.current.start();
       setIsRecordingAudio(true);
-      toast.success('Audio recording started!');
+      toast.success('Recording started...');
     } catch (err) {
-      console.error('Audio recording error:', err);
-      toast.error('Failed to start audio recording. Please check microphone permissions.');
+      toast.error('Check microphone permissions.');
     }
   };
 
@@ -372,44 +318,23 @@ function ViewFolder() {
   };
 
   const uploadRecording = async (blob, fileName, isVideo, isAudio) => {
-    if (folder.documents.length >= 1) {
-      toast.error('This folder already has a document. Only one document is allowed per folder. Delete the existing document to upload a new one.');
-      return;
-    }
-
+    if (folder.documents.length >= 1) { toast.error('Limit reached: 1 document per folder.'); return; }
     setUploading(true);
     try {
       const storageRef = ref(storage, `documents/${folderId}/${fileName}`);
       await uploadBytes(storageRef, blob);
       const downloadURL = await getDownloadURL(storageRef);
-
       const documentData = {
-        id: Date.now().toString(),
-        name: fileName,
-        url: downloadURL,
-        extractedText: '',
-        extractedTextUrl: '',
-        deepSeekResults: '',
-        uploadedAt: new Date().toISOString(),
-        isText: false,
-        isAudio,
-        isVideo,
+        id: Date.now().toString(), name: fileName, url: downloadURL,
+        extractedText: '', extractedTextUrl: '', deepSeekResults: '',
+        uploadedAt: new Date().toISOString(), isText: false, isAudio, isVideo,
       };
 
-      const folderRef = doc(db, 'folders', folderId);
-      await updateDoc(folderRef, {
-        documents: [...(folder.documents || []), documentData],
-      });
-
-      setFolder(prev => ({
-        ...prev,
-        documents: [...prev.documents, documentData],
-      }));
-
-      toast.success('Audio recording uploaded successfully!');
+      await updateDoc(doc(db, 'folders', folderId), { documents: [...(folder.documents || []), documentData] });
+      setFolder(prev => ({ ...prev, documents: [...prev.documents, documentData] }));
+      toast.success('Recording uploaded!');
     } catch (err) {
-      console.error('Recording upload error:', err);
-      toast.error('Failed to upload recording. Please try again.');
+      toast.error('Failed to upload recording.');
     } finally {
       setUploading(false);
     }
@@ -417,271 +342,315 @@ function ViewFolder() {
 
   const handleDeleteDocument = async (docId, docName, isVideo, isAudio, extractedTextUrl) => {
     try {
-      const storageRef = ref(storage, `documents/${folderId}/${docName}`);
-      await deleteObject(storageRef);
-
-      if (extractedTextUrl) {
-        const txtStorageRef = ref(storage, `documents/${folderId}/extracted_${docName}.txt`);
-        await deleteObject(txtStorageRef);
-      }
-
+      await deleteObject(ref(storage, `documents/${folderId}/${docName}`));
+      if (extractedTextUrl) await deleteObject(ref(storage, `documents/${folderId}/extracted_${docName}.txt`));
+      
       const updatedDocuments = folder.documents.filter(doc => doc.id !== docId);
-      const folderRef = doc(db, 'folders', folderId);
-      await updateDoc(folderRef, {
-        documents: updatedDocuments,
-      });
-
-      setFolder(prev => ({
-        ...prev,
-        documents: updatedDocuments,
-      }));
-
-      toast.success('Document deleted successfully!');
+      await updateDoc(doc(db, 'folders', folderId), { documents: updatedDocuments });
+      setFolder(prev => ({ ...prev, documents: updatedDocuments }));
+      toast.success('Deleted successfully.');
     } catch (err) {
-      console.error('Delete document error:', err);
-      toast.error('Failed to delete document. Please try again.');
+      toast.error('Failed to delete.');
     }
   };
 
   const handleNextStep = () => {
-    if (tutorialStep < tutorialSteps.length - 1) {
-      setTutorialStep(tutorialStep + 1);
-    } else {
-      setShowTutorial(false);
-      localStorage.setItem(`tutorialCompleted_folder_${folderId}`, 'true');
-    }
+    if (tutorialStep < tutorialSteps.length - 1) setTutorialStep(tutorialStep + 1);
+    else { setShowTutorial(false); localStorage.setItem(`tutorialCompleted_folder_${folderId}`, 'true'); }
   };
 
-  const handlePrevStep = () => {
-    if (tutorialStep > 0) {
-      setTutorialStep(tutorialStep - 1);
-    }
-  };
+  const handlePrevStep = () => { if (tutorialStep > 0) setTutorialStep(tutorialStep - 1); };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
-        <div className="flex items-center">
-          <svg className="animate-spin h-5 w-5 mr-3 text-white" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-          </svg>
-          Loading...
-        </div>
-      </div>
-    );
-  }
+  if (loading) return (
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center text-white">
+       <div className="w-10 h-10 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+    </div>
+  );
 
-  if (!folder) {
-    return (
-      <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-gray-400 text-lg">Unable to load folder.</p>
-          {/* Move Back to Dashboard button under the folder name and make it smaller */}
-          <Link
-            to="/dashboard"
-            className="mt-4 inline-block bg-purple-600 text-white py-1 px-3 rounded hover:bg-purple-700 text-xs"
-          >
-            Back to Dashboard
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  if (!folder) return null;
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-4 md:p-8">
-      {showTutorial && (
-        <div className={`fixed inset-0 bg-black bg-opacity-50 flex justify-center z-50 px-4 ${
-          tutorialStep === 1 || tutorialStep === 2 || tutorialStep === 3 || tutorialStep === 4 ? 'items-start pt-4' : 'items-center'
-        }`}>
-          <div className="bg-gray-800 p-4 sm:p-6 rounded-lg w-full max-w-sm sm:max-w-md">
-            <h2 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4">{tutorialSteps[tutorialStep].title}</h2>
-            <p className="text-gray-300 text-sm sm:text-base mb-4 sm:mb-6">{tutorialSteps[tutorialStep].description}</p>
-            <div className="flex justify-between items-center">
-              <button
-                onClick={handlePrevStep}
-                disabled={tutorialStep === 0}
-                className={`py-1 px-3 sm:py-2 sm:px-4 rounded-lg text-xs sm:text-sm ${
-                  tutorialStep === 0
-                    ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                    : 'bg-purple-600 text-white hover:bg-purple-700'
-                }`}
-              >
-                Previous
-              </button>
-              <span className="text-gray-400 text-xs sm:text-sm">
-                {tutorialStep + 1} / {tutorialSteps.length}
-              </span>
-              <button
-                onClick={handleNextStep}
-                className="bg-purple-600 text-white py-1 px-3 sm:py-2 sm:px-4 rounded-lg hover:bg-purple-700 text-xs sm:text-sm"
-              >
-                {tutorialStep === tutorialSteps.length - 1 ? 'Finish' : 'Next'}
-              </button>
+    <div className="min-h-screen bg-slate-900 text-white font-sans selection:bg-purple-500 selection:text-white relative overflow-x-hidden">
+      
+      {/* Background Ambience */}
+      <div className="fixed inset-0 z-0 opacity-30 pointer-events-none">
+        <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-purple-900/40 to-transparent" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-indigo-600 rounded-full blur-[120px]" />
+      </div>
+
+      {/* --- TUTORIAL OVERLAY --- */}
+      <AnimatePresence>
+        {showTutorial && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              className="bg-slate-800 border border-purple-500/30 p-6 rounded-2xl w-full max-w-md shadow-2xl relative"
+            >
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-t-2xl" />
+              <div className="flex justify-between items-start mb-4">
+                 <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <HelpCircle size={20} className="text-purple-400" />
+                    {tutorialSteps[tutorialStep].title}
+                 </h2>
+                 <button onClick={() => setShowTutorial(false)} className="text-slate-500 hover:text-white">
+                    <X size={20} />
+                 </button>
+              </div>
+              
+              <p className="text-slate-300 mb-8 leading-relaxed">
+                {tutorialSteps[tutorialStep].description}
+              </p>
+
+              <div className="flex justify-between items-center">
+                <button
+                  onClick={handlePrevStep}
+                  disabled={tutorialStep === 0}
+                  className={`px-4 py-2 rounded-lg text-sm transition-colors ${
+                    tutorialStep === 0 ? 'text-slate-600 cursor-not-allowed' : 'text-slate-300 hover:bg-white/5'
+                  }`}
+                >
+                  Previous
+                </button>
+                <div className="flex gap-1">
+                  {tutorialSteps.map((_, idx) => (
+                    <div key={idx} className={`w-2 h-2 rounded-full ${idx === tutorialStep ? 'bg-purple-500' : 'bg-slate-700'}`} />
+                  ))}
+                </div>
+                <button
+                  onClick={handleNextStep}
+                  className="bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 text-sm font-semibold shadow-lg shadow-purple-900/20"
+                >
+                  {tutorialStep === tutorialSteps.length - 1 ? 'Get Started' : 'Next'}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="relative z-10 max-w-6xl mx-auto p-4 md:p-8 pb-20">
+        
+        {/* HEADER */}
+        <header className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+          <div className="flex items-center gap-4">
+            <Link 
+              to="/dashboard"
+              className="w-10 h-10 rounded-xl bg-slate-800/50 backdrop-blur-sm border border-white/10 flex items-center justify-center hover:bg-slate-700 transition-colors"
+            >
+              <ArrowLeft size={20} className="text-slate-300" />
+            </Link>
+            <div>
+              <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2">
+                 {folder.name}
+              </h1>
+              <p className="text-sm text-slate-400">Folder Management</p>
             </div>
           </div>
-        </div>
-      )}
 
-      <div className="mb-2">
-        <h1 className="text-2xl md:text-3xl font-bold">{folder.name}</h1>
-        <div className="flex items-center space-x-2 mt-2">
-          <Link
-            to="/dashboard"
-            className="inline-block bg-purple-600 text-white py-1 px-3 rounded hover:bg-purple-700 text-xs"
-          >
-            Back to Dashboard
-          </Link>
           <button
             onClick={() => setShowTutorial(true)}
-            className="text-purple-400 hover:text-purple-300 text-sm md:text-base"
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-800/50 border border-white/10 hover:bg-slate-700 hover:border-purple-500/30 transition-all text-sm text-slate-300"
           >
-            Show Tutorial
+            <HelpCircle size={16} /> Show Tutorial
           </button>
-        </div>
-      </div>
-      <div className="mb-6 md:mb-8"></div>
-      <div className={`mb-6 md:mb-8 ${tutorialStep === 1 || tutorialStep === 2 || tutorialStep === 3 ? 'ring-4 ring-purple-500' : ''}`}>
-        <h2 className="text-lg md:text-xl font-semibold mb-2 md:mb-3">Upload Document, Audio, or Video</h2>
-        <p className="text-purple-400 text-sm md:text-base mb-3 animate-pulse-glow">
-          Accepted formats: {acceptedFormats.map(fmt => `.${fmt}`).join(', ')}
-        </p>
-        <div className="bg-gray-800 p-3 md:p-4 rounded-lg">
-          <div className="mb-3">
-            <input
-              ref={fileInputRef}
-              type="file"
-              onChange={handleFileChange}
-              className={`mb-3 text-sm md:text-base text-gray-300 ${tutorialStep === 1 ? 'ring-4 ring-purple-500' : ''}`}
-              accept=".pdf,.docx,.txt,.pptx,audio/*,video/*"
-            />
-          </div>
-          <div className="flex flex-col sm:flex-row sm:space-x-3 space-y-3 sm:space-y-0">
-            <button
-              ref={uploadButtonRef}
-              onClick={handleUpload}
-              disabled={uploading || !file || isRecordingAudio}
-              className={`flex-1 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm md:text-base flex items-center justify-center ${
-                uploading || !file || isRecordingAudio ? 'opacity-50 cursor-not-allowed' : ''
-              } ${tutorialStep === 2 ? 'ring-4 ring-purple-500' : ''}`}
-            >
-              {uploading ? (
-                <span className="flex items-center">
-                  <svg
-                    className="animate-spin h-4 w-4 mr-2 text-white"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                      fill="none"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8v8H4z"
-                    />
-                  </svg>
-                  Uploading...
-                </span>
-              ) : (
-                'Upload Document'
-              )}
-            </button>
-            <button
-              onClick={isRecordingAudio ? stopAudioRecording : startAudioRecording}
-              disabled={uploading}
-              className={`flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 text-sm md:text-base flex items-center justify-center ${
-                uploading ? 'opacity-50 cursor-not-allowed' : ''
-              } ${tutorialStep === 3 ? 'ring-4 ring-purple-500' : ''}`}
-            >
-              {isRecordingAudio ? (
-                <span className="flex items-center">
-                  <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <rect x="6" y="6" width="12" height="12" rx="2" />
-                  </svg>
-                  Stop Audio
-                </span>
-              ) : (
-                <span className="flex items-center">
-                  <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <circle cx="12" cy="12" r="10" strokeWidth="2" />
-                    <circle cx="12" cy="12" r="3" fill="currentColor" />
-                  </svg>
-                  Record Audio
-                </span>
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
+        </header>
 
-      <div ref={documentsSectionRef} className={`mb-6 md:mb-8 ${tutorialStep === 4 ? 'ring-4 ring-purple-500' : ''}`}>
-        <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Uploaded Documents and Recordings</h2>
-        {folder.documents.length === 0 ? (
-          <p className="text-gray-400 text-sm md:text-base">No documents or recordings uploaded yet.</p>
-        ) : (
-          folder.documents.map((doc) => (
-            <div
-              key={doc.id}
-              className="bg-gray-800 p-3 md:p-4 rounded-lg mb-3 md:mb-4 w-full overflow-hidden"
-            >
-              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
-                <a
-                  href={doc.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-purple-400 hover:underline text-sm md:text-base truncate max-w-[70%] sm:max-w-[60%]"
-                >
-                  {doc.name} {doc.isAudio ? '(Audio)' : doc.isVideo ? '(Video)' : `(${doc.name.split('.').pop().toUpperCase()})`}
-                </a>
-                <div className="flex items-center space-x-3 shrink-0">
-                  <span className="text-gray-400 text-sm truncate">
-                    Uploaded on {new Date(doc.uploadedAt).toLocaleDateString()}
-                  </span>
-                  <button
-                    onClick={() => handleDeleteDocument(doc.id, doc.name, doc.isVideo, doc.isAudio, doc.extractedTextUrl)}
-                    className="bg-red-600 text-white py-1 px-3 rounded-lg hover:bg-red-700 text-sm shrink-0"
-                  >
-                    Delete
-                  </button>
-                </div>
+        {/* --- UPLOAD SECTION --- */}
+        <div ref={uploadButtonRef} className={`mb-8 ${tutorialStep === 2 ? 'ring-2 ring-purple-500 rounded-2xl ring-offset-4 ring-offset-slate-900' : ''}`}>
+           <motion.div 
+             initial={{ opacity: 0, y: 10 }}
+             animate={{ opacity: 1, y: 0 }}
+             className="bg-slate-800/40 backdrop-blur-md border border-white/10 rounded-2xl p-6 md:p-8 relative overflow-hidden"
+           >
+              <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+                 <UploadCloud size={120} />
               </div>
-            </div>
-          ))
-        )}
-      </div>
 
-      <div ref={studyMaterialsRef} className={`mb-6 md:mb-8 ${tutorialStep === 5 ? 'ring-4 ring-purple-500' : ''}`}>
-        <h2 className="text-lg md:text-xl font-semibold mb-3 md:mb-4">Study Materials</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 md:gap-4">
-          <Link
-            to={`/folder/${folderId}/notes`}
-            className="bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base"
-          >
-            <span>Notes</span>
-            <span>➔</span>
-          </Link>
-          <Link
-            to={`/folder/${folderId}/quizzes`}
-            className="bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base"
-          >
-            <span>Quizzes</span>
-            <span>➔</span>
-          </Link>
-          <Link
-            to={`/folder/${folderId}/flashcards`}
-            className="bg-gray-800 p-3 md:p-4 rounded-lg flex items-center justify-between hover:bg-gray-700 text-sm md:text-base"
-          >
-            <span>Flashcards</span>
-            <span>➔</span>
-          </Link>
+              <h2 className="text-xl font-bold mb-2 flex items-center gap-2">
+                 <UploadCloud className="text-purple-400" size={24} /> 
+                 Add Content
+              </h2>
+              <p className="text-slate-400 mb-6 text-sm max-w-2xl">
+                 Upload your study materials (.pdf, .docx, .txt, .pptx) or record lectures directly. 
+                 Only 1 document allowed per folder.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                 {/* File Upload Box */}
+                 <div className={`border-2 border-dashed border-slate-600 rounded-xl p-6 transition-all hover:border-purple-500/50 hover:bg-slate-800/50 group ${file ? 'border-purple-500 bg-purple-500/5' : ''}`}>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      id="file-upload"
+                      onChange={handleFileChange}
+                      className="hidden"
+                      accept=".pdf,.docx,.txt,.pptx,audio/*,video/*"
+                    />
+                    <label htmlFor="file-upload" className="cursor-pointer flex flex-col items-center justify-center h-full">
+                       {file ? (
+                          <>
+                             <File className="text-purple-400 mb-2" size={32} />
+                             <span className="font-semibold text-white text-center break-all">{file.name}</span>
+                             <span className="text-xs text-purple-300 mt-1">Click to change</span>
+                          </>
+                       ) : (
+                          <>
+                             <UploadCloud className="text-slate-500 group-hover:text-purple-400 mb-3 transition-colors" size={32} />
+                             <span className="text-slate-300 font-medium">Click to select file</span>
+                             <span className="text-xs text-slate-500 mt-1">PDF, DOCX, Audio, Video</span>
+                          </>
+                       )}
+                    </label>
+                 </div>
+
+                 {/* Action Buttons */}
+                 <div className="flex flex-col gap-3 justify-center">
+                    <button
+                       onClick={handleUpload}
+                       disabled={uploading || !file || isRecordingAudio}
+                       className="w-full py-4 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-purple-900/20"
+                    >
+                       {uploading ? (
+                          <><Loader2 className="animate-spin" size={20} /> Uploading...</>
+                       ) : (
+                          <><UploadCloud size={20} /> Upload Selected File</>
+                       )}
+                    </button>
+
+                    <div className="flex items-center gap-2 text-slate-500 text-xs uppercase tracking-wider justify-center">
+                       <div className="h-px bg-slate-700 w-12" /> OR <div className="h-px bg-slate-700 w-12" />
+                    </div>
+
+                    <button
+                       onClick={isRecordingAudio ? stopAudioRecording : startAudioRecording}
+                       disabled={uploading}
+                       className={`w-full py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all border ${
+                          isRecordingAudio 
+                             ? 'bg-red-500/10 border-red-500 text-red-400 animate-pulse' 
+                             : 'bg-slate-700 hover:bg-slate-600 border-transparent text-white'
+                       }`}
+                    >
+                       {isRecordingAudio ? (
+                          <><Square size={20} fill="currentColor" /> Stop Recording</>
+                       ) : (
+                          <><Mic size={20} /> Record Audio Note</>
+                       )}
+                    </button>
+                 </div>
+              </div>
+           </motion.div>
         </div>
+
+        {/* --- DOCUMENTS LIST --- */}
+        <div ref={documentsSectionRef} className={`mb-8 ${tutorialStep === 3 ? 'ring-2 ring-purple-500 rounded-2xl ring-offset-4 ring-offset-slate-900' : ''}`}>
+           <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold flex items-center gap-2">
+                 <FileType className="text-purple-400" size={20} /> Attached Content
+              </h2>
+           </div>
+
+           {folder.documents.length === 0 ? (
+              <div className="bg-slate-800/30 border border-white/5 border-dashed rounded-xl p-8 text-center text-slate-500">
+                 <p>No content uploaded yet.</p>
+              </div>
+           ) : (
+              <div className="space-y-3">
+                 {folder.documents.map((doc) => (
+                    <motion.div 
+                       initial={{ opacity: 0, x: -10 }}
+                       animate={{ opacity: 1, x: 0 }}
+                       key={doc.id}
+                       className="bg-slate-800/60 border border-white/5 hover:border-purple-500/30 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-colors group"
+                    >
+                       <div className="flex items-center gap-3 overflow-hidden">
+                          <div className="p-2 bg-slate-900 rounded-lg shrink-0 text-purple-400">
+                             {doc.isAudio ? <Music size={20} /> : doc.isVideo ? <Video size={20} /> : <FileText size={20} />}
+                          </div>
+                          <div className="min-w-0">
+                             <a 
+                                href={doc.url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="font-medium text-white hover:text-purple-400 truncate block transition-colors"
+                             >
+                                {doc.name}
+                             </a>
+                             <p className="text-xs text-slate-500">{new Date(doc.uploadedAt).toLocaleDateString()}</p>
+                          </div>
+                       </div>
+                       
+                       <button
+                          onClick={() => handleDeleteDocument(doc.id, doc.name, doc.isVideo, doc.isAudio, doc.extractedTextUrl)}
+                          className="bg-red-500/10 text-red-400 hover:bg-red-500/20 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1 shrink-0 self-start sm:self-center"
+                       >
+                          <Trash2 size={14} /> Delete
+                       </button>
+                    </motion.div>
+                 ))}
+              </div>
+           )}
+        </div>
+
+        {/* --- STUDY MATERIALS GRID --- */}
+        <div ref={studyMaterialsRef} className={`${tutorialStep === 4 ? 'ring-2 ring-purple-500 rounded-2xl ring-offset-4 ring-offset-slate-900' : ''}`}>
+           <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
+              <BookOpen className="text-purple-400" size={20} /> Study Tools
+           </h2>
+           
+           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Link to={`/folder/${folderId}/notes`} className="group">
+                 <div className="bg-slate-800/60 hover:bg-slate-800 border border-white/5 hover:border-purple-500/50 p-5 rounded-2xl transition-all h-full flex flex-col justify-between">
+                    <div>
+                       <div className="p-3 bg-blue-500/20 text-blue-400 w-fit rounded-xl mb-3">
+                          <FileText size={24} />
+                       </div>
+                       <h3 className="font-bold text-lg mb-1">AI Notes</h3>
+                       <p className="text-sm text-slate-400">Generate comprehensive summaries and study guides.</p>
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                       <ChevronRight className="text-slate-500 group-hover:text-white transition-colors" />
+                    </div>
+                 </div>
+              </Link>
+
+              <Link to={`/folder/${folderId}/quizzes`} className="group">
+                 <div className="bg-slate-800/60 hover:bg-slate-800 border border-white/5 hover:border-purple-500/50 p-5 rounded-2xl transition-all h-full flex flex-col justify-between">
+                    <div>
+                       <div className="p-3 bg-green-500/20 text-green-400 w-fit rounded-xl mb-3">
+                          <Brain size={24} />
+                       </div>
+                       <h3 className="font-bold text-lg mb-1">Quizzes</h3>
+                       <p className="text-sm text-slate-400">Test your knowledge with AI-generated questions.</p>
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                       <ChevronRight className="text-slate-500 group-hover:text-white transition-colors" />
+                    </div>
+                 </div>
+              </Link>
+
+              <Link to={`/folder/${folderId}/flashcards`} className="group">
+                 <div className="bg-slate-800/60 hover:bg-slate-800 border border-white/5 hover:border-purple-500/50 p-5 rounded-2xl transition-all h-full flex flex-col justify-between">
+                    <div>
+                       <div className="p-3 bg-orange-500/20 text-orange-400 w-fit rounded-xl mb-3">
+                          <Layers size={24} />
+                       </div>
+                       <h3 className="font-bold text-lg mb-1">Flashcards</h3>
+                       <p className="text-sm text-slate-400">Practice key concepts with spaced repetition.</p>
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                       <ChevronRight className="text-slate-500 group-hover:text-white transition-colors" />
+                    </div>
+                 </div>
+              </Link>
+           </div>
+        </div>
+
       </div>
     </div>
   );
