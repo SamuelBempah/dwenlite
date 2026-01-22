@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Folder, Mic, Video, FileText, Plus, LogOut, 
   HelpCircle, MoreVertical, Edit2, Trash2, 
-  LayoutDashboard, Coins, Star 
+  LayoutDashboard, Coins, Star, Sparkles, ArrowRight, GraduationCap
 } from 'lucide-react';
 
 function Dashboard() {
@@ -295,6 +295,37 @@ function Dashboard() {
           </header>
 
           <div className="max-w-6xl mx-auto space-y-8">
+
+            {/* --- NEW EXAM PREPARATION ANNOUNCEMENT --- */}
+            <motion.div 
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.99 }}
+              onClick={() => navigate('/exams-preparation')}
+              className="p-1 rounded-2xl bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 cursor-pointer shadow-lg shadow-purple-500/20"
+            >
+              <div className="bg-slate-900/95 backdrop-blur-xl rounded-xl p-5 md:p-6 flex flex-col md:flex-row items-center justify-between gap-4 group hover:bg-slate-900/90 transition-colors">
+                <div className="flex items-center gap-4 text-center md:text-left">
+                  <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-yellow-400 to-orange-500 flex items-center justify-center shrink-0 shadow-lg shadow-orange-500/30">
+                    <Sparkles size={28} className="text-white animate-pulse" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-lg md:text-xl flex items-center gap-2 justify-center md:justify-start">
+                      Exam Prep AI <span className="text-xs bg-white/20 text-white px-2 py-0.5 rounded-full uppercase tracking-wider">New</span>
+                    </h3>
+                    <p className="text-slate-300 text-sm md:text-base mt-1 max-w-xl">
+                      Upload all your study materials and our AI will create full-fledged exams with smart marking for you.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-white font-medium bg-white/10 px-4 py-2 rounded-lg group-hover:bg-white/20 transition-all whitespace-nowrap">
+                  <span>Start Now</span>
+                  <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                </div>
+              </div>
+            </motion.div>
+            {/* ----------------------------------------- */}
             
             {/* Quick Actions */}
             <section ref={uploadSectionRef}>
