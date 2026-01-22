@@ -632,7 +632,7 @@ function ExamsPreparation() {
               {examStage !== 'upload' && examStage !== 'marking' && (
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-500/10 border border-purple-500/20 rounded-full">
                   <Sparkles size={14} className="text-purple-400" />
-                  <span className="text-xs font-mono text-purple-300">DeepSeek AI Active</span>
+                  <span className="text-xs font-mono text-purple-300">DwenLite AI Active</span>
                 </div>
               )}
             </div>
