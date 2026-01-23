@@ -11,7 +11,7 @@ import {
   ArrowLeft, Upload, FileText, Mic, Video, 
   Play, CheckCircle, XCircle, Send, AlertTriangle,
   Sparkles, BrainCircuit, GraduationCap, ChevronRight,
-  Clock, Check, RefreshCw, AlertCircle
+  Clock, Check, RefreshCw, AlertCircle, SpellCheck
 } from 'lucide-react';
 
 function ExamsPreparation() {
@@ -359,12 +359,40 @@ function ExamsPreparation() {
         const userAnswer = fillInAnswers[question.id]?.trim() || '';
         
         if (!userAnswer) {
-          results.push({ id: question.id, isCorrect: false, explanation: 'No answer provided.', question: question.question, userAnswer, expectedAnswer: question.expectedAnswer });
+          results.push({ 
+            id: question.id, 
+            isCorrect: false, 
+            explanation: 'No answer provided.', 
+            question: question.question, 
+            userAnswer, 
+            expectedAnswer: question.expectedAnswer,
+            hasTypos: false 
+          });
           continue;
         }
 
-        // Using Proxy for Grading
-        const prompt = `You evaluate answers. Compare user answer "${userAnswer}" to expected "${question.expectedAnswer}" for question "${question.question}". Determine if correct. Return JSON: { "isCorrect": boolean, "explanation": "..." }.`;
+        // --- SMART TEACHER GRADING PROMPT ---
+        const prompt = `
+          Act as a smart, human teacher grading a student's fill-in-the-blank answer.
+          
+          Context (Question): "${question.question}"
+          Expected Answer: "${question.expectedAnswer}"
+          Student Answer: "${userAnswer}"
+
+          GRADING RULES:
+          1. Mark as CORRECT (true) if the student's answer has the same meaning as the expected answer.
+          2. IGNORE capitalization, punctuation, and spacing differences.
+          3. ALLOW typos or spelling errors if the word is still recognizable (e.g., "processer" = "processor").
+          4. ACCEPT standard abbreviations (e.g., "CPU" = "Central Processing Unit").
+          5. Mark INCORRECT (false) only if the answer is conceptually wrong or unrelated.
+
+          Return JSON ONLY:
+          { 
+            "isCorrect": boolean, 
+            "explanation": "Brief, helpful teacher feedback. If there was a spelling error, mention it kindly.", 
+            "hasTypos": boolean 
+          }
+        `;
 
         try {
           let resultText = await callAIProxy(prompt);
@@ -383,9 +411,18 @@ function ExamsPreparation() {
 
         } catch (apiErr) {
           console.error(`Grading error for QID ${question.id}:`, apiErr);
+          // Fallback simple grading if API fails
+          const strictMatch = userAnswer.toLowerCase() === question.expectedAnswer.toLowerCase();
           results.push({
-            id: question.id, isCorrect: false, explanation: 'Grading error', question: question.question, userAnswer, expectedAnswer: question.expectedAnswer
+            id: question.id, 
+            isCorrect: strictMatch, 
+            explanation: strictMatch ? 'Correct.' : 'Grading unavailable.', 
+            question: question.question, 
+            userAnswer, 
+            expectedAnswer: question.expectedAnswer,
+            hasTypos: false
           });
+          if (strictMatch) fillInScore += 2;
         }
       }
 
@@ -693,7 +730,7 @@ function ExamsPreparation() {
                     </div>
                   </div>
 
-                  {/* Uploaded Files List (FIXED VISIBILITY BUG) */}
+                  {/* Uploaded Files List */}
                   {uploadedNotes.length > 0 && (
                     <motion.div 
                       variants={staggerContainer}
@@ -707,8 +744,8 @@ function ExamsPreparation() {
                       <div className="space-y-3">
                         {uploadedNotes.map((note, idx) => (
                            <motion.div 
-                             key={`${note.fileName}-${note.createdAt}`} // FIX: Use unique key
-                             layout // FIX: Smooth resizing
+                             key={`${note.fileName}-${note.createdAt}`} 
+                             layout
                              variants={listItem}
                              className="flex items-center gap-4 bg-slate-900/60 p-4 rounded-xl border border-white/5 hover:border-purple-500/30 transition-colors"
                            >
@@ -1130,15 +1167,29 @@ function ExamsPreparation() {
                     {fillInResults.map((res, idx) => (
                       <div key={idx} className={`p-5 rounded-2xl border transition-all ${
                         res.isCorrect 
-                          ? 'bg-green-500/5 border-green-500/20 hover:bg-green-500/10' 
+                          ? res.hasTypos 
+                            ? 'bg-yellow-500/5 border-yellow-500/20 hover:bg-yellow-500/10' // Correct but w/ typos
+                            : 'bg-green-500/5 border-green-500/20 hover:bg-green-500/10' 
                           : 'bg-red-500/5 border-red-500/20 hover:bg-red-500/10'
                       }`}>
                          <div className="flex justify-between items-start mb-3">
                            <span className="text-sm font-bold text-slate-300">Question {idx + 1} (Written)</span>
+                           
+                           {/* Status Badge */}
                            {res.isCorrect ? (
-                             <span className="flex items-center gap-1 text-xs font-bold text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full"><CheckCircle size={12}/> Correct (+2)</span>
+                             res.hasTypos ? (
+                               <span className="flex items-center gap-1 text-xs font-bold text-yellow-400 bg-yellow-500/10 px-2 py-0.5 rounded-full">
+                                 <SpellCheck size={12}/> Correct (Check Spelling)
+                               </span>
+                             ) : (
+                               <span className="flex items-center gap-1 text-xs font-bold text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">
+                                 <CheckCircle size={12}/> Correct (+2)
+                               </span>
+                             )
                            ) : (
-                             <span className="flex items-center gap-1 text-xs font-bold text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full"><XCircle size={12}/> Incorrect</span>
+                             <span className="flex items-center gap-1 text-xs font-bold text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">
+                               <XCircle size={12}/> Incorrect
+                             </span>
                            )}
                          </div>
                          <p className="text-sm mb-4 text-white font-medium">{res.question}</p>
@@ -1146,7 +1197,9 @@ function ExamsPreparation() {
                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                            <div className="bg-black/20 p-3 rounded-lg border border-white/5">
                              <div className="text-xs text-slate-500 mb-1">Your Answer</div>
-                             <div className={res.isCorrect ? 'text-green-300' : 'text-red-300'}>{res.userAnswer || '(Empty)'}</div>
+                             <div className={res.isCorrect ? (res.hasTypos ? 'text-yellow-300' : 'text-green-300') : 'text-red-300'}>
+                               {res.userAnswer || '(Empty)'}
+                             </div>
                            </div>
                            <div className="bg-black/20 p-3 rounded-lg border border-white/5">
                              <div className="text-xs text-slate-500 mb-1">Expected Answer</div>
@@ -1154,7 +1207,8 @@ function ExamsPreparation() {
                            </div>
                          </div>
                          
-                         {!res.isCorrect && (
+                         {/* Show explanation if wrong OR if there are typos/comments */}
+                         {(!res.isCorrect || res.explanation) && (
                            <div className="mt-3 text-xs text-slate-400 italic flex gap-2 items-start">
                              <AlertCircle size={14} className="mt-0.5 shrink-0" />
                              {res.explanation}
