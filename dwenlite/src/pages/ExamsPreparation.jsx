@@ -174,58 +174,79 @@ function ExamsPreparation() {
   };
 
   const handleFileUpload = async (e) => {
-    const selectedFile = e.target.files[0];
-    if (!selectedFile) return;
+    const selectedFiles = Array.from(e.target.files);
+    if (selectedFiles.length === 0) return;
 
-    setFiles(prev => [...prev, selectedFile]);
+    // Check strict 50 files limit
+    if (uploadedNotes.length + selectedFiles.length > 50) {
+      toast.error('You can only upload up to 50 files maximum.');
+      e.target.value = null;
+      return;
+    }
+
     setUploadLoading(true);
 
     try {
-      const fileType = selectedFile.type;
-      const fileExtension = selectedFile.name.split('.').pop().toLowerCase();
-      const isAudio = fileType.startsWith('audio/') || ['mp3', 'wav', 'm4a', 'ogg', 'flac'].includes(fileExtension);
-      const isVideo = fileType.startsWith('video/') || ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(fileExtension);
-      const isText = fileType === 'text/plain' || fileType === 'application/pdf' || ['txt', 'pdf'].includes(fileExtension);
+      const newNotesPromises = selectedFiles.map(async (selectedFile) => {
+        try {
+          const fileType = selectedFile.type;
+          const fileExtension = selectedFile.name.split('.').pop().toLowerCase();
+          const isAudio = fileType.startsWith('audio/') || ['mp3', 'wav', 'm4a', 'ogg', 'flac'].includes(fileExtension);
+          const isVideo = fileType.startsWith('video/') || ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(fileExtension);
+          const isText = fileType === 'text/plain' || fileType === 'application/pdf' || ['txt', 'pdf'].includes(fileExtension);
 
-      if (!isAudio && !isVideo && !isText) {
-        throw new Error('Unsupported file type. Please upload audio, video, text, or PDF files.');
-      }
+          if (!isAudio && !isVideo && !isText) {
+            throw new Error(`Skipped ${selectedFile.name}: Unsupported file type.`);
+          }
 
-      // Upload to Firebase
-      const storageRef = ref(storage, `exam_notes/${currentUser.uid}/${Date.now()}_${selectedFile.name}`);
-      await uploadBytes(storageRef, selectedFile);
-      const downloadURL = await getDownloadURL(storageRef);
+          // Upload to Firebase
+          const storageRef = ref(storage, `exam_notes/${currentUser.uid}/${Date.now()}_${selectedFile.name}`);
+          await uploadBytes(storageRef, selectedFile);
+          const downloadURL = await getDownloadURL(storageRef);
 
-      // Extract Text
-      let extractedText = '';
-      if (isAudio) {
-        extractedText = await transcribeMedia(downloadURL, 'Audio');
-      } else if (isVideo) {
-        extractedText = await transcribeMedia(downloadURL, 'Video');
-      } else if (isText) {
-        if (fileType === 'text/plain' || fileExtension === 'txt') {
-          extractedText = await selectedFile.text();
-        } else if (fileType === 'application/pdf' || fileExtension === 'pdf') {
-          extractedText = await extractPdfText(selectedFile);
+          // Extract Text
+          let extractedText = '';
+          if (isAudio) {
+            extractedText = await transcribeMedia(downloadURL, 'Audio');
+          } else if (isVideo) {
+            extractedText = await transcribeMedia(downloadURL, 'Video');
+          } else if (isText) {
+            if (fileType === 'text/plain' || fileExtension === 'txt') {
+              extractedText = await selectedFile.text();
+            } else if (fileType === 'application/pdf' || fileExtension === 'pdf') {
+              extractedText = await extractPdfText(selectedFile);
+            }
+          }
+
+          return {
+            url: downloadURL,
+            isAudio,
+            isVideo,
+            isText,
+            extractedText,
+            createdAt: new Date().toISOString(),
+            fileName: selectedFile.name,
+          };
+        } catch (fileErr) {
+          console.error(`Error processing file ${selectedFile.name}:`, fileErr);
+          toast.error(`Failed to process ${selectedFile.name}`);
+          return null;
         }
+      });
+
+      const results = await Promise.all(newNotesPromises);
+      const validNotes = results.filter(note => note !== null);
+
+      setUploadedNotes(prev => [...prev, ...validNotes]);
+      setFiles(prev => [...prev, ...selectedFiles]);
+      
+      if (validNotes.length > 0) {
+        toast.success(`Successfully processed ${validNotes.length} files!`);
       }
-
-      const newNote = {
-        url: downloadURL,
-        isAudio,
-        isVideo,
-        isText,
-        extractedText,
-        createdAt: new Date().toISOString(),
-        fileName: selectedFile.name,
-      };
-
-      setUploadedNotes(prev => [...prev, newNote]);
-      toast.success('Note uploaded and processed successfully!');
+      
     } catch (err) {
-      console.error('File upload error:', err);
-      toast.error(err.message);
-      setFiles(prev => prev.filter(f => f !== selectedFile));
+      console.error('Batch upload error:', err);
+      toast.error('An error occurred during batch upload.');
     } finally {
       setUploadLoading(false);
       e.target.value = null; // Reset input
@@ -234,16 +255,22 @@ function ExamsPreparation() {
 
   const generateExamContent = async (retry = false) => {
     try {
+      // Aggregate text from up to 50 notes
       const context = uploadedNotes.length > 0
         ? uploadedNotes.map(note => note.extractedText).join('\n\n')
         : 'No notes uploaded. Generate generic exam content.';
 
+      // Check for extremely large context which might cause 500 errors
+      if (context.length > 100000) {
+         toast('Content is very large. Optimizing for AI...', { icon: '⚠️' });
+      }
+
       // 1. Generate Review Content (Using Proxy)
-      const reviewPrompt = `You are a helpful educational assistant. Generate comprehensive and well-organized study notes based on the following content: "${context}". Structure with clear headings and bullet points. Format as plain text suitable for React rendering.`;
+      const reviewPrompt = `You are a helpful educational assistant. Generate comprehensive and well-organized study notes based on the following content: "${context.slice(0, 50000)}". Structure with clear headings and bullet points. Format as plain text suitable for React rendering.`;
       const reviewText = await callAIProxy(reviewPrompt);
 
       // 2. Generate MCQs (Using Proxy)
-      const mcqPrompt = `You are a strict JSON generator for educational content. Generate 40 multiple-choice quiz questions based on: "${context}". Format as a JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }, ...]. Ensure "correctAnswer" matches one of the options exactly. Return ONLY valid JSON. ${retry ? 'Previously failed to return valid JSON. Ensure strict JSON format.' : ''}`;
+      const mcqPrompt = `You are a strict JSON generator for educational content. Generate 40 multiple-choice quiz questions based on the content provided. Format as a JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }, ...]. Ensure "correctAnswer" matches one of the options exactly. Return ONLY valid JSON. Content: "${context.slice(0, 50000)}" ${retry ? 'Previously failed to return valid JSON. Ensure strict JSON format.' : ''}`;
       let mcqText = await callAIProxy(mcqPrompt);
       
       // Sanitize JSON
@@ -272,7 +299,7 @@ function ExamsPreparation() {
       }));
 
       // 3. Generate Fill-in-the-Blank (Using Proxy)
-      const fillInPrompt = `You are a JSON generator. Generate 10 fill-in-the-blank questions based on: "${context}". Format as JSON array: [{ "question": "...", "expectedAnswer": "..." }]. Return ONLY valid JSON.`;
+      const fillInPrompt = `You are a JSON generator. Generate 10 fill-in-the-blank questions based on the content. Format as JSON array: [{ "question": "...", "expectedAnswer": "..." }]. Return ONLY valid JSON. Content: "${context.slice(0, 30000)}"`;
       let fillInText = await callAIProxy(fillInPrompt);
       
       fillInText = fillInText.replace(/```json/g, '').replace(/```/g, '').trim();
@@ -483,7 +510,7 @@ function ExamsPreparation() {
 
     try {
       const context = reviewContent || 'No review content available.';
-      const prompt = `You are DwenLite AI, a helpful exam tutor. Based on these notes: "${context}", answer: "${question}". Keep it concise.`;
+      const prompt = `You are DwenLite AI, a helpful exam tutor. Based on these notes: "${context.slice(0, 10000)}", answer: "${question}". Keep it concise.`;
 
       const answer = await callAIProxy(prompt);
       
@@ -706,7 +733,8 @@ function ExamsPreparation() {
                       
                       <input 
                         type="file" 
-                        onChange={handleFileUpload} 
+                        onChange={handleFileUpload}
+                        multiple
                         accept="text/plain,application/pdf,audio/*,video/*"
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
                         disabled={uploadLoading}
@@ -721,9 +749,11 @@ function ExamsPreparation() {
                       </div>
                       
                       <h3 className="text-xl font-bold text-white mb-2">
-                        {uploadLoading ? 'Analyzing File...' : 'Click or Drag to Upload'}
+                        {uploadLoading ? 'Analyzing Files...' : 'Click or Drag to Upload'}
                       </h3>
                       <p className="text-slate-400 text-sm max-w-md mx-auto">
+                        Upload up to 50 files at once.
+                        <br/>
                         Compatible with <span className="text-slate-300">PDF, Text</span>, <span className="text-slate-300">Audio (MP3)</span>, and <span className="text-slate-300">Video (MP4)</span>.
                         <br/><span className="text-xs opacity-70 mt-2 block">Max file size: 50MB</span>
                       </p>
@@ -738,13 +768,14 @@ function ExamsPreparation() {
                       animate="show"
                       className="bg-slate-800/40 backdrop-blur-md border border-white/5 rounded-2xl p-5"
                     >
-                      <h4 className="text-sm font-semibold text-slate-300 mb-4 px-2 flex items-center gap-2">
-                        <CheckCircle size={16} className="text-green-500" /> Ready for Processing
+                      <h4 className="text-sm font-semibold text-slate-300 mb-4 px-2 flex items-center gap-2 justify-between">
+                        <span className="flex items-center gap-2"><CheckCircle size={16} className="text-green-500" /> Ready for Processing</span>
+                        <span className="text-xs text-slate-500">{uploadedNotes.length} / 50 files</span>
                       </h4>
-                      <div className="space-y-3">
+                      <div className="space-y-3 max-h-64 overflow-y-auto custom-scrollbar">
                         {uploadedNotes.map((note, idx) => (
                            <motion.div 
-                             key={`${note.fileName}-${note.createdAt}`} 
+                             key={`${note.fileName}-${note.createdAt}-${idx}`} 
                              layout
                              variants={listItem}
                              className="flex items-center gap-4 bg-slate-900/60 p-4 rounded-xl border border-white/5 hover:border-purple-500/30 transition-colors"
