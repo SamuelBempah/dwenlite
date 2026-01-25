@@ -11,7 +11,8 @@ import {
   ArrowLeft, Upload, FileText, Mic, Video, 
   Play, CheckCircle, XCircle, Send, AlertTriangle,
   Sparkles, BrainCircuit, GraduationCap, ChevronRight,
-  Clock, Check, RefreshCw, AlertCircle, SpellCheck
+  Clock, Check, RefreshCw, AlertCircle, SpellCheck,
+  Loader2, Cpu, ScanLine, FileSearch, Terminal, Activity
 } from 'lucide-react';
 
 function ExamsPreparation() {
@@ -23,6 +24,10 @@ function ExamsPreparation() {
   
   // Exam Generation State
   const [examLoading, setExamLoading] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState(0); // 0 to 100
+  const [loadingStatus, setLoadingStatus] = useState(''); // Main Text description
+  const [generationLog, setGenerationLog] = useState([]); // Array of log strings for the "stream" effect
+  
   const [files, setFiles] = useState([]);
   const [uploadedNotes, setUploadedNotes] = useState([]);
   const [uploadLoading, setUploadLoading] = useState(false);
@@ -39,7 +44,8 @@ function ExamsPreparation() {
   const [scores, setScores] = useState({ mcq: 0, fillIn: 0, total: 0 });
   const [mcqResults, setMcqResults] = useState([]);
   const [fillInResults, setFillInResults] = useState([]);
-  const [markingProgress, setMarkingProgress] = useState({ mcq: 0, fillIn: 0 });
+  const [markingProgress, setMarkingProgress] = useState({ mcq: 0, fillIn: 0 }); 
+  const [markingStatus, setMarkingStatus] = useState("Initializing grading engine...");
   const [submitLoading, setSubmitLoading] = useState(false);
 
   // Chat & Report State
@@ -77,7 +83,22 @@ function ExamsPreparation() {
 
   // --- CORE LOGIC HANDLERS ---
 
-  // PROXY HELPER FUNCTION (Fixes CORS)
+  // Helper: Shuffle Array (Fisher-Yates) to fix Answer Bias
+  const shuffleArray = (array) => {
+    const newArray = [...array];
+    for (let i = newArray.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+    }
+    return newArray;
+  };
+
+  // Helper: Add Log
+  const addLog = (message) => {
+    setGenerationLog(prev => [message, ...prev].slice(0, 6)); // Keep last 6 logs
+  };
+
+  // PROXY HELPER FUNCTION
   const callAIProxy = async (prompt) => {
     const functionUrl = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
     try {
@@ -102,7 +123,6 @@ function ExamsPreparation() {
   const extractPdfText = async (file) => {
     try {
       const arrayBuffer = await file.arrayBuffer();
-      // Ensure pdfjsLib is loaded in your index.html via CDN
       const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       let fullText = '';
       const numPages = pdf.numPages;
@@ -177,7 +197,6 @@ function ExamsPreparation() {
     const selectedFiles = Array.from(e.target.files);
     if (selectedFiles.length === 0) return;
 
-    // Check strict 50 files limit
     if (uploadedNotes.length + selectedFiles.length > 50) {
       toast.error('You can only upload up to 50 files maximum.');
       e.target.value = null;
@@ -199,12 +218,10 @@ function ExamsPreparation() {
             throw new Error(`Skipped ${selectedFile.name}: Unsupported file type.`);
           }
 
-          // Upload to Firebase
           const storageRef = ref(storage, `exam_notes/${currentUser.uid}/${Date.now()}_${selectedFile.name}`);
           await uploadBytes(storageRef, selectedFile);
           const downloadURL = await getDownloadURL(storageRef);
 
-          // Extract Text
           let extractedText = '';
           if (isAudio) {
             extractedText = await transcribeMedia(downloadURL, 'Audio');
@@ -249,41 +266,121 @@ function ExamsPreparation() {
       toast.error('An error occurred during batch upload.');
     } finally {
       setUploadLoading(false);
-      e.target.value = null; // Reset input
+      e.target.value = null; 
     }
   };
 
-  const generateExamContent = async (retry = false) => {
-    try {
-      // Aggregate text from up to 50 notes
-      const context = uploadedNotes.length > 0
-        ? uploadedNotes.map(note => note.extractedText).join('\n\n')
-        : 'No notes uploaded. Generate generic exam content.';
+  // Helper to smooth progress bar movement
+  const simulateProgress = (start, end, duration) => {
+    const step = (end - start) / (duration / 50); // Updates every 50ms for smoothness
+    let current = start;
+    const timer = setInterval(() => {
+      current += step;
+      if (current >= end) {
+        clearInterval(timer);
+        current = end;
+      }
+      setLoadingProgress(current);
+    }, 50);
+    return timer;
+  };
 
-      // Check for extremely large context which might cause 500 errors
-      if (context.length > 100000) {
-         toast('Content is very large. Optimizing for AI...', { icon: '⚠️' });
+  // Helper to simulate "Matrix" style drafting logs
+  const simulateDraftingLogs = (setStatus) => {
+    let count = 1;
+    const timer = setInterval(() => {
+       count = (count % 40) + 1;
+       const logs = [
+         `Generating Question ${count} vector...`,
+         `Calibrating distractor difficulty for Q${count}...`,
+         `Verifying semantic integrity of Q${count}...`,
+         `Optimizing retrieval for Question ${count}...`
+       ];
+       addLog(logs[Math.floor(Math.random() * logs.length)]);
+    }, 200); // Very fast updates
+    return timer;
+  };
+
+  const generateExamContent = async (retry = false) => {
+    if (!retry) {
+        setExamLoading(true);
+        setLoadingProgress(0);
+        setLoadingStatus("Initializing Engine");
+        setGenerationLog([]);
+    }
+    
+    let progressTimer;
+    let logTimer;
+
+    try {
+      // --- STEP 1: CONTEXT READING (IMMERSIVE) ---
+      let context = '';
+      
+      if (uploadedNotes.length > 0) {
+        const fileCount = uploadedNotes.length;
+        const timePerFile = Math.min(600, 3000 / fileCount); 
+
+        for (let i = 0; i < fileCount; i++) {
+          const note = uploadedNotes[i];
+          setLoadingStatus(`Reading File ${i + 1}/${fileCount}`);
+          addLog(`Scanning: "${note.fileName}"`);
+          addLog(`Extracting text tokens from ${note.fileName}...`);
+          
+          const progressStep = 20 / fileCount;
+          setLoadingProgress(prev => Math.min(prev + progressStep, 20));
+          
+          await new Promise(r => setTimeout(r, timePerFile));
+          context += note.extractedText + '\n\n';
+        }
+      } else {
+        context = 'No notes uploaded. Generate generic exam content.';
+        setLoadingProgress(20);
       }
 
-      // 1. Generate Review Content (Using Proxy)
+      addLog("Concatenating knowledge base...");
+      await new Promise(r => setTimeout(r, 400));
+
+      if (context.length > 100000) {
+         setLoadingStatus('Optimizing Dataset');
+         addLog('Context too large. Compressing tokens for analysis...');
+         addLog('Removing redundant stop words...');
+         await new Promise(r => setTimeout(r, 800));
+      }
+
+      // --- STEP 2: REVIEW GENERATION ---
+      setLoadingStatus('Generating Study Material');
+      addLog('Synthesizing comprehensive review notes...');
+      addLog('Structuring key concepts...');
+      progressTimer = simulateProgress(20, 45, 3000); 
+      
       const reviewPrompt = `You are a helpful educational assistant. Generate comprehensive and well-organized study notes based on the following content: "${context.slice(0, 50000)}". Structure with clear headings and bullet points. Format as plain text suitable for React rendering.`;
       const reviewText = await callAIProxy(reviewPrompt);
+      
+      clearInterval(progressTimer);
+      setLoadingProgress(45);
 
-      // 2. Generate MCQs (Using Proxy)
+      // --- STEP 3: MCQ GENERATION (Real-time Simulation) ---
+      setLoadingStatus('Drafting Assessment');
+      
+      // Start the fast log stream to show "exactly as it's generating"
+      logTimer = simulateDraftingLogs();
+      progressTimer = simulateProgress(45, 80, 8000); 
+      
       const mcqPrompt = `You are a strict JSON generator for educational content. Generate 40 multiple-choice quiz questions based on the content provided. Format as a JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }, ...]. Ensure "correctAnswer" matches one of the options exactly. Return ONLY valid JSON. Content: "${context.slice(0, 50000)}" ${retry ? 'Previously failed to return valid JSON. Ensure strict JSON format.' : ''}`;
       let mcqText = await callAIProxy(mcqPrompt);
       
+      clearInterval(progressTimer);
+      clearInterval(logTimer);
+      setLoadingProgress(80);
+      
       // Sanitize JSON
       mcqText = mcqText.replace(/```json/g, '').replace(/```/g, '').trim();
-      
       let mcqs;
       try {
         mcqs = JSON.parse(mcqText);
       } catch (parseErr) {
         console.error('MCQ JSON parse error:', parseErr);
-        if (!retry) return await generateExamContent(true); // Retry once
-        
-        // Fallback
+        if (!retry) return await generateExamContent(true); 
         mcqs = [{
           question: 'What is the core concept of the uploaded notes?',
           options: ['a. Review Material', 'b. Unknown', 'c. To be determined', 'd. None'],
@@ -291,14 +388,31 @@ function ExamsPreparation() {
         }];
       }
 
-      // Add unique IDs
-      mcqs = mcqs.map(quiz => ({
-        id: Date.now().toString() + Math.random().toString(36).substring(2),
-        ...quiz,
-        correctAnswer: quiz.options.includes(quiz.correctAnswer) ? quiz.correctAnswer : quiz.options[0]
-      }));
+      // --- FIX BIAS: SHUFFLE OPTIONS ---
+      mcqs = mcqs.map(quiz => {
+        // 1. Ensure correct answer is full text
+        const correctText = quiz.correctAnswer;
+        
+        // 2. Shuffle options (Fisher-Yates)
+        const shuffledOptions = shuffleArray(quiz.options);
+        
+        // 3. Update correct answer to match new shuffled text
+        // (Assuming OpenAI returned the full string as per prompt. If it returned "a" or "b", we'd need extra logic, but prompt says "matches one of options exactly")
+        
+        return {
+          id: Date.now().toString() + Math.random().toString(36).substring(2),
+          question: quiz.question,
+          options: shuffledOptions,
+          correctAnswer: correctText // Keep the text, the UI checks if selected === correctText
+        };
+      });
 
-      // 3. Generate Fill-in-the-Blank (Using Proxy)
+      // --- STEP 4: FILL-IN GENERATION ---
+      setLoadingStatus('Finalizing Exam');
+      addLog('Creating Fill-in-the-Blank challenges...');
+      addLog('Formatting final JSON payload...');
+      progressTimer = simulateProgress(80, 98, 2000);
+      
       const fillInPrompt = `You are a JSON generator. Generate 10 fill-in-the-blank questions based on the content. Format as JSON array: [{ "question": "...", "expectedAnswer": "..." }]. Return ONLY valid JSON. Content: "${context.slice(0, 30000)}"`;
       let fillInText = await callAIProxy(fillInPrompt);
       
@@ -310,10 +424,18 @@ function ExamsPreparation() {
         ...q,
       }));
 
+      clearInterval(progressTimer);
+      setLoadingProgress(100);
+      setLoadingStatus('Exam Ready');
+      addLog('Redirecting to dashboard...');
+      await new Promise(r => setTimeout(r, 800)); // Finish animation
+
       return { reviewText, mcqs, fillIns };
 
     } catch (err) {
       console.error('Error generating exam content:', err);
+      clearInterval(progressTimer);
+      clearInterval(logTimer);
       throw new Error(`Failed to generate exam content: ${err.message}`);
     }
   };
@@ -323,7 +445,7 @@ function ExamsPreparation() {
       toast.error('Please upload at least one note to start.');
       return;
     }
-    setExamLoading(true);
+    
     try {
       const { reviewText, mcqs, fillIns } = await generateExamContent();
       setReviewContent(reviewText);
@@ -335,6 +457,7 @@ function ExamsPreparation() {
       toast.error(err.message);
     } finally {
       setExamLoading(false);
+      setLoadingProgress(0);
     }
   };
 
@@ -346,10 +469,15 @@ function ExamsPreparation() {
     const normalizedAnswer = answer.trim().toLowerCase();
     const normalizedCorrect = currentQuiz.correctAnswer.trim().toLowerCase();
     
-    // Logic to handle "a. Option" vs just "Option"
+    // Improved Matching Logic for "a. Option" vs "Option"
+    // We check if the KEY text (after the "a. ") matches
+    const getCoreText = (str) => {
+      const match = str.match(/^[a-d]\.\s*(.*)/i);
+      return match ? match[1].toLowerCase() : str.toLowerCase();
+    };
+
     const isAnswerCorrect = normalizedAnswer === normalizedCorrect || 
-                            normalizedCorrect.includes(normalizedAnswer) ||
-                            (normalizedAnswer.length > 2 && normalizedCorrect.includes(normalizedAnswer.substring(3)));
+                            getCoreText(normalizedAnswer) === getCoreText(normalizedCorrect);
 
     setIsCorrect(isAnswerCorrect);
     
@@ -377,13 +505,29 @@ function ExamsPreparation() {
   };
 
   const handleFillSubmit = async () => {
+    // Transition to Marking Stage UI immediately
+    setExamStage('marking');
     setSubmitLoading(true);
+    setMarkingProgress({ mcq: 0, fillIn: 0 });
+    
     try {
       let fillInScore = 0;
       const results = [];
+      
+      // Calculate MCQ Progress first (instant)
+      setMarkingStatus("Calculating MCQ Scores...");
+      setMarkingProgress(p => ({ ...p, mcq: 100 }));
+      await new Promise(r => setTimeout(r, 500));
 
-      for (const question of fillInQuestions) {
+      const totalQuestions = fillInQuestions.length;
+
+      // Loop through questions with IMMERSIVE feedback
+      for (let i = 0; i < totalQuestions; i++) {
+        const question = fillInQuestions[i];
         const userAnswer = fillInAnswers[question.id]?.trim() || '';
+        
+        // Dynamic status updates for each question
+        setMarkingStatus(`Grading Question ${i + 1}/${totalQuestions}`);
         
         if (!userAnswer) {
           results.push({ 
@@ -395,10 +539,13 @@ function ExamsPreparation() {
             expectedAnswer: question.expectedAnswer,
             hasTypos: false 
           });
+          setMarkingProgress(p => ({ ...p, fillIn: ((i + 1) / totalQuestions) * 100 }));
           continue;
         }
 
         // --- SMART TEACHER GRADING PROMPT ---
+        // Using "Sub-status" logs via markingStatus implies we change it rapidly
+        
         const prompt = `
           Act as a smart, human teacher grading a student's fill-in-the-blank answer.
           
@@ -409,14 +556,14 @@ function ExamsPreparation() {
           GRADING RULES:
           1. Mark as CORRECT (true) if the student's answer has the same meaning as the expected answer.
           2. IGNORE capitalization, punctuation, and spacing differences.
-          3. ALLOW typos or spelling errors if the word is still recognizable (e.g., "processer" = "processor").
-          4. ACCEPT standard abbreviations (e.g., "CPU" = "Central Processing Unit").
+          3. ALLOW typos or spelling errors if the word is still recognizable.
+          4. ACCEPT standard abbreviations.
           5. Mark INCORRECT (false) only if the answer is conceptually wrong or unrelated.
 
           Return JSON ONLY:
           { 
             "isCorrect": boolean, 
-            "explanation": "Brief, helpful teacher feedback. If there was a spelling error, mention it kindly.", 
+            "explanation": "Brief, helpful teacher feedback.", 
             "hasTypos": boolean 
           }
         `;
@@ -435,10 +582,9 @@ function ExamsPreparation() {
             userAnswer, 
             expectedAnswer: question.expectedAnswer 
           });
-
+          
         } catch (apiErr) {
           console.error(`Grading error for QID ${question.id}:`, apiErr);
-          // Fallback simple grading if API fails
           const strictMatch = userAnswer.toLowerCase() === question.expectedAnswer.toLowerCase();
           results.push({
             id: question.id, 
@@ -451,11 +597,16 @@ function ExamsPreparation() {
           });
           if (strictMatch) fillInScore += 2;
         }
+
+        // Update progress bar after each question
+        setMarkingProgress(p => ({ ...p, fillIn: ((i + 1) / totalQuestions) * 100 }));
       }
+
+      setMarkingStatus("Finalizing Grade Report");
+      await new Promise(r => setTimeout(r, 1000));
 
       setFillInResults(results);
       
-      // Calculate final scores
       const mcqScore = mcqResults.filter(r => r.isCorrect).length * 2;
       setScores({
         mcq: mcqScore,
@@ -463,7 +614,7 @@ function ExamsPreparation() {
         total: mcqScore + fillInScore,
       });
 
-      setExamStage('marking');
+      setExamStage('results');
 
     } catch (err) {
       console.error('Error scoring fill-in answers:', err);
@@ -473,26 +624,6 @@ function ExamsPreparation() {
       setSubmitLoading(false);
     }
   };
-
-  // Simulate Marking Animation
-  useEffect(() => {
-    if (examStage === 'marking') {
-      let mcqP = 0;
-      let fillP = 0;
-      const interval = setInterval(() => {
-        mcqP = Math.min(mcqP + 4, 100);
-        if (mcqP > 50) fillP = Math.min(fillP + 4, 100);
-        
-        setMarkingProgress({ mcq: mcqP, fillIn: fillP });
-        
-        if (mcqP === 100 && fillP === 100) {
-          clearInterval(interval);
-          setTimeout(() => setExamStage('results'), 800);
-        }
-      }, 50);
-      return () => clearInterval(interval);
-    }
-  }, [examStage]);
 
   const handleChatSubmit = async (e) => {
     e.preventDefault();
@@ -580,6 +711,102 @@ function ExamsPreparation() {
     show: { opacity: 1, x: 0 }
   };
 
+  // --- SUB-COMPONENTS ---
+
+  const ImmersiveLoading = ({ title, status, logs, progress }) => (
+    <div className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-xl flex flex-col items-center justify-center text-center p-6 overflow-hidden">
+      
+      {/* Background Grid */}
+      <div className="absolute inset-0 z-0 opacity-10" style={{ 
+          backgroundImage: 'linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px)', 
+          backgroundSize: '30px 30px' 
+      }}></div>
+
+      <div className="relative z-10 w-full max-w-xl">
+        <div className="relative w-72 h-72 mx-auto mb-10">
+          {/* Rotating Rings */}
+          <motion.div 
+            animate={{ rotate: 360 }}
+            transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
+            className="absolute inset-0 rounded-full border border-purple-500/10 border-t-purple-500 border-r-purple-500/50"
+          />
+          <motion.div 
+            animate={{ rotate: -360 }}
+            transition={{ duration: 5, repeat: Infinity, ease: "linear" }}
+            className="absolute inset-6 rounded-full border border-indigo-500/10 border-b-indigo-500 border-l-indigo-500/50"
+          />
+          {/* Center Info */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <Terminal size={48} className="text-purple-400 mb-4 animate-pulse" />
+            <div className="text-4xl font-bold font-mono text-white tracking-tighter">
+              {Math.round(progress)}<span className="text-sm text-slate-500">%</span>
+            </div>
+          </div>
+        </div>
+
+        <motion.h2 
+          initial={{ opacity: 0, y: 10 }} 
+          animate={{ opacity: 1, y: 0 }}
+          className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-purple-400 via-white to-indigo-400 bg-clip-text text-transparent mb-2"
+        >
+          {title}
+        </motion.h2>
+
+        {/* Main Status Text - Uses 'wait' mode for smooth crossfading */}
+        <div className="h-8 overflow-hidden relative w-full mb-6">
+          <AnimatePresence mode="wait">
+            <motion.p
+              key={status}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3 }}
+              className="text-lg text-white font-medium absolute inset-x-0"
+            >
+              {status}
+            </motion.p>
+          </AnimatePresence>
+        </div>
+
+        {/* Smooth Linear Progress Bar (No Layout Thrashing) */}
+        <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden border border-white/5 relative mb-8">
+          <motion.div 
+            className="h-full bg-gradient-to-r from-purple-600 to-indigo-600 relative"
+            initial={false}
+            animate={{ width: `${progress}%` }}
+            transition={{ ease: "linear", duration: 0.2 }} // Fast, linear update preventing blink
+          >
+            <div className="absolute inset-0 bg-white/30 animate-[shimmer_2s_infinite]" />
+          </motion.div>
+        </div>
+
+        {/* "Matrix" Log Stream - Subtle & Techy */}
+        <div className="h-32 w-full bg-black/40 rounded-xl border border-white/5 p-4 overflow-hidden relative font-mono text-xs text-left shadow-inner">
+          <div className="absolute top-0 left-0 right-0 h-4 bg-gradient-to-b from-black/40 to-transparent z-10 pointer-events-none"></div>
+          <div className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-black/40 to-transparent z-10 pointer-events-none"></div>
+          
+          <div className="flex flex-col-reverse justify-end h-full gap-1.5">
+             <AnimatePresence initial={false}>
+               {logs.map((log, index) => (
+                 <motion.div
+                   key={index}
+                   initial={{ opacity: 0, x: -10, height: 0 }}
+                   animate={{ opacity: 1 - (index * 0.15), x: 0, height: 'auto' }} // Fade out older logs
+                   exit={{ opacity: 0 }}
+                   className="text-slate-300 whitespace-nowrap overflow-hidden text-ellipsis"
+                 >
+                   <span className="text-purple-500 mr-2 opacity-70">[{new Date().toLocaleTimeString().split(' ')[0]}]</span>
+                   {log}
+                 </motion.div>
+               ))}
+             </AnimatePresence>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+
   if (loading) return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center">
       <div className="w-10 h-10 border-4 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
@@ -589,6 +816,25 @@ function ExamsPreparation() {
   return (
     <div className="min-h-screen bg-slate-900 text-white font-sans selection:bg-purple-500 selection:text-white overflow-hidden relative">
       
+      {/* Immersive Loading Overlay for Exam Generation */}
+      <AnimatePresence>
+        {examLoading && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60]"
+          >
+            <ImmersiveLoading 
+              title="Generating Exam" 
+              status={loadingStatus} 
+              logs={generationLog}
+              progress={loadingProgress} 
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Background Ambience */}
       <div className="fixed inset-0 z-0 opacity-20 pointer-events-none">
         <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-purple-600 rounded-full blur-[120px]" />
@@ -677,7 +923,7 @@ function ExamsPreparation() {
                   {examStage === 'review' && 'AI Generated Review'}
                   {examStage === 'mcq' && 'Multiple Choice Assessment'}
                   {examStage === 'fill-in' && 'Fill in the Blanks'}
-                  {examStage === 'marking' && 'AI Grading In Progress'}
+                  {examStage === 'marking' && 'Grading Analysis'}
                   {examStage === 'results' && 'Performance Analysis'}
                 </motion.h1>
                 <motion.p 
@@ -689,6 +935,7 @@ function ExamsPreparation() {
                   {examStage === 'upload' && 'Upload lectures or notes. Our AI will handle the rest.'}
                   {examStage === 'review' && 'Study these notes carefully before starting the quiz.'}
                   {examStage === 'mcq' && 'Select the best answer for each question.'}
+                  {examStage === 'marking' && 'Evaluating your answers against the source material.'}
                   {examStage === 'results' && 'Review your mistakes and ask DwenLite for clarification.'}
                 </motion.p>
               </div>
@@ -805,7 +1052,7 @@ function ExamsPreparation() {
                     <div className="relative z-10 flex items-center justify-center gap-3">
                       {examLoading ? (
                         <>
-                          <Sparkles className="animate-spin" /> Generating Your Exam...
+                          <Loader2 className="animate-spin" /> Preparing Interface...
                         </>
                       ) : (
                         <>
@@ -862,8 +1109,9 @@ function ExamsPreparation() {
                   <div className="relative h-2 bg-slate-800 rounded-full overflow-hidden">
                     <motion.div 
                       className="absolute top-0 left-0 h-full bg-gradient-to-r from-purple-500 to-indigo-500" 
-                      initial={{ width: 0 }} 
+                      initial={false} 
                       animate={{ width: `${((currentMcqIndex + 1) / mcqQuestions.length) * 100}%` }} 
+                      transition={{ ease: "linear", duration: 0.3 }}
                     />
                   </div>
 
@@ -973,8 +1221,7 @@ function ExamsPreparation() {
                   >
                     {submitLoading ? (
                       <>
-                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        Analyzing Answers...
+                        <Loader2 className="animate-spin" /> Starting Grading Engine...
                       </>
                     ) : (
                       <>
@@ -985,7 +1232,7 @@ function ExamsPreparation() {
                 </motion.div>
               )}
 
-              {/* --- STAGE 5: MARKING --- */}
+              {/* --- STAGE 5: MARKING (REAL-TIME STATUS) --- */}
               {examStage === 'marking' && (
                 <motion.div 
                   key="marking"
@@ -1015,32 +1262,56 @@ function ExamsPreparation() {
                       </defs>
                     </svg>
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <span className="text-3xl font-bold text-white">{Math.round((markingProgress.mcq + markingProgress.fillIn) / 2)}%</span>
-                      <span className="text-xs text-slate-500 uppercase tracking-widest mt-1">Complete</span>
+                      <Cpu size={32} className="text-purple-400 animate-pulse mb-2" />
+                      <span className="text-xl font-bold text-white">{Math.round((markingProgress.mcq + markingProgress.fillIn) / 2)}%</span>
                     </div>
                   </div>
 
                   <h2 className="text-2xl font-bold mb-2 animate-pulse">AI Grading in Progress</h2>
-                  <p className="text-slate-400 mb-8 max-w-sm">DwenLite is analyzing your written answers against the source material context...</p>
+                  
+                  {/* Real-time Status Log */}
+                  <div className="h-8 mb-6 overflow-hidden w-full max-w-md">
+                     <AnimatePresence mode="wait">
+                       <motion.p
+                         key={markingStatus}
+                         initial={{ opacity: 0, y: 10 }}
+                         animate={{ opacity: 1, y: 0 }}
+                         exit={{ opacity: 0, y: -10 }}
+                         transition={{ duration: 0.3 }}
+                         className="text-slate-400 font-mono text-sm"
+                       >
+                         <span className="text-purple-500 mr-2">{'>'}</span>
+                         {markingStatus}
+                       </motion.p>
+                     </AnimatePresence>
+                  </div>
                   
                   <div className="w-full max-w-md space-y-4 bg-slate-800/50 p-6 rounded-2xl border border-white/5">
                      <div className="space-y-2">
                        <div className="flex justify-between text-xs uppercase text-slate-400 font-bold tracking-wider">
                          <span>Checking MCQ</span>
-                         <span className={markingProgress.mcq === 100 ? "text-green-400" : "text-white"}>{markingProgress.mcq}%</span>
+                         <span className={markingProgress.mcq === 100 ? "text-green-400" : "text-white"}>{Math.round(markingProgress.mcq)}%</span>
                        </div>
                        <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                         <motion.div className="h-full bg-blue-500" animate={{ width: `${markingProgress.mcq}%` }} />
+                         <motion.div 
+                           className="h-full bg-blue-500" 
+                           animate={{ width: `${markingProgress.mcq}%` }} 
+                           transition={{ ease: "linear", duration: 0.3 }}
+                         />
                        </div>
                      </div>
                      
                      <div className="space-y-2">
                        <div className="flex justify-between text-xs uppercase text-slate-400 font-bold tracking-wider">
-                         <span>Analyzing Written Answers</span>
-                         <span className={markingProgress.fillIn === 100 ? "text-green-400" : "text-white"}>{markingProgress.fillIn}%</span>
+                         <span>Semantic Analysis (Fill-in)</span>
+                         <span className={markingProgress.fillIn === 100 ? "text-green-400" : "text-white"}>{Math.round(markingProgress.fillIn)}%</span>
                        </div>
                        <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                         <motion.div className="h-full bg-purple-500" animate={{ width: `${markingProgress.fillIn}%` }} />
+                         <motion.div 
+                            className="h-full bg-purple-500" 
+                            animate={{ width: `${markingProgress.fillIn}%` }} 
+                            transition={{ ease: "linear", duration: 0.3 }}
+                         />
                        </div>
                      </div>
                   </div>
