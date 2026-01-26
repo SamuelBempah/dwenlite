@@ -12,7 +12,8 @@ import {
   Play, CheckCircle, XCircle, Send, AlertTriangle,
   Sparkles, BrainCircuit, GraduationCap, ChevronRight,
   Clock, Check, RefreshCw, AlertCircle, SpellCheck,
-  Loader2, Cpu, ScanLine, FileSearch, Terminal, Activity
+  Loader2, Cpu, ScanLine, FileSearch, Terminal, Activity,
+  ListChecks, AlignLeft, Type
 } from 'lucide-react';
 
 function ExamsPreparation() {
@@ -36,7 +37,7 @@ function ExamsPreparation() {
   
   // Quiz State
   const [mcqQuestions, setMcqQuestions] = useState([]);
-  const [fillInQuestions, setFillInQuestions] = useState([]);
+  const [fillInQuestions, setFillInQuestions] = useState([]); // Now includes { type, question, expectedAnswer }
   const [currentMcqIndex, setCurrentMcqIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
   const [isCorrect, setIsCorrect] = useState(null);
@@ -397,8 +398,6 @@ function ExamsPreparation() {
         const shuffledOptions = shuffleArray(quiz.options);
         
         // 3. Update correct answer to match new shuffled text
-        // (Assuming OpenAI returned the full string as per prompt. If it returned "a" or "b", we'd need extra logic, but prompt says "matches one of options exactly")
-        
         return {
           id: Date.now().toString() + Math.random().toString(36).substring(2),
           question: quiz.question,
@@ -407,21 +406,40 @@ function ExamsPreparation() {
         };
       });
 
-      // --- STEP 4: FILL-IN GENERATION ---
+      // --- STEP 4: MIXED WRITTEN QUESTIONS (Explain, State, Define, List) ---
       setLoadingStatus('Finalizing Exam');
-      addLog('Creating Fill-in-the-Blank challenges...');
+      addLog('Creating mixed written challenges (State, Explain, Define, List)...');
       addLog('Formatting final JSON payload...');
       progressTimer = simulateProgress(80, 98, 2000);
       
-      const fillInPrompt = `You are a JSON generator. Generate 10 fill-in-the-blank questions based on the content. Format as JSON array: [{ "question": "...", "expectedAnswer": "..." }]. Return ONLY valid JSON. Content: "${context.slice(0, 30000)}"`;
+      // Updated Prompt for Mixed Types
+      const fillInPrompt = `
+        You are a JSON generator. Generate 10 mixed written assessment questions based on the content.
+        
+        The questions must be a diverse mix of these types:
+        1. "fill-in" (Standard fill in the blank)
+        2. "define" (Define a term)
+        3. "explain" (Short explanation or concept elaboration)
+        4. "state" (State a fact, law, or principle)
+        5. "list" (List items or characteristics)
+        6. "state_explain" (State and explain)
+
+        Format as JSON array: 
+        [{ "id": "unique_id", "type": "fill-in" | "define" | "explain" | "state" | "list" | "state_explain", "question": "...", "expectedAnswer": "..." }]
+        
+        Return ONLY valid JSON. Content: "${context.slice(0, 30000)}"
+      `;
       let fillInText = await callAIProxy(fillInPrompt);
       
       fillInText = fillInText.replace(/```json/g, '').replace(/```/g, '').trim();
       let fillIns = JSON.parse(fillInText);
       
+      // Ensure IDs exist
       fillIns = fillIns.map(q => ({
-        id: Date.now().toString() + Math.random().toString(36).substring(2),
-        ...q,
+        id: q.id || (Date.now().toString() + Math.random().toString(36).substring(2)),
+        type: q.type || 'fill-in', // Default fallback
+        question: q.question,
+        expectedAnswer: q.expectedAnswer
       }));
 
       clearInterval(progressTimer);
@@ -527,11 +545,12 @@ function ExamsPreparation() {
         const userAnswer = fillInAnswers[question.id]?.trim() || '';
         
         // Dynamic status updates for each question
-        setMarkingStatus(`Grading Question ${i + 1}/${totalQuestions}`);
+        setMarkingStatus(`Grading [${question.type.toUpperCase()}]: Q${i + 1}`);
         
         if (!userAnswer) {
           results.push({ 
             id: question.id, 
+            type: question.type,
             isCorrect: false, 
             explanation: 'No answer provided.', 
             question: question.question, 
@@ -544,26 +563,25 @@ function ExamsPreparation() {
         }
 
         // --- SMART TEACHER GRADING PROMPT ---
-        // Using "Sub-status" logs via markingStatus implies we change it rapidly
-        
         const prompt = `
-          Act as a smart, human teacher grading a student's fill-in-the-blank answer.
+          Act as a smart, human teacher grading a student's answer.
           
-          Context (Question): "${question.question}"
+          Question Type: "${question.type}" (e.g., list, explain, define, fill-in)
+          Question: "${question.question}"
           Expected Answer: "${question.expectedAnswer}"
           Student Answer: "${userAnswer}"
 
           GRADING RULES:
-          1. Mark as CORRECT (true) if the student's answer has the same meaning as the expected answer.
-          2. IGNORE capitalization, punctuation, and spacing differences.
-          3. ALLOW typos or spelling errors if the word is still recognizable.
-          4. ACCEPT standard abbreviations.
-          5. Mark INCORRECT (false) only if the answer is conceptually wrong or unrelated.
+          1. Mark as CORRECT (true) if the student's answer captures the core meaning/concepts required.
+          2. For 'List' types: check if key items are present.
+          3. For 'Explain' types: check for understanding of mechanism/reason.
+          4. IGNORE spelling/grammar unless it changes meaning.
+          5. Mark INCORRECT (false) if conceptually wrong or missing key points.
 
           Return JSON ONLY:
           { 
             "isCorrect": boolean, 
-            "explanation": "Brief, helpful teacher feedback.", 
+            "explanation": "Brief teacher feedback explaining why correct/incorrect.", 
             "hasTypos": boolean 
           }
         `;
@@ -573,10 +591,12 @@ function ExamsPreparation() {
           resultText = resultText.replace(/```json/g, '').replace(/```/g, '').trim();
           const result = JSON.parse(resultText);
 
-          if (result.isCorrect) fillInScore += 2;
+          // Written questions are worth 5 points now (harder than MCQ)
+          if (result.isCorrect) fillInScore += 5;
           
           results.push({ 
             id: question.id, 
+            type: question.type,
             ...result, 
             question: question.question, 
             userAnswer, 
@@ -585,17 +605,19 @@ function ExamsPreparation() {
           
         } catch (apiErr) {
           console.error(`Grading error for QID ${question.id}:`, apiErr);
-          const strictMatch = userAnswer.toLowerCase() === question.expectedAnswer.toLowerCase();
+          // Fallback logic
+          const strictMatch = userAnswer.toLowerCase().includes(question.expectedAnswer.toLowerCase().substring(0, 10));
           results.push({
             id: question.id, 
+            type: question.type,
             isCorrect: strictMatch, 
-            explanation: strictMatch ? 'Correct.' : 'Grading unavailable.', 
+            explanation: strictMatch ? 'Correct (Fallback grading).' : 'Grading unavailable, marked incorrect.', 
             question: question.question, 
             userAnswer, 
             expectedAnswer: question.expectedAnswer,
             hasTypos: false
           });
-          if (strictMatch) fillInScore += 2;
+          if (strictMatch) fillInScore += 5;
         }
 
         // Update progress bar after each question
@@ -607,11 +629,19 @@ function ExamsPreparation() {
 
       setFillInResults(results);
       
-      const mcqScore = mcqResults.filter(r => r.isCorrect).length * 2;
+      const mcqScore = mcqResults.filter(r => r.isCorrect).length * 2; // 2 pts per MCQ
+      const maxWrittenScore = fillInQuestions.length * 5; // 5 pts per written
+      const maxMcqScore = mcqQuestions.length * 2;
+
+      // Normalize to 100 for total
+      const rawTotal = mcqScore + fillInScore;
+      const maxTotal = maxMcqScore + maxWrittenScore;
+      const normalizedTotal = Math.round((rawTotal / maxTotal) * 100);
+
       setScores({
         mcq: mcqScore,
         fillIn: fillInScore,
-        total: mcqScore + fillInScore,
+        total: normalizedTotal,
       });
 
       setExamStage('results');
@@ -711,7 +741,28 @@ function ExamsPreparation() {
     show: { opacity: 1, x: 0 }
   };
 
-  // --- SUB-COMPONENTS ---
+  // --- HELPER COMPONENTS ---
+
+  const getQuestionTypeIcon = (type) => {
+    switch (type) {
+      case 'list': return <ListChecks size={16} />;
+      case 'explain': 
+      case 'state_explain': return <AlignLeft size={16} />;
+      case 'define': return <FileText size={16} />;
+      default: return <Type size={16} />;
+    }
+  };
+
+  const getQuestionTypeLabel = (type) => {
+    switch (type) {
+      case 'list': return 'List Items';
+      case 'explain': return 'Explain Concept';
+      case 'state_explain': return 'State & Explain';
+      case 'define': return 'Definition';
+      case 'state': return 'State Fact';
+      default: return 'Fill in Blank';
+    }
+  };
 
   const ImmersiveLoading = ({ title, status, logs, progress }) => (
     <div className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-xl flex flex-col items-center justify-center text-center p-6 overflow-hidden">
@@ -922,7 +973,7 @@ function ExamsPreparation() {
                   {examStage === 'upload' && 'Setup Your Exam'}
                   {examStage === 'review' && 'AI Generated Review'}
                   {examStage === 'mcq' && 'Multiple Choice Assessment'}
-                  {examStage === 'fill-in' && 'Fill in the Blanks'}
+                  {examStage === 'fill-in' && 'Written Assessment'}
                   {examStage === 'marking' && 'Grading Analysis'}
                   {examStage === 'results' && 'Performance Analysis'}
                 </motion.h1>
@@ -935,6 +986,7 @@ function ExamsPreparation() {
                   {examStage === 'upload' && 'Upload lectures or notes. Our AI will handle the rest.'}
                   {examStage === 'review' && 'Study these notes carefully before starting the quiz.'}
                   {examStage === 'mcq' && 'Select the best answer for each question.'}
+                  {examStage === 'fill-in' && 'Complete the mixed written questions below.'}
                   {examStage === 'marking' && 'Evaluating your answers against the source material.'}
                   {examStage === 'results' && 'Review your mistakes and ask DwenLite for clarification.'}
                 </motion.p>
@@ -1168,7 +1220,7 @@ function ExamsPreparation() {
                 </motion.div>
               )}
 
-              {/* --- STAGE 4: FILL-IN --- */}
+              {/* --- STAGE 4: FILL-IN (MIXED TYPES) --- */}
               {examStage === 'fill-in' && (
                 <motion.div 
                   key="fill-in"
@@ -1184,29 +1236,57 @@ function ExamsPreparation() {
                          <FileText size={24} />
                        </div>
                        <div>
-                         <h3 className="text-xl font-bold">Complete the Sentences</h3>
-                         <p className="text-sm text-slate-400">Type the missing word or phrase for each statement.</p>
+                         <h3 className="text-xl font-bold">Written Assessment</h3>
+                         <p className="text-sm text-slate-400">Answer the following mixed questions (State, Explain, Define, List, etc.).</p>
                        </div>
                     </div>
                     
-                    <div className="space-y-8">
+                    <div className="space-y-10">
                       {fillInQuestions.map((q, idx) => (
                         <div key={q.id} className="space-y-3 group">
-                          <label className="text-slate-300 text-sm md:text-base font-medium leading-relaxed block">
-                            <span className="text-purple-400 font-bold mr-2">{idx + 1}.</span> 
-                            {q.question}
-                          </label>
-                          <div className="relative">
-                            <input 
-                              type="text" 
-                              placeholder="Type your answer here..."
-                              className="w-full bg-slate-900/50 border border-white/10 rounded-xl p-4 text-white focus:border-purple-500 focus:ring-1 focus:ring-purple-500 focus:outline-none transition-all placeholder:text-slate-600"
-                              value={fillInAnswers[q.id] || ''}
-                              onChange={(e) => setFillInAnswers(p => ({ ...p, [q.id]: e.target.value }))}
-                              disabled={submitLoading}
-                            />
+                          
+                          <div className="flex items-start gap-3">
+                            <div className="mt-1 flex-shrink-0 w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-sm font-bold text-white">
+                              {idx + 1}
+                            </div>
+                            <div className="flex-1">
+                              {/* Question Type Badge */}
+                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-purple-500/20 text-purple-300 mb-2">
+                                {getQuestionTypeIcon(q.type)}
+                                {getQuestionTypeLabel(q.type)}
+                              </span>
+
+                              <label className="text-slate-200 text-lg font-medium leading-relaxed block">
+                                {q.question}
+                              </label>
+                            </div>
+                          </div>
+                          
+                          <div className="relative pl-11">
+                            {['explain', 'list', 'state_explain'].includes(q.type) ? (
+                              <textarea 
+                                rows={4}
+                                placeholder={`Type your ${q.type} here...`}
+                                className="w-full bg-slate-900/50 border border-white/10 rounded-xl p-4 text-white focus:border-purple-500 focus:ring-1 focus:ring-purple-500 focus:outline-none transition-all placeholder:text-slate-600 resize-none"
+                                value={fillInAnswers[q.id] || ''}
+                                onChange={(e) => setFillInAnswers(p => ({ ...p, [q.id]: e.target.value }))}
+                                disabled={submitLoading}
+                              />
+                            ) : (
+                              <input 
+                                type="text" 
+                                placeholder="Type your answer here..."
+                                className="w-full bg-slate-900/50 border border-white/10 rounded-xl p-4 text-white focus:border-purple-500 focus:ring-1 focus:ring-purple-500 focus:outline-none transition-all placeholder:text-slate-600"
+                                value={fillInAnswers[q.id] || ''}
+                                onChange={(e) => setFillInAnswers(p => ({ ...p, [q.id]: e.target.value }))}
+                                disabled={submitLoading}
+                              />
+                            )}
+                            
                             {fillInAnswers[q.id] && (
-                              <CheckCircle size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-green-500 animate-pulse" />
+                              <div className="absolute right-4 top-4">
+                                <CheckCircle size={16} className="text-green-500 animate-pulse" />
+                              </div>
                             )}
                           </div>
                         </div>
@@ -1221,7 +1301,7 @@ function ExamsPreparation() {
                   >
                     {submitLoading ? (
                       <>
-                        <Loader2 className="animate-spin" /> Starting Grading Engine...
+                        <Loader2 className="animate-spin" /> Analyzing Answers...
                       </>
                     ) : (
                       <>
@@ -1303,7 +1383,7 @@ function ExamsPreparation() {
                      
                      <div className="space-y-2">
                        <div className="flex justify-between text-xs uppercase text-slate-400 font-bold tracking-wider">
-                         <span>Semantic Analysis (Fill-in)</span>
+                         <span>Semantic Analysis (Written)</span>
                          <span className={markingProgress.fillIn === 100 ? "text-green-400" : "text-white"}>{Math.round(markingProgress.fillIn)}%</span>
                        </div>
                        <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
@@ -1360,15 +1440,15 @@ function ExamsPreparation() {
 
                     <div className="bg-slate-800/40 border border-white/5 rounded-2xl p-6 text-center hover:bg-slate-800/60 transition-colors">
                       <div className="text-slate-400 text-xs font-bold uppercase mb-2">MCQ Score</div>
-                      <div className="text-2xl font-bold">{scores.mcq} <span className="text-sm text-slate-500">/ 80</span></div>
+                      <div className="text-2xl font-bold">{scores.mcq} <span className="text-sm text-slate-500">/ {mcqQuestions.length * 2}</span></div>
                     </div>
                     <div className="bg-slate-800/40 border border-white/5 rounded-2xl p-6 text-center hover:bg-slate-800/60 transition-colors">
                       <div className="text-slate-400 text-xs font-bold uppercase mb-2">Written Score</div>
-                      <div className="text-2xl font-bold">{scores.fillIn} <span className="text-sm text-slate-500">/ 20</span></div>
+                      <div className="text-2xl font-bold">{scores.fillIn} <span className="text-sm text-slate-500">/ {fillInQuestions.length * 5}</span></div>
                     </div>
                     <div className="bg-slate-800/40 border border-white/5 rounded-2xl p-6 text-center hover:bg-slate-800/60 transition-colors">
                        <div className="text-slate-400 text-xs font-bold uppercase mb-2">Accuracy</div>
-                       <div className="text-2xl font-bold">{Math.round((scores.total / 100) * 100)}%</div>
+                       <div className="text-2xl font-bold">{scores.total}%</div>
                     </div>
                   </div>
 
@@ -1475,7 +1555,10 @@ function ExamsPreparation() {
                           : 'bg-red-500/5 border-red-500/20 hover:bg-red-500/10'
                       }`}>
                          <div className="flex justify-between items-start mb-3">
-                           <span className="text-sm font-bold text-slate-300">Question {idx + 1} (Written)</span>
+                           <div className="flex items-center gap-2">
+                             <span className="text-sm font-bold text-slate-300">Question {idx + 1}</span>
+                             <span className="text-[10px] font-bold uppercase bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded">{res.type}</span>
+                           </div>
                            
                            {/* Status Badge */}
                            {res.isCorrect ? (
@@ -1485,7 +1568,7 @@ function ExamsPreparation() {
                                </span>
                              ) : (
                                <span className="flex items-center gap-1 text-xs font-bold text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">
-                                 <CheckCircle size={12}/> Correct (+2)
+                                 <CheckCircle size={12}/> Correct (+5)
                                </span>
                              )
                            ) : (
@@ -1518,8 +1601,6 @@ function ExamsPreparation() {
                          )}
                       </div>
                     ))}
-                    
-                    {/* Collapsible MCQ Results could go here if list is too long */}
                   </div>
 
                   {/* Reset Button */}
