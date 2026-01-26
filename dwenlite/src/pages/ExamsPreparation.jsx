@@ -12,7 +12,8 @@ import {
   Play, CheckCircle, XCircle, Send, AlertTriangle,
   Sparkles, BrainCircuit, GraduationCap, ChevronRight,
   Clock, Check, RefreshCw, AlertCircle, SpellCheck,
-  Loader2, Cpu, ScanLine, FileSearch, Terminal, Activity
+  Loader2, Cpu, ScanLine, FileSearch, Terminal, Activity,
+  BookOpen, PenTool
 } from 'lucide-react';
 
 function ExamsPreparation() {
@@ -31,20 +32,30 @@ function ExamsPreparation() {
   const [files, setFiles] = useState([]);
   const [uploadedNotes, setUploadedNotes] = useState([]);
   const [uploadLoading, setUploadLoading] = useState(false);
-  const [examStage, setExamStage] = useState('upload'); // 'upload', 'review', 'mcq', 'fill-in', 'marking', 'results'
+  
+  // 'upload', 'review', 'mcq', 'fill-in', 'section-c', 'marking', 'results'
+  const [examStage, setExamStage] = useState('upload'); 
   const [reviewContent, setReviewContent] = useState('');
   
   // Quiz State
   const [mcqQuestions, setMcqQuestions] = useState([]);
   const [fillInQuestions, setFillInQuestions] = useState([]);
+  const [sectionCQuestions, setSectionCQuestions] = useState([]); // NEW: Section C
+
+  // User Answers
   const [currentMcqIndex, setCurrentMcqIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
   const [isCorrect, setIsCorrect] = useState(null);
   const [fillInAnswers, setFillInAnswers] = useState({});
-  const [scores, setScores] = useState({ mcq: 0, fillIn: 0, total: 0 });
+  const [sectionCAnswers, setSectionCAnswers] = useState({}); // NEW: Section C Answers
+
+  // Scoring & Results
+  const [scores, setScores] = useState({ mcq: 0, fillIn: 0, sectionC: 0, total: 0 });
   const [mcqResults, setMcqResults] = useState([]);
   const [fillInResults, setFillInResults] = useState([]);
-  const [markingProgress, setMarkingProgress] = useState({ mcq: 0, fillIn: 0 }); 
+  const [sectionCResults, setSectionCResults] = useState([]); // NEW: Section C Results
+
+  const [markingProgress, setMarkingProgress] = useState({ mcq: 0, fillIn: 0, sectionC: 0 }); 
   const [markingStatus, setMarkingStatus] = useState("Initializing grading engine...");
   const [submitLoading, setSubmitLoading] = useState(false);
 
@@ -83,7 +94,7 @@ function ExamsPreparation() {
 
   // --- CORE LOGIC HANDLERS ---
 
-  // Helper: Shuffle Array (Fisher-Yates) to fix Answer Bias
+  // Helper: Shuffle Array (Fisher-Yates)
   const shuffleArray = (array) => {
     const newArray = [...array];
     for (let i = newArray.length - 1; i > 0; i--) {
@@ -285,22 +296,6 @@ function ExamsPreparation() {
     return timer;
   };
 
-  // Helper to simulate "Matrix" style drafting logs
-  const simulateDraftingLogs = (setStatus) => {
-    let count = 1;
-    const timer = setInterval(() => {
-       count = (count % 40) + 1;
-       const logs = [
-         `Generating Question ${count} vector...`,
-         `Calibrating distractor difficulty for Q${count}...`,
-         `Verifying semantic integrity of Q${count}...`,
-         `Optimizing retrieval for Question ${count}...`
-       ];
-       addLog(logs[Math.floor(Math.random() * logs.length)]);
-    }, 200); // Very fast updates
-    return timer;
-  };
-
   const generateExamContent = async (retry = false) => {
     if (!retry) {
         setExamLoading(true);
@@ -310,10 +305,9 @@ function ExamsPreparation() {
     }
     
     let progressTimer;
-    let logTimer;
 
     try {
-      // --- STEP 1: CONTEXT READING (IMMERSIVE) ---
+      // --- STEP 1: CONTEXT READING ---
       let context = '';
       
       if (uploadedNotes.length > 0) {
@@ -324,7 +318,6 @@ function ExamsPreparation() {
           const note = uploadedNotes[i];
           setLoadingStatus(`Reading File ${i + 1}/${fileCount}`);
           addLog(`Scanning: "${note.fileName}"`);
-          addLog(`Extracting text tokens from ${note.fileName}...`);
           
           const progressStep = 20 / fileCount;
           setLoadingProgress(prev => Math.min(prev + progressStep, 20));
@@ -333,7 +326,7 @@ function ExamsPreparation() {
           context += note.extractedText + '\n\n';
         }
       } else {
-        context = 'No notes uploaded. Generate generic exam content.';
+        context = 'No notes uploaded.';
         setLoadingProgress(20);
       }
 
@@ -342,101 +335,93 @@ function ExamsPreparation() {
 
       if (context.length > 100000) {
          setLoadingStatus('Optimizing Dataset');
-         addLog('Context too large. Compressing tokens for analysis...');
-         addLog('Removing redundant stop words...');
+         addLog('Context too large. Compressing tokens...');
          await new Promise(r => setTimeout(r, 800));
       }
 
       // --- STEP 2: REVIEW GENERATION ---
       setLoadingStatus('Generating Study Material');
-      addLog('Synthesizing comprehensive review notes...');
-      addLog('Structuring key concepts...');
-      progressTimer = simulateProgress(20, 45, 3000); 
+      progressTimer = simulateProgress(20, 40, 3000); 
       
-      const reviewPrompt = `You are a helpful educational assistant. Generate comprehensive and well-organized study notes based on the following content: "${context.slice(0, 50000)}". Structure with clear headings and bullet points. Format as plain text suitable for React rendering.`;
+      const reviewPrompt = `Generate comprehensive study notes based on this content: "${context.slice(0, 50000)}". Structure with headings.`;
       const reviewText = await callAIProxy(reviewPrompt);
       
       clearInterval(progressTimer);
-      setLoadingProgress(45);
+      setLoadingProgress(40);
 
-      // --- STEP 3: MCQ GENERATION (Real-time Simulation) ---
-      setLoadingStatus('Drafting Assessment');
+      // --- STEP 3: MCQ GENERATION ---
+      setLoadingStatus('Drafting MCQs');
+      addLog('Generating distractors...');
+      progressTimer = simulateProgress(40, 65, 5000); 
       
-      // Start the fast log stream to show "exactly as it's generating"
-      logTimer = simulateDraftingLogs();
-      progressTimer = simulateProgress(45, 80, 8000); 
-      
-      const mcqPrompt = `You are a strict JSON generator for educational content. Generate 40 multiple-choice quiz questions based on the content provided. Format as a JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }, ...]. Ensure "correctAnswer" matches one of the options exactly. Return ONLY valid JSON. Content: "${context.slice(0, 50000)}" ${retry ? 'Previously failed to return valid JSON. Ensure strict JSON format.' : ''}`;
+      const mcqPrompt = `Generate 40 multiple-choice questions. JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }]. Content: "${context.slice(0, 50000)}"`;
       let mcqText = await callAIProxy(mcqPrompt);
       
       clearInterval(progressTimer);
-      clearInterval(logTimer);
-      setLoadingProgress(80);
+      setLoadingProgress(65);
       
-      // Sanitize JSON
       mcqText = mcqText.replace(/```json/g, '').replace(/```/g, '').trim();
-      let mcqs;
-      try {
-        mcqs = JSON.parse(mcqText);
-      } catch (parseErr) {
-        console.error('MCQ JSON parse error:', parseErr);
-        if (!retry) return await generateExamContent(true); 
-        mcqs = [{
-          question: 'What is the core concept of the uploaded notes?',
-          options: ['a. Review Material', 'b. Unknown', 'c. To be determined', 'd. None'],
-          correctAnswer: 'a. Review Material',
-        }];
-      }
-
-      // --- FIX BIAS: SHUFFLE OPTIONS ---
-      mcqs = mcqs.map(quiz => {
-        // 1. Ensure correct answer is full text
-        const correctText = quiz.correctAnswer;
-        
-        // 2. Shuffle options (Fisher-Yates)
-        const shuffledOptions = shuffleArray(quiz.options);
-        
-        // 3. Update correct answer to match new shuffled text
-        // (Assuming OpenAI returned the full string as per prompt. If it returned "a" or "b", we'd need extra logic, but prompt says "matches one of options exactly")
-        
-        return {
-          id: Date.now().toString() + Math.random().toString(36).substring(2),
-          question: quiz.question,
-          options: shuffledOptions,
-          correctAnswer: correctText // Keep the text, the UI checks if selected === correctText
-        };
-      });
+      let mcqs = JSON.parse(mcqText);
+      mcqs = mcqs.map(q => ({
+        id: Date.now().toString() + Math.random().toString(36).substring(2),
+        question: q.question,
+        options: shuffleArray(q.options),
+        correctAnswer: q.correctAnswer
+      }));
 
       // --- STEP 4: FILL-IN GENERATION ---
-      setLoadingStatus('Finalizing Exam');
-      addLog('Creating Fill-in-the-Blank challenges...');
-      addLog('Formatting final JSON payload...');
-      progressTimer = simulateProgress(80, 98, 2000);
+      setLoadingStatus('Creating Fill-in Puzzles');
+      addLog('Masking key terms...');
+      progressTimer = simulateProgress(65, 80, 2000);
       
-      const fillInPrompt = `You are a JSON generator. Generate 10 fill-in-the-blank questions based on the content. Format as JSON array: [{ "question": "...", "expectedAnswer": "..." }]. Return ONLY valid JSON. Content: "${context.slice(0, 30000)}"`;
+      const fillInPrompt = `Generate 10 fill-in-the-blank questions. JSON array: [{ "question": "...", "expectedAnswer": "..." }]. Content: "${context.slice(0, 30000)}"`;
       let fillInText = await callAIProxy(fillInPrompt);
-      
-      fillInText = fillInText.replace(/```json/g, '').replace(/```/g, '').trim();
-      let fillIns = JSON.parse(fillInText);
-      
+      let fillIns = JSON.parse(fillInText.replace(/```json/g, '').replace(/```/g, '').trim());
       fillIns = fillIns.map(q => ({
         id: Date.now().toString() + Math.random().toString(36).substring(2),
         ...q,
       }));
 
       clearInterval(progressTimer);
+      setLoadingProgress(80);
+
+      // --- STEP 5: SECTION C (THEORY) GENERATION ---
+      setLoadingStatus('Constructing Section C');
+      addLog('Synthesizing essay questions...');
+      addLog('Balancing cognitive load...');
+      progressTimer = simulateProgress(80, 98, 4000);
+
+      const theoryPrompt = `
+        You are an examiner. Generate 4 essay/theory questions based on the content.
+        
+        REQUIREMENTS:
+        1. Use a mix of command verbs: "State", "Explain", "Define", "List", and "State and Explain".
+        2. Format as a JSON array: [{ "question": "..." }]
+        3. Do not include answers in the JSON.
+        
+        Content: "${context.slice(0, 30000)}"
+      `;
+
+      let theoryText = await callAIProxy(theoryPrompt);
+      let theoryQs = JSON.parse(theoryText.replace(/```json/g, '').replace(/```/g, '').trim());
+      
+      theoryQs = theoryQs.map(q => ({
+        id: Date.now().toString() + Math.random().toString(36).substring(2),
+        ...q
+      }));
+
+      clearInterval(progressTimer);
       setLoadingProgress(100);
       setLoadingStatus('Exam Ready');
       addLog('Redirecting to dashboard...');
-      await new Promise(r => setTimeout(r, 800)); // Finish animation
+      await new Promise(r => setTimeout(r, 800));
 
-      return { reviewText, mcqs, fillIns };
+      return { reviewText, mcqs, fillIns, theoryQs };
 
     } catch (err) {
       console.error('Error generating exam content:', err);
       clearInterval(progressTimer);
-      clearInterval(logTimer);
-      throw new Error(`Failed to generate exam content: ${err.message}`);
+      throw new Error(`Failed to generate exam: ${err.message}`);
     }
   };
 
@@ -447,10 +432,11 @@ function ExamsPreparation() {
     }
     
     try {
-      const { reviewText, mcqs, fillIns } = await generateExamContent();
+      const { reviewText, mcqs, fillIns, theoryQs } = await generateExamContent();
       setReviewContent(reviewText);
       setMcqQuestions(mcqs);
       setFillInQuestions(fillIns);
+      setSectionCQuestions(theoryQs); // Set Section C
       setExamStage('review');
       toast.success('Exam generated successfully!');
     } catch (err) {
@@ -469,8 +455,6 @@ function ExamsPreparation() {
     const normalizedAnswer = answer.trim().toLowerCase();
     const normalizedCorrect = currentQuiz.correctAnswer.trim().toLowerCase();
     
-    // Improved Matching Logic for "a. Option" vs "Option"
-    // We check if the KEY text (after the "a. ") matches
     const getCoreText = (str) => {
       const match = str.match(/^[a-d]\.\s*(.*)/i);
       return match ? match[1].toLowerCase() : str.toLowerCase();
@@ -504,121 +488,105 @@ function ExamsPreparation() {
     }
   };
 
-  const handleFillSubmit = async () => {
-    // Transition to Marking Stage UI immediately
+  // Transition from Fill-in to Section C
+  const handleFillSubmit = () => {
+    setExamStage('section-c');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // --- FINAL GRADING (MCQ + Fill-In + Section C) ---
+  const handleFinalSubmit = async () => {
     setExamStage('marking');
     setSubmitLoading(true);
-    setMarkingProgress({ mcq: 0, fillIn: 0 });
+    setMarkingProgress({ mcq: 0, fillIn: 0, sectionC: 0 });
     
     try {
-      let fillInScore = 0;
-      const results = [];
-      
-      // Calculate MCQ Progress first (instant)
+      // 1. MCQ Score (Instant)
       setMarkingStatus("Calculating MCQ Scores...");
       setMarkingProgress(p => ({ ...p, mcq: 100 }));
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise(r => setTimeout(r, 400));
 
-      const totalQuestions = fillInQuestions.length;
+      // 2. Fill-In Grading
+      let fillInScore = 0;
+      const fillResults = [];
+      const totalFill = fillInQuestions.length;
 
-      // Loop through questions with IMMERSIVE feedback
-      for (let i = 0; i < totalQuestions; i++) {
+      for (let i = 0; i < totalFill; i++) {
         const question = fillInQuestions[i];
         const userAnswer = fillInAnswers[question.id]?.trim() || '';
-        
-        // Dynamic status updates for each question
-        setMarkingStatus(`Grading Question ${i + 1}/${totalQuestions}`);
+        setMarkingStatus(`Grading Fill-in ${i + 1}/${totalFill}`);
         
         if (!userAnswer) {
-          results.push({ 
-            id: question.id, 
-            isCorrect: false, 
-            explanation: 'No answer provided.', 
-            question: question.question, 
-            userAnswer, 
-            expectedAnswer: question.expectedAnswer,
-            hasTypos: false 
-          });
-          setMarkingProgress(p => ({ ...p, fillIn: ((i + 1) / totalQuestions) * 100 }));
+          fillResults.push({ id: question.id, isCorrect: false, explanation: 'No answer.', question: question.question, userAnswer, expectedAnswer: question.expectedAnswer });
+          setMarkingProgress(p => ({ ...p, fillIn: ((i + 1) / totalFill) * 100 }));
           continue;
         }
 
-        // --- SMART TEACHER GRADING PROMPT ---
-        // Using "Sub-status" logs via markingStatus implies we change it rapidly
-        
+        const prompt = `Grade fill-in. Question: "${question.question}". Expected: "${question.expectedAnswer}". User: "${userAnswer}". Return JSON: { "isCorrect": boolean, "explanation": "string" }`;
+        try {
+          let resultText = await callAIProxy(prompt);
+          const result = JSON.parse(resultText.replace(/```json/g, '').replace(/```/g, '').trim());
+          if (result.isCorrect) fillInScore += 2;
+          fillResults.push({ id: question.id, ...result, question: question.question, userAnswer, expectedAnswer: question.expectedAnswer });
+        } catch (e) {
+          fillResults.push({ id: question.id, isCorrect: false, explanation: 'Grading Error', question: question.question, userAnswer, expectedAnswer: question.expectedAnswer });
+        }
+        setMarkingProgress(p => ({ ...p, fillIn: ((i + 1) / totalFill) * 100 }));
+      }
+      setFillInResults(fillResults);
+
+      // 3. Section C Grading
+      let sectionCScore = 0;
+      const cResults = [];
+      const totalC = sectionCQuestions.length;
+
+      for (let i = 0; i < totalC; i++) {
+        const question = sectionCQuestions[i];
+        const userAnswer = sectionCAnswers[question.id]?.trim() || '';
+        setMarkingStatus(`Grading Theory Question ${i + 1}/${totalC}`);
+
+        if (!userAnswer) {
+          cResults.push({ id: question.id, score: 0, feedback: 'No answer provided.', question: question.question, userAnswer });
+          setMarkingProgress(p => ({ ...p, sectionC: ((i + 1) / totalC) * 100 }));
+          continue;
+        }
+
         const prompt = `
-          Act as a smart, human teacher grading a student's fill-in-the-blank answer.
-          
-          Context (Question): "${question.question}"
-          Expected Answer: "${question.expectedAnswer}"
+          Grade this theory answer out of 5 points.
+          Question: "${question.question}"
           Student Answer: "${userAnswer}"
-
-          GRADING RULES:
-          1. Mark as CORRECT (true) if the student's answer has the same meaning as the expected answer.
-          2. IGNORE capitalization, punctuation, and spacing differences.
-          3. ALLOW typos or spelling errors if the word is still recognizable.
-          4. ACCEPT standard abbreviations.
-          5. Mark INCORRECT (false) only if the answer is conceptually wrong or unrelated.
-
-          Return JSON ONLY:
-          { 
-            "isCorrect": boolean, 
-            "explanation": "Brief, helpful teacher feedback.", 
-            "hasTypos": boolean 
-          }
+          Context: Based on general knowledge of the topic.
+          Return JSON ONLY: { "score": number (0-5), "feedback": "Short constructive feedback." }
         `;
 
         try {
           let resultText = await callAIProxy(prompt);
-          resultText = resultText.replace(/```json/g, '').replace(/```/g, '').trim();
-          const result = JSON.parse(resultText);
-
-          if (result.isCorrect) fillInScore += 2;
-          
-          results.push({ 
-            id: question.id, 
-            ...result, 
-            question: question.question, 
-            userAnswer, 
-            expectedAnswer: question.expectedAnswer 
-          });
-          
-        } catch (apiErr) {
-          console.error(`Grading error for QID ${question.id}:`, apiErr);
-          const strictMatch = userAnswer.toLowerCase() === question.expectedAnswer.toLowerCase();
-          results.push({
-            id: question.id, 
-            isCorrect: strictMatch, 
-            explanation: strictMatch ? 'Correct.' : 'Grading unavailable.', 
-            question: question.question, 
-            userAnswer, 
-            expectedAnswer: question.expectedAnswer,
-            hasTypos: false
-          });
-          if (strictMatch) fillInScore += 2;
+          const result = JSON.parse(resultText.replace(/```json/g, '').replace(/```/g, '').trim());
+          sectionCScore += result.score;
+          cResults.push({ id: question.id, ...result, question: question.question, userAnswer });
+        } catch (e) {
+          cResults.push({ id: question.id, score: 0, feedback: 'Grading failed.', question: question.question, userAnswer });
         }
-
-        // Update progress bar after each question
-        setMarkingProgress(p => ({ ...p, fillIn: ((i + 1) / totalQuestions) * 100 }));
+        setMarkingProgress(p => ({ ...p, sectionC: ((i + 1) / totalC) * 100 }));
       }
+      setSectionCResults(cResults);
 
-      setMarkingStatus("Finalizing Grade Report");
-      await new Promise(r => setTimeout(r, 1000));
-
-      setFillInResults(results);
-      
+      // Final Tally
       const mcqScore = mcqResults.filter(r => r.isCorrect).length * 2;
       setScores({
         mcq: mcqScore,
         fillIn: fillInScore,
-        total: mcqScore + fillInScore,
+        sectionC: sectionCScore,
+        total: mcqScore + fillInScore + sectionCScore,
       });
 
+      setMarkingStatus("Finalizing Grade Report");
+      await new Promise(r => setTimeout(r, 1000));
       setExamStage('results');
 
     } catch (err) {
-      console.error('Error scoring fill-in answers:', err);
-      toast.error(`Grading failed: ${err.message}`);
+      console.error('Grading Error:', err);
+      toast.error('Grading incomplete due to error.');
       setExamStage('results');
     } finally {
       setSubmitLoading(false);
@@ -681,16 +649,18 @@ function ExamsPreparation() {
 
   const resetExam = () => {
     setExamStage('upload');
-    setScores({ mcq: 0, fillIn: 0, total: 0 });
+    setScores({ mcq: 0, fillIn: 0, sectionC: 0, total: 0 });
     setCurrentMcqIndex(0);
     setSelectedAnswer(null);
     setIsCorrect(null);
     setFillInAnswers({});
+    setSectionCAnswers({});
     setUploadedNotes([]);
     setFiles([]);
     setMcqResults([]);
     setFillInResults([]);
-    setMarkingProgress({ mcq: 0, fillIn: 0 });
+    setSectionCResults([]);
+    setMarkingProgress({ mcq: 0, fillIn: 0, sectionC: 0 });
     setChatHistory([]);
   };
 
@@ -752,7 +722,6 @@ function ExamsPreparation() {
           {title}
         </motion.h2>
 
-        {/* Main Status Text - Uses 'wait' mode for smooth crossfading */}
         <div className="h-8 overflow-hidden relative w-full mb-6">
           <AnimatePresence mode="wait">
             <motion.p
@@ -768,30 +737,25 @@ function ExamsPreparation() {
           </AnimatePresence>
         </div>
 
-        {/* Smooth Linear Progress Bar (No Layout Thrashing) */}
         <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden border border-white/5 relative mb-8">
           <motion.div 
             className="h-full bg-gradient-to-r from-purple-600 to-indigo-600 relative"
             initial={false}
             animate={{ width: `${progress}%` }}
-            transition={{ ease: "linear", duration: 0.2 }} // Fast, linear update preventing blink
+            transition={{ ease: "linear", duration: 0.2 }} 
           >
             <div className="absolute inset-0 bg-white/30 animate-[shimmer_2s_infinite]" />
           </motion.div>
         </div>
 
-        {/* "Matrix" Log Stream - Subtle & Techy */}
         <div className="h-32 w-full bg-black/40 rounded-xl border border-white/5 p-4 overflow-hidden relative font-mono text-xs text-left shadow-inner">
-          <div className="absolute top-0 left-0 right-0 h-4 bg-gradient-to-b from-black/40 to-transparent z-10 pointer-events-none"></div>
-          <div className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-black/40 to-transparent z-10 pointer-events-none"></div>
-          
           <div className="flex flex-col-reverse justify-end h-full gap-1.5">
              <AnimatePresence initial={false}>
                {logs.map((log, index) => (
                  <motion.div
                    key={index}
                    initial={{ opacity: 0, x: -10, height: 0 }}
-                   animate={{ opacity: 1 - (index * 0.15), x: 0, height: 'auto' }} // Fade out older logs
+                   animate={{ opacity: 1 - (index * 0.15), x: 0, height: 'auto' }}
                    exit={{ opacity: 0 }}
                    className="text-slate-300 whitespace-nowrap overflow-hidden text-ellipsis"
                  >
@@ -834,12 +798,6 @@ function ExamsPreparation() {
           </motion.div>
         )}
       </AnimatePresence>
-
-      {/* Background Ambience */}
-      <div className="fixed inset-0 z-0 opacity-20 pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-purple-600 rounded-full blur-[120px]" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-indigo-600 rounded-full blur-[120px]" />
-      </div>
 
       <div className="flex h-screen relative z-10">
         
@@ -923,6 +881,7 @@ function ExamsPreparation() {
                   {examStage === 'review' && 'AI Generated Review'}
                   {examStage === 'mcq' && 'Multiple Choice Assessment'}
                   {examStage === 'fill-in' && 'Fill in the Blanks'}
+                  {examStage === 'section-c' && 'Section C: Theory'}
                   {examStage === 'marking' && 'Grading Analysis'}
                   {examStage === 'results' && 'Performance Analysis'}
                 </motion.h1>
@@ -935,6 +894,7 @@ function ExamsPreparation() {
                   {examStage === 'upload' && 'Upload lectures or notes. Our AI will handle the rest.'}
                   {examStage === 'review' && 'Study these notes carefully before starting the quiz.'}
                   {examStage === 'mcq' && 'Select the best answer for each question.'}
+                  {examStage === 'section-c' && 'Define, State, Explain, and List questions.'}
                   {examStage === 'marking' && 'Evaluating your answers against the source material.'}
                   {examStage === 'results' && 'Review your mistakes and ask DwenLite for clarification.'}
                 </motion.p>
@@ -948,12 +908,12 @@ function ExamsPreparation() {
               )}
             </div>
 
-            {/* PROGRESS STEPPER (Visual Only) */}
+            {/* PROGRESS STEPPER */}
             {examStage !== 'upload' && examStage !== 'results' && (
               <div className="flex items-center justify-center gap-2 mb-8">
-                {['review', 'mcq', 'fill-in', 'marking'].map((step, i) => (
+                {['review', 'mcq', 'fill-in', 'section-c', 'marking'].map((step, i) => (
                   <div key={step} className={`h-1.5 rounded-full transition-all duration-500 ${
-                    ['review', 'mcq', 'fill-in', 'marking'].indexOf(examStage) >= i 
+                    ['review', 'mcq', 'fill-in', 'section-c', 'marking'].indexOf(examStage) >= i 
                       ? 'w-12 bg-purple-500' 
                       : 'w-4 bg-slate-700'
                   }`} />
@@ -973,7 +933,6 @@ function ExamsPreparation() {
                   exit="exit"
                   className="space-y-6"
                 >
-                  {/* Upload Area */}
                   <div className="relative group">
                     <div className="absolute inset-0 bg-gradient-to-r from-purple-600/20 to-indigo-600/20 rounded-3xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
                     <div className="relative bg-slate-800/40 backdrop-blur-xl border border-white/10 rounded-3xl p-10 text-center border-dashed border-2 border-slate-700 group-hover:border-purple-500/50 transition-all overflow-hidden">
@@ -999,10 +958,7 @@ function ExamsPreparation() {
                         {uploadLoading ? 'Analyzing Files...' : 'Click or Drag to Upload'}
                       </h3>
                       <p className="text-slate-400 text-sm max-w-md mx-auto">
-                        Upload up to 50 files at once.
-                        <br/>
-                        Compatible with <span className="text-slate-300">PDF, Text</span>, <span className="text-slate-300">Audio (MP3)</span>, and <span className="text-slate-300">Video (MP4)</span>.
-                        <br/><span className="text-xs opacity-70 mt-2 block">Max file size: 50MB</span>
+                        Upload up to 50 files. PDF, Text, Audio (MP3), Video (MP4).
                       </p>
                     </div>
                   </div>
@@ -1032,7 +988,6 @@ function ExamsPreparation() {
                              </div>
                              <div className="flex-1 min-w-0">
                                <div className="text-sm font-medium truncate text-white">{note.fileName}</div>
-                               <div className="text-xs text-slate-500">Processed • {new Date(note.createdAt).toLocaleTimeString()}</div>
                              </div>
                              <button onClick={() => setUploadedNotes(p => p.filter((_, i) => i !== idx))} className="text-slate-600 hover:text-red-400">
                                <XCircle size={18} />
@@ -1043,7 +998,6 @@ function ExamsPreparation() {
                     </motion.div>
                   )}
 
-                  {/* Action Button */}
                   <button
                     onClick={handleStartExam}
                     disabled={examLoading || uploadedNotes.length === 0}
@@ -1051,17 +1005,11 @@ function ExamsPreparation() {
                   >
                     <div className="relative z-10 flex items-center justify-center gap-3">
                       {examLoading ? (
-                        <>
-                          <Loader2 className="animate-spin" /> Preparing Interface...
-                        </>
+                        <><Loader2 className="animate-spin" /> Preparing Interface...</>
                       ) : (
-                        <>
-                          Generate Exam <ChevronRight className="group-hover:translate-x-1 transition-transform" />
-                        </>
+                        <>Generate Exam <ChevronRight className="group-hover:translate-x-1 transition-transform" /></>
                       )}
                     </div>
-                    {/* Button Shine Effect */}
-                    <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/10 to-transparent z-0" />
                   </button>
                 </motion.div>
               )}
@@ -1081,7 +1029,7 @@ function ExamsPreparation() {
                       <FileText className="text-purple-400" />
                       <h2 className="text-lg font-bold">Study Notes</h2>
                     </div>
-                    <div className="prose prose-invert max-w-none prose-p:text-slate-300 prose-headings:text-white prose-strong:text-purple-300 prose-ul:list-disc prose-li:marker:text-purple-500">
+                    <div className="prose prose-invert max-w-none prose-p:text-slate-300 prose-headings:text-white prose-strong:text-purple-300">
                       <pre className="whitespace-pre-wrap font-sans text-sm md:text-base leading-relaxed">{reviewContent}</pre>
                     </div>
                   </div>
@@ -1090,7 +1038,7 @@ function ExamsPreparation() {
                     onClick={() => setExamStage('mcq')} 
                     className="w-full bg-purple-600 hover:bg-purple-500 text-white p-4 rounded-xl font-bold text-lg shadow-lg flex items-center justify-center gap-2 hover:-translate-y-1 transition-all"
                   >
-                    I'm Ready - Start Quiz <ChevronRight />
+                    Start MCQ Section <ChevronRight />
                   </button>
                 </motion.div>
               )}
@@ -1105,7 +1053,6 @@ function ExamsPreparation() {
                   exit="exit"
                   className="space-y-6"
                 >
-                  {/* Progress Bar */}
                   <div className="relative h-2 bg-slate-800 rounded-full overflow-hidden">
                     <motion.div 
                       className="absolute top-0 left-0 h-full bg-gradient-to-r from-purple-500 to-indigo-500" 
@@ -1127,13 +1074,11 @@ function ExamsPreparation() {
                     
                     <div className="grid grid-cols-1 gap-3">
                       {mcqQuestions[currentMcqIndex].options.map((option, idx) => {
-                        // Determine styles based on state
                         let styleClass = "bg-slate-700/30 border-white/5 hover:bg-slate-700/50 hover:border-purple-500/30 text-slate-200";
                         if (selectedAnswer === option) {
-                          if (isCorrect) styleClass = "bg-green-500/20 border-green-500 text-green-200 shadow-[0_0_15px_rgba(34,197,94,0.3)]";
-                          else styleClass = "bg-red-500/20 border-red-500 text-red-200 shadow-[0_0_15px_rgba(239,68,68,0.3)]";
+                          if (isCorrect) styleClass = "bg-green-500/20 border-green-500 text-green-200";
+                          else styleClass = "bg-red-500/20 border-red-500 text-red-200";
                         } else if (selectedAnswer && option === mcqQuestions[currentMcqIndex].correctAnswer) {
-                          // Show correct answer if wrong one selected
                           styleClass = "bg-green-500/10 border-green-500/50 text-green-300 opacity-70";
                         } else if (selectedAnswer) {
                           styleClass = "opacity-40 cursor-not-allowed border-transparent";
@@ -1160,7 +1105,7 @@ function ExamsPreparation() {
                         onClick={handleNextMcq} 
                         className="w-full bg-white text-slate-900 hover:bg-slate-200 p-4 rounded-xl font-bold text-lg shadow-lg flex items-center justify-center gap-2 transition-colors"
                        >
-                         {currentMcqIndex < mcqQuestions.length - 1 ? 'Next Question' : 'Continue to Part 2'} 
+                         {currentMcqIndex < mcqQuestions.length - 1 ? 'Next Question' : 'Next: Fill in the Blanks'} 
                          <ArrowLeft className="rotate-180" size={20} />
                        </button>
                     </motion.div>
@@ -1181,11 +1126,11 @@ function ExamsPreparation() {
                   <div className="bg-slate-800/60 backdrop-blur-xl border border-white/10 rounded-2xl p-6 md:p-8 shadow-2xl">
                     <div className="flex items-center gap-3 mb-8">
                        <div className="p-3 bg-indigo-500/20 rounded-lg text-indigo-400">
-                         <FileText size={24} />
+                         <PenTool size={24} />
                        </div>
                        <div>
-                         <h3 className="text-xl font-bold">Complete the Sentences</h3>
-                         <p className="text-sm text-slate-400">Type the missing word or phrase for each statement.</p>
+                         <h3 className="text-xl font-bold">Part 2: Fill in the Blanks</h3>
+                         <p className="text-sm text-slate-400">Type the missing word or phrase.</p>
                        </div>
                     </div>
                     
@@ -1199,11 +1144,10 @@ function ExamsPreparation() {
                           <div className="relative">
                             <input 
                               type="text" 
-                              placeholder="Type your answer here..."
+                              placeholder="Answer..."
                               className="w-full bg-slate-900/50 border border-white/10 rounded-xl p-4 text-white focus:border-purple-500 focus:ring-1 focus:ring-purple-500 focus:outline-none transition-all placeholder:text-slate-600"
                               value={fillInAnswers[q.id] || ''}
                               onChange={(e) => setFillInAnswers(p => ({ ...p, [q.id]: e.target.value }))}
-                              disabled={submitLoading}
                             />
                             {fillInAnswers[q.id] && (
                               <CheckCircle size={16} className="absolute right-4 top-1/2 -translate-y-1/2 text-green-500 animate-pulse" />
@@ -1216,23 +1160,69 @@ function ExamsPreparation() {
 
                   <button 
                     onClick={handleFillSubmit} 
+                    className="w-full bg-purple-600 hover:bg-purple-500 text-white p-4 rounded-xl font-bold text-lg shadow-lg flex items-center justify-center gap-3 transition-all"
+                  >
+                    Proceed to Section C <ChevronRight />
+                  </button>
+                </motion.div>
+              )}
+
+              {/* --- STAGE 5: SECTION C (THEORY) --- */}
+              {examStage === 'section-c' && (
+                <motion.div 
+                  key="section-c"
+                  variants={pageVariants}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                  className="space-y-6"
+                >
+                  <div className="bg-slate-800/60 backdrop-blur-xl border border-white/10 rounded-2xl p-6 md:p-8 shadow-2xl">
+                    <div className="flex items-center gap-3 mb-8">
+                       <div className="p-3 bg-pink-500/20 rounded-lg text-pink-400">
+                         <BookOpen size={24} />
+                       </div>
+                       <div>
+                         <h3 className="text-xl font-bold">Part 3: Theory & Essay</h3>
+                         <p className="text-sm text-slate-400">Define, State, List, or Explain.</p>
+                       </div>
+                    </div>
+
+                    <div className="space-y-10">
+                      {sectionCQuestions.map((q, idx) => (
+                        <div key={q.id} className="space-y-3">
+                          <label className="text-white text-base md:text-lg font-semibold leading-relaxed block">
+                            <span className="text-purple-400 mr-2">Q{idx + 1}.</span> 
+                            {q.question}
+                          </label>
+                          <textarea 
+                            rows={4}
+                            placeholder="Type your explanation here..."
+                            className="w-full bg-slate-900/50 border border-white/10 rounded-xl p-4 text-white focus:border-purple-500 focus:ring-1 focus:ring-purple-500 focus:outline-none transition-all placeholder:text-slate-600 resize-none"
+                            value={sectionCAnswers[q.id] || ''}
+                            onChange={(e) => setSectionCAnswers(p => ({ ...p, [q.id]: e.target.value }))}
+                            disabled={submitLoading}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button 
+                    onClick={handleFinalSubmit} 
                     disabled={submitLoading}
-                    className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white p-4 rounded-xl font-bold text-lg shadow-lg flex items-center justify-center gap-3 transition-all active:scale-[0.99]"
+                    className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white p-4 rounded-xl font-bold text-lg shadow-lg flex items-center justify-center gap-3 transition-all"
                   >
                     {submitLoading ? (
-                      <>
-                        <Loader2 className="animate-spin" /> Starting Grading Engine...
-                      </>
+                      <><Loader2 className="animate-spin" /> Grading Exam...</>
                     ) : (
-                      <>
-                        Submit Exam <Check size={20} />
-                      </>
+                      <>Submit Final Exam <Check size={20} /></>
                     )}
                   </button>
                 </motion.div>
               )}
 
-              {/* --- STAGE 5: MARKING (REAL-TIME STATUS) --- */}
+              {/* --- STAGE 6: MARKING --- */}
               {examStage === 'marking' && (
                 <motion.div 
                   key="marking"
@@ -1248,28 +1238,23 @@ function ExamsPreparation() {
                       <circle 
                         cx="80" cy="80" r="72" 
                         fill="none" 
-                        stroke="url(#gradient)" 
+                        stroke="#9333ea" 
                         strokeWidth="8"
                         strokeDasharray="452"
-                        strokeDashoffset={452 - (452 * ((markingProgress.mcq + markingProgress.fillIn) / 200))}
+                        strokeDashoffset={452 - (452 * ((markingProgress.mcq + markingProgress.fillIn + markingProgress.sectionC) / 300))}
                         className="transition-all duration-300 ease-out"
                       />
-                      <defs>
-                        <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                          <stop offset="0%" stopColor="#9333ea" />
-                          <stop offset="100%" stopColor="#4f46e5" />
-                        </linearGradient>
-                      </defs>
                     </svg>
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
                       <Cpu size={32} className="text-purple-400 animate-pulse mb-2" />
-                      <span className="text-xl font-bold text-white">{Math.round((markingProgress.mcq + markingProgress.fillIn) / 2)}%</span>
+                      <span className="text-xl font-bold text-white">
+                        {Math.round((markingProgress.mcq + markingProgress.fillIn + markingProgress.sectionC) / 3)}%
+                      </span>
                     </div>
                   </div>
 
                   <h2 className="text-2xl font-bold mb-2 animate-pulse">AI Grading in Progress</h2>
                   
-                  {/* Real-time Status Log */}
                   <div className="h-8 mb-6 overflow-hidden w-full max-w-md">
                      <AnimatePresence mode="wait">
                        <motion.p
@@ -1277,7 +1262,6 @@ function ExamsPreparation() {
                          initial={{ opacity: 0, y: 10 }}
                          animate={{ opacity: 1, y: 0 }}
                          exit={{ opacity: 0, y: -10 }}
-                         transition={{ duration: 0.3 }}
                          className="text-slate-400 font-mono text-sm"
                        >
                          <span className="text-purple-500 mr-2">{'>'}</span>
@@ -1287,38 +1271,23 @@ function ExamsPreparation() {
                   </div>
                   
                   <div className="w-full max-w-md space-y-4 bg-slate-800/50 p-6 rounded-2xl border border-white/5">
-                     <div className="space-y-2">
-                       <div className="flex justify-between text-xs uppercase text-slate-400 font-bold tracking-wider">
-                         <span>Checking MCQ</span>
-                         <span className={markingProgress.mcq === 100 ? "text-green-400" : "text-white"}>{Math.round(markingProgress.mcq)}%</span>
-                       </div>
-                       <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                         <motion.div 
-                           className="h-full bg-blue-500" 
-                           animate={{ width: `${markingProgress.mcq}%` }} 
-                           transition={{ ease: "linear", duration: 0.3 }}
-                         />
-                       </div>
+                     <div className="space-y-1">
+                       <div className="flex justify-between text-xs uppercase text-slate-400"><span>MCQ</span><span>{Math.round(markingProgress.mcq)}%</span></div>
+                       <div className="h-1 bg-slate-700 rounded-full"><motion.div className="h-full bg-blue-500" animate={{ width: `${markingProgress.mcq}%` }} /></div>
                      </div>
-                     
-                     <div className="space-y-2">
-                       <div className="flex justify-between text-xs uppercase text-slate-400 font-bold tracking-wider">
-                         <span>Semantic Analysis (Fill-in)</span>
-                         <span className={markingProgress.fillIn === 100 ? "text-green-400" : "text-white"}>{Math.round(markingProgress.fillIn)}%</span>
-                       </div>
-                       <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                         <motion.div 
-                            className="h-full bg-purple-500" 
-                            animate={{ width: `${markingProgress.fillIn}%` }} 
-                            transition={{ ease: "linear", duration: 0.3 }}
-                         />
-                       </div>
+                     <div className="space-y-1">
+                       <div className="flex justify-between text-xs uppercase text-slate-400"><span>Fill-In</span><span>{Math.round(markingProgress.fillIn)}%</span></div>
+                       <div className="h-1 bg-slate-700 rounded-full"><motion.div className="h-full bg-indigo-500" animate={{ width: `${markingProgress.fillIn}%` }} /></div>
+                     </div>
+                     <div className="space-y-1">
+                       <div className="flex justify-between text-xs uppercase text-slate-400"><span>Theory</span><span>{Math.round(markingProgress.sectionC)}%</span></div>
+                       <div className="h-1 bg-slate-700 rounded-full"><motion.div className="h-full bg-purple-500" animate={{ width: `${markingProgress.sectionC}%` }} /></div>
                      </div>
                   </div>
                 </motion.div>
               )}
 
-              {/* --- STAGE 6: RESULTS --- */}
+              {/* --- STAGE 7: RESULTS --- */}
               {examStage === 'results' && (
                 <motion.div 
                   key="results"
@@ -1328,93 +1297,63 @@ function ExamsPreparation() {
                   exit="exit"
                   className="space-y-8"
                 >
-                  
                   {/* Score Dashboard */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="col-span-1 md:col-span-3 bg-gradient-to-br from-purple-900/80 to-indigo-900/80 backdrop-blur-xl border border-purple-500/30 rounded-3xl p-8 flex flex-col md:flex-row items-center justify-between text-center md:text-left shadow-2xl relative overflow-hidden">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="col-span-2 md:col-span-4 bg-gradient-to-br from-purple-900/80 to-indigo-900/80 backdrop-blur-xl border border-purple-500/30 rounded-3xl p-8 flex flex-col md:flex-row items-center justify-between shadow-2xl relative overflow-hidden">
                        <div className="relative z-10">
-                         <span className="text-purple-200 text-sm uppercase font-bold tracking-wider mb-2 block">Final Result</span>
-                         <div className="flex items-baseline gap-2 justify-center md:justify-start">
+                         <span className="text-purple-200 text-sm uppercase font-bold tracking-wider mb-2 block">Total Score</span>
+                         <div className="flex items-baseline gap-2">
                            <span className="text-6xl font-bold text-white tracking-tight">{scores.total}</span>
-                           <span className="text-2xl text-white/40">/100</span>
                          </div>
-                         <div className={`inline-block mt-3 px-4 py-1.5 rounded-full text-xs font-bold border ${
-                           scores.total >= 70 ? 'bg-green-500/20 border-green-500/30 text-green-300' : 'bg-orange-500/20 border-orange-500/30 text-orange-300'
-                         }`}>
-                           {scores.total >= 90 ? 'Outstanding!' : scores.total >= 70 ? 'Good Job!' : 'Needs Improvement'}
+                         <div className="mt-2 text-sm text-purple-200">
+                           {scores.total >= 70 ? 'Excellent work!' : 'Keep practicing!'}
                          </div>
                        </div>
-                       
-                       {/* Decorative Circle */}
-                       <div className="hidden md:block w-32 h-32 rounded-full border-8 border-white/10 relative">
-                          <div className="absolute inset-0 flex items-center justify-center">
-                            <GraduationCap size={40} className="text-white/50" />
-                          </div>
-                       </div>
-
-                       {/* Confetti if high score (simple css) */}
-                       {scores.total > 80 && (
-                         <div className="absolute top-0 right-0 w-full h-full pointer-events-none opacity-30 bg-[url('https://assets.codepen.io/t-1/confetti.png')] bg-cover" />
-                       )}
+                       <GraduationCap size={80} className="text-white/10 absolute right-10" />
                     </div>
 
-                    <div className="bg-slate-800/40 border border-white/5 rounded-2xl p-6 text-center hover:bg-slate-800/60 transition-colors">
-                      <div className="text-slate-400 text-xs font-bold uppercase mb-2">MCQ Score</div>
-                      <div className="text-2xl font-bold">{scores.mcq} <span className="text-sm text-slate-500">/ 80</span></div>
+                    <div className="bg-slate-800/40 border border-white/5 rounded-2xl p-4 text-center">
+                      <div className="text-slate-400 text-xs font-bold uppercase mb-1">MCQ</div>
+                      <div className="text-xl font-bold">{scores.mcq}</div>
                     </div>
-                    <div className="bg-slate-800/40 border border-white/5 rounded-2xl p-6 text-center hover:bg-slate-800/60 transition-colors">
-                      <div className="text-slate-400 text-xs font-bold uppercase mb-2">Written Score</div>
-                      <div className="text-2xl font-bold">{scores.fillIn} <span className="text-sm text-slate-500">/ 20</span></div>
+                    <div className="bg-slate-800/40 border border-white/5 rounded-2xl p-4 text-center">
+                      <div className="text-slate-400 text-xs font-bold uppercase mb-1">Fill-In</div>
+                      <div className="text-xl font-bold">{scores.fillIn}</div>
                     </div>
-                    <div className="bg-slate-800/40 border border-white/5 rounded-2xl p-6 text-center hover:bg-slate-800/60 transition-colors">
-                       <div className="text-slate-400 text-xs font-bold uppercase mb-2">Accuracy</div>
-                       <div className="text-2xl font-bold">{Math.round((scores.total / 100) * 100)}%</div>
+                    <div className="bg-slate-800/40 border border-white/5 rounded-2xl p-4 text-center">
+                      <div className="text-slate-400 text-xs font-bold uppercase mb-1">Theory</div>
+                      <div className="text-xl font-bold">{scores.sectionC}</div>
+                    </div>
+                    <div className="bg-slate-800/40 border border-white/5 rounded-2xl p-4 text-center">
+                       <div className="text-slate-400 text-xs font-bold uppercase mb-1">Total Qs</div>
+                       <div className="text-xl font-bold">{mcqQuestions.length + fillInQuestions.length + sectionCQuestions.length}</div>
                     </div>
                   </div>
 
                   {/* AI Tutor Chat */}
                   <div className="bg-slate-800/60 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
                     <div className="bg-white/5 p-4 border-b border-white/5 flex items-center gap-3">
-                      <div className="p-2 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-lg shadow-lg">
-                        <Sparkles size={18} className="text-white" />
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-white">Ask DwenLite AI</h3>
-                        <p className="text-xs text-slate-400">Ask about your mistakes or for more explanation</p>
-                      </div>
+                      <Sparkles size={18} className="text-purple-400" />
+                      <h3 className="font-bold text-white">Ask DwenLite AI</h3>
                     </div>
-
                     <div className="p-4 md:p-6">
                       <div className="h-64 overflow-y-auto mb-4 space-y-4 pr-2 custom-scrollbar" ref={chatContainerRef}>
-                        {chatHistory.length === 0 && (
-                          <div className="text-center text-slate-500 py-10">
-                            <p>Ask me anything about the exam content!</p>
-                          </div>
-                        )}
+                        {chatHistory.length === 0 && <p className="text-slate-500 text-center py-10">Ask me about your mistakes.</p>}
                         {chatHistory.map((msg, i) => (
                           <div key={i} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-                            <div className={`max-w-[85%] rounded-2xl px-5 py-3 text-sm leading-relaxed shadow-md ${
-                              msg.type === 'user' 
-                                ? 'bg-purple-600 text-white rounded-br-none' 
-                                : 'bg-slate-700 text-slate-200 rounded-bl-none relative group border border-white/5'
+                            <div className={`max-w-[85%] rounded-2xl px-5 py-3 text-sm ${
+                              msg.type === 'user' ? 'bg-purple-600 text-white' : 'bg-slate-700 text-slate-200'
                             }`}>
                               {msg.content}
-                              
                               {msg.type === 'ai' && (
-                                <button 
-                                  onClick={() => setShowReportForm(i)} 
-                                  className="absolute -right-8 top-1 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition-all p-1"
-                                  title="Report Content"
-                                >
-                                  <AlertTriangle size={14} />
+                                <button onClick={() => setShowReportForm(i)} className="ml-2 text-slate-500 hover:text-red-400" title="Report">
+                                  <AlertTriangle size={12} />
                                 </button>
                               )}
                             </div>
                           </div>
                         ))}
-                        
-                        {/* Report Form */}
-                        <AnimatePresence>
+                         <AnimatePresence>
                           {showReportForm !== null && (
                             <motion.div 
                               initial={{ opacity: 0, height: 0 }} 
@@ -1422,107 +1361,56 @@ function ExamsPreparation() {
                               exit={{ opacity: 0, height: 0 }}
                               className="bg-red-500/5 border border-red-500/20 p-4 rounded-xl mb-4 mx-4"
                             >
-                              <p className="text-xs font-bold text-red-400 mb-2 uppercase">Report Inappropriate Content</p>
                               <input 
-                                className="w-full bg-slate-900/50 border border-red-500/30 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none focus:border-red-500 mb-3"
-                                placeholder="Describe the issue..."
+                                className="w-full bg-slate-900/50 border border-red-500/30 rounded-lg px-3 py-2 text-sm text-white mb-3"
+                                placeholder="Reason for report..."
                                 value={reportReason}
                                 onChange={(e) => setReportReason(e.target.value)}
                               />
                               <div className="flex justify-end gap-3">
-                                <button onClick={() => setShowReportForm(null)} className="text-xs text-slate-400 hover:text-white transition-colors">Cancel</button>
-                                <button 
-                                  onClick={() => handleReportContent(showReportForm, reportReason)} 
-                                  className="text-xs bg-red-600 hover:bg-red-500 text-white px-3 py-1.5 rounded-lg transition-colors shadow-lg shadow-red-500/20"
-                                >
-                                  Submit Report
-                                </button>
+                                <button onClick={() => setShowReportForm(null)} className="text-xs text-slate-400">Cancel</button>
+                                <button onClick={() => handleReportContent(showReportForm, reportReason)} className="text-xs bg-red-600 text-white px-3 py-1.5 rounded-lg">Submit</button>
                               </div>
                             </motion.div>
                           )}
                         </AnimatePresence>
                       </div>
-
                       <form onSubmit={handleChatSubmit} className="flex gap-2">
                         <input 
                           value={chatInput}
                           onChange={(e) => setChatInput(e.target.value)}
-                          placeholder="Type your question here..."
-                          className="flex-1 bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition-all placeholder:text-slate-600 text-white"
+                          placeholder="Type your question..."
+                          className="flex-1 bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-sm text-white"
                           disabled={chatLoading}
                         />
-                        <button 
-                          disabled={chatLoading} 
-                          type="submit" 
-                          className="bg-purple-600 p-3 rounded-xl hover:bg-purple-500 text-white transition-colors disabled:opacity-50 shadow-lg shadow-purple-500/20"
-                        >
-                          {chatLoading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Send size={20} />}
+                        <button type="submit" className="bg-purple-600 p-3 rounded-xl text-white">
+                          <Send size={20} />
                         </button>
                       </form>
                     </div>
                   </div>
 
-                  {/* Detailed Results List */}
+                  {/* Section C Breakdown */}
                   <div className="space-y-4">
-                    <h3 className="text-lg font-bold text-slate-300 px-2">Detailed Breakdown</h3>
-                    
-                    {fillInResults.map((res, idx) => (
-                      <div key={idx} className={`p-5 rounded-2xl border transition-all ${
-                        res.isCorrect 
-                          ? res.hasTypos 
-                            ? 'bg-yellow-500/5 border-yellow-500/20 hover:bg-yellow-500/10' // Correct but w/ typos
-                            : 'bg-green-500/5 border-green-500/20 hover:bg-green-500/10' 
-                          : 'bg-red-500/5 border-red-500/20 hover:bg-red-500/10'
-                      }`}>
-                         <div className="flex justify-between items-start mb-3">
-                           <span className="text-sm font-bold text-slate-300">Question {idx + 1} (Written)</span>
-                           
-                           {/* Status Badge */}
-                           {res.isCorrect ? (
-                             res.hasTypos ? (
-                               <span className="flex items-center gap-1 text-xs font-bold text-yellow-400 bg-yellow-500/10 px-2 py-0.5 rounded-full">
-                                 <SpellCheck size={12}/> Correct (Check Spelling)
-                               </span>
-                             ) : (
-                               <span className="flex items-center gap-1 text-xs font-bold text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">
-                                 <CheckCircle size={12}/> Correct (+2)
-                               </span>
-                             )
-                           ) : (
-                             <span className="flex items-center gap-1 text-xs font-bold text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">
-                               <XCircle size={12}/> Incorrect
-                             </span>
-                           )}
-                         </div>
-                         <p className="text-sm mb-4 text-white font-medium">{res.question}</p>
-                         
-                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                           <div className="bg-black/20 p-3 rounded-lg border border-white/5">
-                             <div className="text-xs text-slate-500 mb-1">Your Answer</div>
-                             <div className={res.isCorrect ? (res.hasTypos ? 'text-yellow-300' : 'text-green-300') : 'text-red-300'}>
-                               {res.userAnswer || '(Empty)'}
-                             </div>
-                           </div>
-                           <div className="bg-black/20 p-3 rounded-lg border border-white/5">
-                             <div className="text-xs text-slate-500 mb-1">Expected Answer</div>
-                             <div className="text-purple-300">{res.expectedAnswer}</div>
-                           </div>
-                         </div>
-                         
-                         {/* Show explanation if wrong OR if there are typos/comments */}
-                         {(!res.isCorrect || res.explanation) && (
-                           <div className="mt-3 text-xs text-slate-400 italic flex gap-2 items-start">
-                             <AlertCircle size={14} className="mt-0.5 shrink-0" />
-                             {res.explanation}
-                           </div>
-                         )}
+                    <h3 className="text-lg font-bold text-slate-300 px-2">Theory Assessment</h3>
+                    {sectionCResults.map((res, idx) => (
+                      <div key={idx} className="p-5 rounded-2xl border bg-slate-800/30 border-white/5">
+                        <div className="flex justify-between mb-2">
+                          <span className="text-sm font-bold text-slate-300">Q{idx + 1}</span>
+                          <span className="text-sm font-bold text-purple-400">{res.score}/5 Points</span>
+                        </div>
+                        <p className="text-white mb-3 text-sm font-medium">{res.question}</p>
+                        <div className="bg-black/20 p-3 rounded-lg border border-white/5 mb-2">
+                          <div className="text-xs text-slate-500 mb-1">Your Answer</div>
+                          <div className="text-slate-300 text-sm">{res.userAnswer || 'No answer'}</div>
+                        </div>
+                        <div className="text-xs text-indigo-300 flex gap-2">
+                          <Sparkles size={14} /> {res.feedback}
+                        </div>
                       </div>
                     ))}
-                    
-                    {/* Collapsible MCQ Results could go here if list is too long */}
                   </div>
 
-                  {/* Reset Button */}
                   <div className="flex justify-center pt-8">
                     <button 
                       onClick={resetExam} 
