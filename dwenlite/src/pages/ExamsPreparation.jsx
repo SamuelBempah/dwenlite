@@ -7,13 +7,13 @@ import toast from 'react-hot-toast';
 import axios from 'axios';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  LayoutDashboard, Coins, HelpCircle, LogOut, 
+  LayoutDashboard, HelpCircle, LogOut, 
   ArrowLeft, Upload, FileText, Mic, Video, 
-  Play, CheckCircle, XCircle, Send, AlertTriangle,
+  CheckCircle, XCircle, Send, AlertTriangle,
   Sparkles, BrainCircuit, GraduationCap, ChevronRight,
   Clock, Check, RefreshCw, AlertCircle, SpellCheck,
-  Loader2, Cpu, ScanLine, FileSearch, Terminal, Activity,
-  ListChecks, AlignLeft, Type
+  Loader2, Cpu, Terminal, 
+  ListChecks, AlignLeft, Type, Percent
 } from 'lucide-react';
 
 function ExamsPreparation() {
@@ -25,9 +25,9 @@ function ExamsPreparation() {
   
   // Exam Generation State
   const [examLoading, setExamLoading] = useState(false);
-  const [loadingProgress, setLoadingProgress] = useState(0); // 0 to 100
-  const [loadingStatus, setLoadingStatus] = useState(''); // Main Text description
-  const [generationLog, setGenerationLog] = useState([]); // Array of log strings for the "stream" effect
+  const [loadingProgress, setLoadingProgress] = useState(0); 
+  const [loadingStatus, setLoadingStatus] = useState(''); 
+  const [generationLog, setGenerationLog] = useState([]); 
   
   const [files, setFiles] = useState([]);
   const [uploadedNotes, setUploadedNotes] = useState([]);
@@ -37,7 +37,7 @@ function ExamsPreparation() {
   
   // Quiz State
   const [mcqQuestions, setMcqQuestions] = useState([]);
-  const [fillInQuestions, setFillInQuestions] = useState([]); // Now includes { type, question, expectedAnswer }
+  const [fillInQuestions, setFillInQuestions] = useState([]); 
   const [currentMcqIndex, setCurrentMcqIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
   const [isCorrect, setIsCorrect] = useState(null);
@@ -84,7 +84,6 @@ function ExamsPreparation() {
 
   // --- CORE LOGIC HANDLERS ---
 
-  // Helper: Shuffle Array (Fisher-Yates) to fix Answer Bias
   const shuffleArray = (array) => {
     const newArray = [...array];
     for (let i = newArray.length - 1; i > 0; i--) {
@@ -94,9 +93,8 @@ function ExamsPreparation() {
     return newArray;
   };
 
-  // Helper: Add Log
   const addLog = (message) => {
-    setGenerationLog(prev => [message, ...prev].slice(0, 6)); // Keep last 6 logs
+    setGenerationLog(prev => [message, ...prev].slice(0, 6)); 
   };
 
   // PROXY HELPER FUNCTION
@@ -271,9 +269,8 @@ function ExamsPreparation() {
     }
   };
 
-  // Helper to smooth progress bar movement
   const simulateProgress = (start, end, duration) => {
-    const step = (end - start) / (duration / 50); // Updates every 50ms for smoothness
+    const step = (end - start) / (duration / 50); 
     let current = start;
     const timer = setInterval(() => {
       current += step;
@@ -286,7 +283,6 @@ function ExamsPreparation() {
     return timer;
   };
 
-  // Helper to simulate "Matrix" style drafting logs
   const simulateDraftingLogs = (setStatus) => {
     let count = 1;
     const timer = setInterval(() => {
@@ -298,7 +294,7 @@ function ExamsPreparation() {
          `Optimizing retrieval for Question ${count}...`
        ];
        addLog(logs[Math.floor(Math.random() * logs.length)]);
-    }, 200); // Very fast updates
+    }, 200); 
     return timer;
   };
 
@@ -314,7 +310,7 @@ function ExamsPreparation() {
     let logTimer;
 
     try {
-      // --- STEP 1: CONTEXT READING (IMMERSIVE) ---
+      // --- STEP 1: CONTEXT READING ---
       let context = '';
       
       if (uploadedNotes.length > 0) {
@@ -360,10 +356,8 @@ function ExamsPreparation() {
       clearInterval(progressTimer);
       setLoadingProgress(45);
 
-      // --- STEP 3: MCQ GENERATION (Real-time Simulation) ---
+      // --- STEP 3: MCQ GENERATION ---
       setLoadingStatus('Drafting Assessment');
-      
-      // Start the fast log stream to show "exactly as it's generating"
       logTimer = simulateDraftingLogs();
       progressTimer = simulateProgress(45, 80, 8000); 
       
@@ -374,7 +368,6 @@ function ExamsPreparation() {
       clearInterval(logTimer);
       setLoadingProgress(80);
       
-      // Sanitize JSON
       mcqText = mcqText.replace(/```json/g, '').replace(/```/g, '').trim();
       let mcqs;
       try {
@@ -389,30 +382,23 @@ function ExamsPreparation() {
         }];
       }
 
-      // --- FIX BIAS: SHUFFLE OPTIONS ---
       mcqs = mcqs.map(quiz => {
-        // 1. Ensure correct answer is full text
         const correctText = quiz.correctAnswer;
-        
-        // 2. Shuffle options (Fisher-Yates)
         const shuffledOptions = shuffleArray(quiz.options);
-        
-        // 3. Update correct answer to match new shuffled text
         return {
           id: Date.now().toString() + Math.random().toString(36).substring(2),
           question: quiz.question,
           options: shuffledOptions,
-          correctAnswer: correctText // Keep the text, the UI checks if selected === correctText
+          correctAnswer: correctText 
         };
       });
 
-      // --- STEP 4: MIXED WRITTEN QUESTIONS (Explain, State, Define, List) ---
+      // --- STEP 4: MIXED WRITTEN QUESTIONS ---
       setLoadingStatus('Finalizing Exam');
       addLog('Creating mixed written challenges (State, Explain, Define, List)...');
       addLog('Formatting final JSON payload...');
       progressTimer = simulateProgress(80, 98, 2000);
       
-      // Updated Prompt for Mixed Types
       const fillInPrompt = `
         You are a JSON generator. Generate 10 mixed written assessment questions based on the content.
         
@@ -434,10 +420,9 @@ function ExamsPreparation() {
       fillInText = fillInText.replace(/```json/g, '').replace(/```/g, '').trim();
       let fillIns = JSON.parse(fillInText);
       
-      // Ensure IDs exist
       fillIns = fillIns.map(q => ({
         id: q.id || (Date.now().toString() + Math.random().toString(36).substring(2)),
-        type: q.type || 'fill-in', // Default fallback
+        type: q.type || 'fill-in', 
         question: q.question,
         expectedAnswer: q.expectedAnswer
       }));
@@ -446,7 +431,7 @@ function ExamsPreparation() {
       setLoadingProgress(100);
       setLoadingStatus('Exam Ready');
       addLog('Redirecting to dashboard...');
-      await new Promise(r => setTimeout(r, 800)); // Finish animation
+      await new Promise(r => setTimeout(r, 800)); 
 
       return { reviewText, mcqs, fillIns };
 
@@ -487,8 +472,6 @@ function ExamsPreparation() {
     const normalizedAnswer = answer.trim().toLowerCase();
     const normalizedCorrect = currentQuiz.correctAnswer.trim().toLowerCase();
     
-    // Improved Matching Logic for "a. Option" vs "Option"
-    // We check if the KEY text (after the "a. ") matches
     const getCoreText = (str) => {
       const match = str.match(/^[a-d]\.\s*(.*)/i);
       return match ? match[1].toLowerCase() : str.toLowerCase();
@@ -522,8 +505,8 @@ function ExamsPreparation() {
     }
   };
 
+  // --- NEW: LECTURER GRADING LOGIC ---
   const handleFillSubmit = async () => {
-    // Transition to Marking Stage UI immediately
     setExamStage('marking');
     setSubmitLoading(true);
     setMarkingProgress({ mcq: 0, fillIn: 0 });
@@ -532,57 +515,58 @@ function ExamsPreparation() {
       let fillInScore = 0;
       const results = [];
       
-      // Calculate MCQ Progress first (instant)
       setMarkingStatus("Calculating MCQ Scores...");
       setMarkingProgress(p => ({ ...p, mcq: 100 }));
       await new Promise(r => setTimeout(r, 500));
 
       const totalQuestions = fillInQuestions.length;
 
-      // Loop through questions with IMMERSIVE feedback
       for (let i = 0; i < totalQuestions; i++) {
         const question = fillInQuestions[i];
         const userAnswer = fillInAnswers[question.id]?.trim() || '';
         
-        // Dynamic status updates for each question
         setMarkingStatus(`Grading [${question.type.toUpperCase()}]: Q${i + 1}`);
         
         if (!userAnswer) {
           results.push({ 
             id: question.id, 
             type: question.type,
-            isCorrect: false, 
-            explanation: 'No answer provided.', 
+            score: 0, 
+            feedback: 'No answer provided.', 
             question: question.question, 
             userAnswer, 
             expectedAnswer: question.expectedAnswer,
-            hasTypos: false 
           });
           setMarkingProgress(p => ({ ...p, fillIn: ((i + 1) / totalQuestions) * 100 }));
           continue;
         }
 
-        // --- SMART TEACHER GRADING PROMPT ---
+        // --- EMPATHETIC LECTURER PROMPT ---
+        // Scores: 0 to 5.
+        // 5 = Perfect/Synonym
+        // 3-4 = Close/Partial
+        // 1-2 = Attempted but mostly wrong
+        // 0 = Wrong
         const prompt = `
-          Act as a smart, human teacher grading a student's answer.
+          Act as an empathetic but academic university lecturer grading a student's answer.
           
-          Question Type: "${question.type}" (e.g., list, explain, define, fill-in)
-          Question: "${question.question}"
-          Expected Answer: "${question.expectedAnswer}"
-          Student Answer: "${userAnswer}"
+          Context:
+          - Question Type: "${question.type}"
+          - Question: "${question.question}"
+          - Expected Answer (from notes): "${question.expectedAnswer}"
+          - Student Answer: "${userAnswer}"
 
-          GRADING RULES:
-          1. Mark as CORRECT (true) if the student's answer captures the core meaning/concepts required.
-          2. For 'List' types: check if key items are present.
-          3. For 'Explain' types: check for understanding of mechanism/reason.
-          4. IGNORE spelling/grammar unless it changes meaning.
-          5. Mark INCORRECT (false) if conceptually wrong or missing key points.
+          GRADING CRITERIA (Score 0-5):
+          5 (Perfect): Correct concept, even if phrased differently (synonyms, paraphrase). Full marks for capturing the essence.
+          4 (Very Good): Almost perfect, maybe a minor nuance missing or slight phrasing issue, but concept is solid.
+          3 (Partial Credit): Core concept is there, but missing a key keyword or slightly vague. "Close enough" to get some points.
+          1-2 (Poor): Weak link to the answer, mostly incorrect or very incomplete.
+          0 (Incorrect): Completely wrong or irrelevant.
 
           Return JSON ONLY:
           { 
-            "isCorrect": boolean, 
-            "explanation": "Brief teacher feedback explaining why correct/incorrect.", 
-            "hasTypos": boolean 
+            "score": number, 
+            "feedback": "Brief, helpful teacher feedback addressing the student directly.", 
           }
         `;
 
@@ -590,14 +574,17 @@ function ExamsPreparation() {
           let resultText = await callAIProxy(prompt);
           resultText = resultText.replace(/```json/g, '').replace(/```/g, '').trim();
           const result = JSON.parse(resultText);
-
-          // Written questions are worth 5 points now (harder than MCQ)
-          if (result.isCorrect) fillInScore += 5;
+          
+          // Clamp score between 0 and 5 just in case
+          const awardedScore = Math.min(5, Math.max(0, result.score || 0));
+          
+          fillInScore += awardedScore;
           
           results.push({ 
             id: question.id, 
             type: question.type,
-            ...result, 
+            score: awardedScore,
+            feedback: result.feedback,
             question: question.question, 
             userAnswer, 
             expectedAnswer: question.expectedAnswer 
@@ -605,22 +592,21 @@ function ExamsPreparation() {
           
         } catch (apiErr) {
           console.error(`Grading error for QID ${question.id}:`, apiErr);
-          // Fallback logic
+          // Fallback logic: Strict match = 5, else 0 (safest fallback if AI fails)
           const strictMatch = userAnswer.toLowerCase().includes(question.expectedAnswer.toLowerCase().substring(0, 10));
+          const score = strictMatch ? 5 : 0;
           results.push({
             id: question.id, 
             type: question.type,
-            isCorrect: strictMatch, 
-            explanation: strictMatch ? 'Correct (Fallback grading).' : 'Grading unavailable, marked incorrect.', 
+            score: score, 
+            feedback: strictMatch ? 'Correct (Fallback grading).' : 'Grading unavailable, marked incorrect.', 
             question: question.question, 
             userAnswer, 
-            expectedAnswer: question.expectedAnswer,
-            hasTypos: false
+            expectedAnswer: question.expectedAnswer
           });
-          if (strictMatch) fillInScore += 5;
+          fillInScore += score;
         }
 
-        // Update progress bar after each question
         setMarkingProgress(p => ({ ...p, fillIn: ((i + 1) / totalQuestions) * 100 }));
       }
 
@@ -629,11 +615,10 @@ function ExamsPreparation() {
 
       setFillInResults(results);
       
-      const mcqScore = mcqResults.filter(r => r.isCorrect).length * 2; // 2 pts per MCQ
-      const maxWrittenScore = fillInQuestions.length * 5; // 5 pts per written
+      const mcqScore = mcqResults.filter(r => r.isCorrect).length * 2; 
+      const maxWrittenScore = fillInQuestions.length * 5; 
       const maxMcqScore = mcqQuestions.length * 2;
 
-      // Normalize to 100 for total
       const rawTotal = mcqScore + fillInScore;
       const maxTotal = maxMcqScore + maxWrittenScore;
       const normalizedTotal = Math.round((rawTotal / maxTotal) * 100);
@@ -1546,61 +1531,83 @@ function ExamsPreparation() {
                   <div className="space-y-4">
                     <h3 className="text-lg font-bold text-slate-300 px-2">Detailed Breakdown</h3>
                     
-                    {fillInResults.map((res, idx) => (
-                      <div key={idx} className={`p-5 rounded-2xl border transition-all ${
-                        res.isCorrect 
-                          ? res.hasTypos 
-                            ? 'bg-yellow-500/5 border-yellow-500/20 hover:bg-yellow-500/10' // Correct but w/ typos
-                            : 'bg-green-500/5 border-green-500/20 hover:bg-green-500/10' 
-                          : 'bg-red-500/5 border-red-500/20 hover:bg-red-500/10'
-                      }`}>
-                         <div className="flex justify-between items-start mb-3">
-                           <div className="flex items-center gap-2">
-                             <span className="text-sm font-bold text-slate-300">Question {idx + 1}</span>
-                             <span className="text-[10px] font-bold uppercase bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded">{res.type}</span>
-                           </div>
-                           
-                           {/* Status Badge */}
-                           {res.isCorrect ? (
-                             res.hasTypos ? (
-                               <span className="flex items-center gap-1 text-xs font-bold text-yellow-400 bg-yellow-500/10 px-2 py-0.5 rounded-full">
-                                 <SpellCheck size={12}/> Correct (Check Spelling)
-                               </span>
-                             ) : (
-                               <span className="flex items-center gap-1 text-xs font-bold text-green-400 bg-green-500/10 px-2 py-0.5 rounded-full">
-                                 <CheckCircle size={12}/> Correct (+5)
-                               </span>
-                             )
-                           ) : (
-                             <span className="flex items-center gap-1 text-xs font-bold text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full">
-                               <XCircle size={12}/> Incorrect
+                    {fillInResults.map((res, idx) => {
+                      // Logic to determine visual style based on score (0-5)
+                      const isPerfect = res.score === 5;
+                      const isPartial = res.score >= 3 && res.score < 5;
+                      const isPoor = res.score > 0 && res.score < 3;
+                      const isZero = res.score === 0;
+
+                      let borderColor = 'border-white/10';
+                      let bgColor = 'bg-slate-800/40';
+                      let badgeColor = 'text-slate-400 bg-slate-500/10';
+                      let badgeIcon = <XCircle size={12}/>;
+                      let badgeText = `Score: ${res.score}/5`;
+
+                      if (isPerfect) {
+                        borderColor = 'border-green-500/20';
+                        bgColor = 'bg-green-500/5';
+                        badgeColor = 'text-green-400 bg-green-500/10';
+                        badgeIcon = <CheckCircle size={12}/>;
+                        badgeText = `Perfect (+5)`;
+                      } else if (isPartial) {
+                         borderColor = 'border-yellow-500/20';
+                         bgColor = 'bg-yellow-500/5';
+                         badgeColor = 'text-yellow-400 bg-yellow-500/10';
+                         badgeIcon = <AlertCircle size={12}/>;
+                         badgeText = `Partial Credit (+${res.score})`;
+                      } else if (isPoor) {
+                         borderColor = 'border-orange-500/20';
+                         bgColor = 'bg-orange-500/5';
+                         badgeColor = 'text-orange-400 bg-orange-500/10';
+                         badgeIcon = <AlertCircle size={12}/>;
+                         badgeText = `Poor (+${res.score})`;
+                      } else {
+                         borderColor = 'border-red-500/20';
+                         bgColor = 'bg-red-500/5';
+                         badgeColor = 'text-red-400 bg-red-500/10';
+                         badgeIcon = <XCircle size={12}/>;
+                         badgeText = `Incorrect (0)`;
+                      }
+
+                      return (
+                        <div key={idx} className={`p-5 rounded-2xl border transition-all ${bgColor} ${borderColor} hover:opacity-90`}>
+                           <div className="flex justify-between items-start mb-3">
+                             <div className="flex items-center gap-2">
+                               <span className="text-sm font-bold text-slate-300">Question {idx + 1}</span>
+                               <span className="text-[10px] font-bold uppercase bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded">{res.type}</span>
+                             </div>
+                             
+                             {/* Status Badge */}
+                             <span className={`flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full ${badgeColor}`}>
+                               {badgeIcon} {badgeText}
                              </span>
-                           )}
-                         </div>
-                         <p className="text-sm mb-4 text-white font-medium">{res.question}</p>
-                         
-                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                           <div className="bg-black/20 p-3 rounded-lg border border-white/5">
-                             <div className="text-xs text-slate-500 mb-1">Your Answer</div>
-                             <div className={res.isCorrect ? (res.hasTypos ? 'text-yellow-300' : 'text-green-300') : 'text-red-300'}>
-                               {res.userAnswer || '(Empty)'}
+                           </div>
+                           <p className="text-sm mb-4 text-white font-medium leading-relaxed">{res.question}</p>
+                           
+                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                             <div className="bg-black/20 p-3 rounded-lg border border-white/5">
+                               <div className="text-xs text-slate-500 mb-1">Your Answer</div>
+                               <div className={isPerfect ? 'text-green-300' : isPartial ? 'text-yellow-300' : 'text-red-300'}>
+                                 {res.userAnswer || '(Empty)'}
+                               </div>
+                             </div>
+                             <div className="bg-black/20 p-3 rounded-lg border border-white/5">
+                               <div className="text-xs text-slate-500 mb-1">Expected Answer</div>
+                               <div className="text-purple-300">{res.expectedAnswer}</div>
                              </div>
                            </div>
-                           <div className="bg-black/20 p-3 rounded-lg border border-white/5">
-                             <div className="text-xs text-slate-500 mb-1">Expected Answer</div>
-                             <div className="text-purple-300">{res.expectedAnswer}</div>
-                           </div>
-                         </div>
-                         
-                         {/* Show explanation if wrong OR if there are typos/comments */}
-                         {(!res.isCorrect || res.explanation) && (
-                           <div className="mt-3 text-xs text-slate-400 italic flex gap-2 items-start">
-                             <AlertCircle size={14} className="mt-0.5 shrink-0" />
-                             {res.explanation}
-                           </div>
-                         )}
-                      </div>
-                    ))}
+                           
+                           {/* Lecturer Feedback */}
+                           {res.feedback && (
+                             <div className="mt-3 text-xs text-slate-400 italic flex gap-2 items-start bg-black/10 p-2 rounded-lg">
+                               <Sparkles size={14} className="mt-0.5 shrink-0 text-purple-400" />
+                               <span><span className="font-bold text-purple-400 not-italic">Lecturer Feedback:</span> {res.feedback}</span>
+                             </div>
+                           )}
+                        </div>
+                      );
+                    })}
                   </div>
 
                   {/* Reset Button */}
