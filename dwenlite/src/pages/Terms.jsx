@@ -74,72 +74,71 @@ function Terms() {
         <section>
           <h3 className="text-xl sm:text-2xl font-semibold text-purple-600 mb-4 md:mb-6 border-l-4 border-purple-600 pl-4">Privacy Policy</h3>
           <p className="text-gray-600 mb-6 leading-relaxed">
-            At SBMind Technologies, we are committed to protecting your privacy. This Privacy Policy outlines how we collect, use, share, and safeguard your personal information while you use DwenLite, our AI-powered study tool.
+            At SBMind Technologies, we are committed to protecting your privacy. This Privacy Policy outlines how we collect, use, share, and safeguard your personal information while you use DwenLite, our AI-powered study tool. This policy complies with Google Play Store requirements regarding the disclosure of third-party service integrations like Google AdMob and Firebase.
           </p>
           <div className="md:grid md:grid-cols-2 md:gap-6">
             <div className="mb-6">
               <h4 className="text-lg sm:text-xl font-medium text-gray-800 mb-2">1. Information We Collect</h4>
               <ul className="list-disc pl-6 text-gray-600 leading-relaxed">
                 <li><strong>Account Information</strong>: Your name, email address, and password when you create an account. If you use Google sign-in, we collect your name and email provided by Google.</li>
-                <li><strong>Usage Data</strong>: Information about your interactions with DwenLite, such as study sessions, queries submitted to the AI, and feature usage, to improve platform functionality and user experience.</li>
-                <li><strong>Device Information</strong>: Technical details such as browser type, operating system, and device identifiers to ensure compatibility and optimize performance.</li>
-                <li><strong>User-Generated Content</strong>: Study notes, questions, or other inputs you provide to the AI for generating educational materials.</li>
+                <li><strong>Usage Data</strong>: Information about your interactions with DwenLite, such as study sessions, queries submitted to the AI, and feature usage.</li>
+                <li><strong>Device & Advertising Information</strong>: Technical details such as operating system, device identifiers, and Mobile Advertising IDs (e.g., Google Advertising ID). These are used to ensure compatibility and serve tailored advertisements.</li>
+                <li><strong>User-Generated Content</strong>: Study notes, documents, audio, or other inputs you provide to the AI for generating educational materials.</li>
               </ul>
             </div>
             <div className="mb-6">
               <h4 className="text-lg sm:text-xl font-medium text-gray-800 mb-2">2. How We Use Your Information</h4>
               <ul className="list-disc pl-6 text-gray-600 leading-relaxed">
-                <li>Provide and maintain DwenLite’s services, including account management and AI-generated study materials.</li>
+                <li>Provide, maintain, and personalize DwenLite’s core services, including AI-generated study materials and user authentication.</li>
                 <li>Analyze usage patterns to enhance platform performance, fix issues, and develop new features.</li>
-                <li>Communicate with you about updates, new features, or important notices, with the option to opt out of non-essential communications.</li>
-                <li>Monitor for misuse or unauthorized activities to ensure a safe and reliable user experience.</li>
+                <li>Serve advertisements to free users. We use Google AdMob to display rewarded video ads, which relies on your device's advertising ID to provide relevant ads.</li>
+                <li>Communicate with you about updates, new features, or important notices.</li>
               </ul>
             </div>
             <div className="mb-6">
-              <h4 className="text-lg sm:text-xl font-medium text-gray-800 mb-2">3. Sharing Your Information</h4>
+              <h4 className="text-lg sm:text-xl font-medium text-gray-800 mb-2">3. Third-Party Services</h4>
+              <p className="text-gray-600 leading-relaxed mb-2">We utilize specific third-party services to operate and monetize our app. By using DwenLite, you acknowledge the processing of data by:</p>
               <ul className="list-disc pl-6 text-gray-600 leading-relaxed">
-                <li><strong>Service Providers</strong>: We share data with trusted third-party providers (e.g., Firebase for authentication) who assist in operating DwenLite, bound by strict confidentiality agreements.</li>
-                <li><strong>Legal Obligations</strong>: We may disclose information if required by law, such as in response to a court order or regulatory request, while taking steps to protect your privacy.</li>
-                <li><strong>Business Transfers</strong>: In the event of a merger or acquisition, your data may be transferred as part of the business assets, with prior notice where feasible.</li>
+                <li><strong>Firebase (by Google)</strong>: Used for secure user authentication, real-time database storage, and file hosting. Your profile data and study materials are securely stored on Firebase servers.</li>
+                <li><strong>Google AdMob</strong>: Used to serve advertisements within the app. AdMob may collect and use your device's advertising ID and location data to show personalized ads. You can manage your ad preferences via your Android device settings.</li>
               </ul>
             </div>
             <div className="mb-6">
-              <h4 className="text-lg sm:text-xl font-medium text-gray-800 mb-2">4. Data Security</h4>
+              <h4 className="text-lg sm:text-xl font-medium text-gray-800 mb-2">4. Sharing Your Information</h4>
+              <ul className="list-disc pl-6 text-gray-600 leading-relaxed">
+                <li><strong>Service Providers</strong>: As mentioned above, we share necessary data with third-party providers (like Google Firebase and AdMob) who assist in operating DwenLite, bound by strict privacy policies.</li>
+                <li><strong>Legal Obligations</strong>: We may disclose information if required by law, such as in response to a court order or regulatory request.</li>
+                <li><strong>Business Transfers</strong>: In the event of a merger or acquisition, your data may be transferred as part of the business assets.</li>
+              </ul>
+            </div>
+            <div className="mb-6">
+              <h4 className="text-lg sm:text-xl font-medium text-gray-800 mb-2">5. Data Security</h4>
               <p className="text-gray-600 leading-relaxed">
                 We use industry-standard encryption and security measures to protect your data on secure cloud servers. While we strive to safeguard your information, no system is entirely immune to breaches. In the event of a data breach, we will notify affected users promptly as required by law.
               </p>
             </div>
             <div className="mb-6">
-              <h4 className="text-lg sm:text-xl font-medium text-gray-800 mb-2">5. Your Rights and Choices</h4>
+              <h4 className="text-lg sm:text-xl font-medium text-gray-800 mb-2">6. Your Rights and Choices</h4>
               <ul className="list-disc pl-6 text-gray-600 leading-relaxed">
-                <li>Request access, correction, or deletion of your personal data by contacting{' '}
-                  <a href="mailto:info@sbmindtechnologies.com" className="text-purple-600 hover:underline hover:bg-purple-50 px-1 rounded">
-                    info@sbmindtechnologies.com
-                  </a>.</li>
-                <li>Opt out of non-essential communications, such as promotional emails, via your account settings or by contacting us.</li>
-                <li>Users in certain jurisdictions (e.g., EU/EEA) may have additional rights under applicable data protection laws, such as data portability.</li>
+                <li>Request access, correction, or deletion of your personal data by contacting us.</li>
+                <li><strong>Ad Preferences</strong>: You can opt out of personalized advertising by resetting your Advertising ID or enabling "Opt out of Ads Personalization" in your Android device's Google Settings.</li>
+                <li>Pro Members can upgrade to enjoy an ad-free experience, disabling all AdMob tracking within the app.</li>
               </ul>
-            </div>
-            <div className="mb-6">
-              <h4 className="text-lg sm:text-xl font-medium text-gray-800 mb-2">6. Cookies and Tracking</h4>
-              <p className="text-gray-600 leading-relaxed">
-                We use cookies and similar technologies to enhance your experience, such as remembering your preferences. You may disable cookies through your browser settings, but this may affect DwenLite’s functionality.
-              </p>
             </div>
             <div className="mb-6">
               <h4 className="text-lg sm:text-xl font-medium text-gray-800 mb-2">7. Data Retention</h4>
               <p className="text-gray-600 leading-relaxed">
-                We retain your data only as long as necessary to provide DwenLite’s services or comply with legal obligations. Upon account deletion, we will remove your personal information, except where retention is required by law.
+                We retain your data only as long as necessary to provide DwenLite’s services or comply with legal obligations. Upon account deletion, we will remove your personal information, study materials, and files from our Firebase databases, except where retention is required by law.
               </p>
             </div>
             <div className="mb-6">
               <h4 className="text-lg sm:text-xl font-medium text-gray-800 mb-2">8. Updates to This Policy</h4>
               <p className="text-gray-600 leading-relaxed">
-                We may update this Privacy Policy to reflect changes in our practices or legal requirements. We will notify you of significant changes via email or through the platform. Continued use of DwenLite after updates indicates your acceptance of the revised policy.
+                We may update this Privacy Policy to reflect changes in our practices, third-party services, or legal requirements. Continued use of DwenLite after updates indicates your acceptance of the revised policy.
               </p>
             </div>
           </div>
-          <p className="text-gray-600 leading-relaxed">
+          <p className="text-gray-600 leading-relaxed mt-4">
             For questions or concerns about this Privacy Policy, please contact us at{' '}
             <a href="mailto:info@sbmindtechnologies.com" className="text-purple-600 hover:underline hover:bg-purple-50 px-1 rounded">
               info@sbmindtechnologies.com
@@ -150,7 +149,7 @@ function Terms() {
         <div className="text-center mt-6 md:mt-8">
           <Link
             to="/signup"
-            className="text-purple-600 hover:underline hover:bg-purple-50 px-2 py-1 rounded"
+            className="text-purple-600 hover:underline hover:bg-purple-50 px-2 py-1 rounded font-medium"
           >
             Back to Sign Up
           </Link>
