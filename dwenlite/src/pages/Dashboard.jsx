@@ -105,8 +105,29 @@ function Dashboard() {
     try {
       const q = query(collection(db, 'folders'), where('user_id', '==', userId));
       const snap = await getDocs(q);
-      setFolders(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    } catch (err) { toast.error('Failed to load folders'); } 
+      
+      // Map through docs and sanitize createdAt to ensure it's a string, not a Timestamp object
+      const loadedFolders = snap.docs.map(doc => {
+        const data = doc.data();
+        let createdDate = data.createdAt;
+        
+        // Check if createdAt is a Firestore Timestamp (object with seconds)
+        if (createdDate && typeof createdDate === 'object' && 'seconds' in createdDate) {
+          createdDate = new Date(createdDate.seconds * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        }
+        
+        return { 
+          id: doc.id, 
+          ...data,
+          createdAt: createdDate
+        };
+      });
+
+      setFolders(loadedFolders);
+    } catch (err) { 
+      console.error(err);
+      toast.error('Failed to load folders'); 
+    } 
     finally { setTimeout(() => setFoldersLoading(false), 800); }
   };
 
