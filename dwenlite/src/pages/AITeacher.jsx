@@ -506,6 +506,7 @@ RULES:
   // Map 0-255 volume to a visual scale/size
   const pulseScale = isListening ? 1 + (micVolume / 255) * 0.7 : (isSpeaking ? 1 + (speakerVolume / 255) * 0.7 : 1);
   const pulseOpacity = isListening ? Math.min(1, 0.3 + (micVolume / 255)) : (isSpeaking ? Math.min(1, 0.3 + (speakerVolume / 255)) : 0.5);
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-6">
@@ -553,13 +554,31 @@ RULES:
               <>
                 <motion.div
                   className={`absolute rounded-full ${isSpeaking ? 'bg-purple-500/40' : 'bg-green-500/40'}`}
-                  style={{ width: 160 * pulseScale, height: 160 * pulseScale, opacity: pulseOpacity }}
-                  transition={{ duration: 0.1 }}
+                  style={{ width: 160, height: 160 }}
+                  animate={
+                    isMobile && isListening && !isSpeaking
+                      ? { scale: [1, 1.2, 1], opacity: [0.3, 0.6, 0.3] }
+                      : { scale: pulseScale, opacity: pulseOpacity }
+                  }
+                  transition={
+                    isMobile && isListening && !isSpeaking
+                      ? { duration: 1.5, repeat: Infinity, ease: "easeInOut" }
+                      : { duration: 0.1 }
+                  }
                 />
                 <motion.div
                   className={`absolute rounded-full ${isSpeaking ? 'bg-purple-400/20' : 'bg-green-400/20'}`}
-                  style={{ width: 160 * (pulseScale + 0.3), height: 160 * (pulseScale + 0.3), opacity: pulseOpacity * 0.7 }}
-                  transition={{ duration: 0.1 }}
+                  style={{ width: 160, height: 160 }}
+                  animate={
+                    isMobile && isListening && !isSpeaking
+                      ? { scale: [1.3, 1.6, 1.3], opacity: [0.2, 0.4, 0.2] }
+                      : { scale: pulseScale + 0.3, opacity: pulseOpacity * 0.7 }
+                  }
+                  transition={
+                    isMobile && isListening && !isSpeaking
+                      ? { duration: 1.5, repeat: Infinity, ease: "easeInOut", delay: 0.2 }
+                      : { duration: 0.1 }
+                  }
                 />
               </>
             )}
