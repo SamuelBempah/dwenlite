@@ -24,6 +24,7 @@ import DwenliteHelpdesk from './pages/DwenliteHelpdesk';
 import CommunitySupport from './pages/CommunitySupport';
 import Bundles from './pages/Bundles';
 import Reports from './pages/Reports';
+import AITeacher from './pages/AITeacher';
 
 const isMaintenanceWindow = () => {
   const now = new Date();
@@ -174,6 +175,7 @@ function App() {
           <Route path="/dwenlite-helpdesk" element={<MaintenanceRoute component={DwenliteHelpdesk} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
           <Route path="/exams-preparation" element={<MaintenanceRoute component={ExamsPreparation} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
           <Route path="/reports" element={<MaintenanceRoute component={Reports} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+          <Route path="/ai-teacher" element={<MaintenanceRoute component={AITeacher} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
           <Route path="/maintenance" element={<Maintenance />} />
           <Route path="*" element={isMaintenanceWindow() ? <Maintenance /> : <NotFound />} />
         </Routes>
