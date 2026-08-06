@@ -57,7 +57,7 @@ const AITeacher = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
-      recognition.continuous = false;
+      recognition.continuous = true;
       recognition.interimResults = false;
       recognition.lang = 'en-US';
 
@@ -127,7 +127,8 @@ const AITeacher = () => {
       } catch (e) {
         // already started
       }    // Start Mic Audio Visualization
-      if (navigator.mediaDevices && !micStreamRef.current) {
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      if (navigator.mediaDevices && !micStreamRef.current && !isMobile) {
         navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
