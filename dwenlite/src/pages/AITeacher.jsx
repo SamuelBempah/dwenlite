@@ -546,15 +546,7 @@ RULES:
         {/* Visualizer / Avatar Area */}
         <div className="flex-1 min-h-[22rem] py-8 flex flex-col items-center justify-center bg-gray-900 relative">
 
-          <div className="text-gray-400 text-sm h-8 font-medium animate-pulse">
-            {isSpeaking
-              ? 'Dwenlite is speaking...'
-              : isListening && stepRef.current !== 2 && stepRef.current !== 4
-                ? 'Listening...'
-                : uiStep === 4
-                  ? 'Session Complete!'
-                  : 'Idle'}
-          </div>
+          <div className="h-8"></div>
 
           <div className="relative flex items-center justify-center w-64 h-64">
             {/* Realtime Audio Pulses (For BOTH AI and User) */}
@@ -625,11 +617,7 @@ RULES:
           </div>
 
           {/* Text Status Indicator below circle */}
-          <div className="h-10 mt-6 flex items-center justify-center">
-            {isListening && stepRef.current !== 2 && stepRef.current !== 4 && (
-              <span className="text-green-400 font-medium tracking-wide animate-pulse">Listening...</span>
-            )}
-          </div>
+          <div className="h-10 mt-6 flex items-center justify-center"></div>
 
         </div>
 
