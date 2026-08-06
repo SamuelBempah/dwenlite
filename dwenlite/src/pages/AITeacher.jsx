@@ -62,6 +62,7 @@ const AITeacher = () => {
       recognition.lang = 'en-US';
 
       recognition.onresult = (event) => {
+        if (isSpeakingRef.current) return;
         // Read the most recent transcript, not the first one in the buffer
         const lastResultIndex = event.results.length - 1;
         const transcript = event.results[lastResultIndex][0].transcript;
