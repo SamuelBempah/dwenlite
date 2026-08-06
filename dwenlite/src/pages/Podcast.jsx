@@ -319,7 +319,7 @@ function Podcast() {
 
       console.log('Generating podcast audio...');
       const ttsResponse = await axios.post(
-        'http://localhost:3001/generate-tts',
+        'https://dwenlite-backend.fly.dev/api/tts',
         { text: content },
         { responseType: 'arraybuffer' }
       );

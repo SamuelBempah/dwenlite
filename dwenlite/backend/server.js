@@ -5,7 +5,7 @@ const path = require('path');
 const fs = require('fs');
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
@@ -20,7 +20,7 @@ app.post('/api/tts', (req, res) => {
     
     // Using edge-tts
     const safeText = text.replace(/"/g, '\\"');
-    const command = `python generate_tts.py "${safeText}" "${outputFile}"`;
+    const command = `python3 generate_tts.py "${safeText}" "${outputFile}"`;
     
     exec(command, (error, stdout, stderr) => {
         if (error) {

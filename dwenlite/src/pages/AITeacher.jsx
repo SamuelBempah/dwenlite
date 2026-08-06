@@ -389,7 +389,7 @@ RULES:
     try {
       // Clean newlines, double quotes, and special shell characters so it doesn't crash the Node server's exec()
       const safeTextForTTS = text.replace(/[\n\r]+/g, ' ').replace(/"/g, "'").replace(/[$\\]/g, '');
-      const response = await fetch('http://localhost:3001/api/tts', {
+      const response = await fetch('https://dwenlite-backend.fly.dev/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: safeTextForTTS })
