@@ -74,14 +74,16 @@ const AITeacher = () => {
       };
 
       recognition.onend = () => {
-        // Persistent Listening Logic
+        setIsListening(false);
+        isListeningRef.current = false;
+
+        // Add a delay before restarting to prevent instant loop crashes on mobile browsers
         if (!isSpeakingRef.current && stepRef.current !== 2 && stepRef.current !== 4 && !showUploadDrawer) {
-          try {
-            recognitionRef.current.start();
-          } catch (e) { }
-        } else {
-          setIsListening(false);
-          isListeningRef.current = false;
+          setTimeout(() => {
+            if (!isSpeakingRef.current && stepRef.current !== 2 && stepRef.current !== 4 && !showUploadDrawer) {
+              startListening();
+            }
+          }, 600);
         }
       };
 
@@ -493,16 +495,7 @@ RULES:
     }
   };
 
-  const downloadLogs = () => {
-    const text = messagesRef.current.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
-    const blob = new Blob([text], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `teacher_logs_${Date.now()}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
+  // Removed downloadLogs function
 
   // Map 0-255 volume to a visual scale/size
   const pulseScale = isListening ? 1 + (micVolume / 255) * 0.7 : (isSpeaking ? 1 + (speakerVolume / 255) * 0.7 : 1);
@@ -520,12 +513,7 @@ RULES:
             <Volume2 className="text-purple-400" />
             <span className="text-xl font-bold text-white tracking-tight">AI Teacher</span>
           </div>
-          <button
-            onClick={downloadLogs}
-            className="text-xs bg-gray-800 hover:bg-gray-700 border border-gray-600 text-gray-300 px-3 py-1.5 rounded-lg transition-colors"
-          >
-            Download Logs
-          </button>
+          <div className="w-10"></div> {/* spacer for alignment */}
         </div>
 
         {/* Status Indicator */}
@@ -605,8 +593,8 @@ RULES:
 
           {/* Text Status Indicator below circle */}
           <div className="h-10 mt-6 flex items-center justify-center">
-            {isListening && stepRef.current !== 2 && (
-              <span className="text-green-400 font-medium tracking-wide">Listening...</span>
+            {isListening && stepRef.current !== 2 && stepRef.current !== 4 && (
+              <span className="text-green-400 font-medium tracking-wide animate-pulse">Listening...</span>
             )}
           </div>
 
