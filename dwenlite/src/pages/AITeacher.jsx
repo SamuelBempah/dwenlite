@@ -11,6 +11,14 @@ import axios from 'axios';
 const filter = new Filter();
 
 const AITeacher = () => {
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 1024);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const stepRef = useRef(0);
   const userNameRef = useRef('');
   const studyMaterialRef = useRef('');
@@ -39,7 +47,6 @@ const AITeacher = () => {
 
   const audioCtxRef = useRef(null);
   const speakerAnalyserRef = useRef(null);
-  const micStreamRef = useRef(null);
 
   // Create AudioContext ONCE on interaction (for Mic only)
   const initAudioContext = () => {
@@ -51,18 +58,18 @@ const AITeacher = () => {
   };
 
   useEffect(() => {
+    if (isMobile) return;
     if (initializedRef.current) return;
     initializedRef.current = true;
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
-      recognition.continuous = true;
+      recognition.continuous = false;
       recognition.interimResults = false;
       recognition.lang = 'en-US';
 
       recognition.onresult = (event) => {
-        if (isSpeakingRef.current) return;
         // Read the most recent transcript, not the first one in the buffer
         const lastResultIndex = event.results.length - 1;
         const transcript = event.results[lastResultIndex][0].transcript;
@@ -76,16 +83,14 @@ const AITeacher = () => {
       };
 
       recognition.onend = () => {
-        setIsListening(false);
-        isListeningRef.current = false;
-
-        // Add a delay before restarting to prevent instant loop crashes on mobile browsers
+        // Persistent Listening Logic
         if (!isSpeakingRef.current && stepRef.current !== 2 && stepRef.current !== 4 && !showUploadDrawer) {
-          setTimeout(() => {
-            if (!isSpeakingRef.current && stepRef.current !== 2 && stepRef.current !== 4 && !showUploadDrawer) {
-              startListening();
-            }
-          }, 600);
+          try {
+            recognitionRef.current.start();
+          } catch (e) { }
+        } else {
+          setIsListening(false);
+          isListeningRef.current = false;
         }
       };
 
@@ -107,10 +112,6 @@ const AITeacher = () => {
     return () => {
       if (audioRef.current) audioRef.current.pause();
       if (recognitionRef.current) recognitionRef.current.abort();
-      if (micStreamRef.current) {
-        micStreamRef.current.getTracks().forEach(t => t.stop());
-        micStreamRef.current = null;
-      }
       setIsListening(false);
       isListeningRef.current = false;
       if (audioCtxRef.current) audioCtxRef.current.close();
@@ -128,8 +129,7 @@ const AITeacher = () => {
       } catch (e) {
         // already started
       }    // Start Mic Audio Visualization
-      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      if (navigator.mediaDevices && !micStreamRef.current && !isMobile) {
+      if (navigator.mediaDevices) {
         navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
@@ -137,7 +137,6 @@ const AITeacher = () => {
             autoGainControl: true,
           }
         }).then(stream => {
-          micStreamRef.current = stream;
           if (!audioCtxRef.current) initAudioContext();
           if (audioCtxRef.current.state === 'suspended') audioCtxRef.current.resume();
 
@@ -146,21 +145,22 @@ const AITeacher = () => {
           const micAnalyser = micCtx.createAnalyser();
           micAnalyser.fftSize = 256;
           micSource.connect(micAnalyser);
+          // DO NOT connect to destination (no echo)
 
           const dataArray = new Uint8Array(micAnalyser.frequencyBinCount);
           const updateMicVol = () => {
-            if (!micStreamRef.current) return;
+            if (!isListeningRef.current) {
+              stream.getTracks().forEach(t => t.stop());
+              setMicVolume(0);
+              return;
+            }
             micAnalyser.getByteFrequencyData(dataArray);
             let sum = 0;
             for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
             let avg = sum / dataArray.length;
+            // Noise gate: ignore subtle background noise
             if (avg < 5) avg = 0;
-
-            if (isListeningRef.current) {
-              setMicVolume(avg);
-            } else {
-              setMicVolume(0);
-            }
+            setMicVolume(avg);
             requestAnimationFrame(updateMicVol);
           };
           updateMicVol();
@@ -455,13 +455,6 @@ RULES:
   const generateAIResponse = async (prompt, history) => {
     setIsSpeaking(true);
     isSpeakingRef.current = true;
-
-    if (recognitionRef.current && isListening) {
-      recognitionRef.current.abort();
-      setIsListening(false);
-      isListeningRef.current = false;
-    }
-
     try {
       const formattedHistory = history.map(h => `${h.role === 'system' ? 'System' : h.role === 'user' ? 'Student' : 'Teacher'}: ${h.content}`).join('\n');
       const finalPrompt = `${formattedHistory}\nStudent: ${prompt}\nTeacher:`;
@@ -509,12 +502,23 @@ RULES:
     }
   };
 
-  // Removed downloadLogs function
-
   // Map 0-255 volume to a visual scale/size
   const pulseScale = isListening ? 1 + (micVolume / 255) * 0.7 : (isSpeaking ? 1 + (speakerVolume / 255) * 0.7 : 1);
   const pulseOpacity = isListening ? Math.min(1, 0.3 + (micVolume / 255)) : (isSpeaking ? Math.min(1, 0.3 + (speakerVolume / 255)) : 0.5);
-  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+  if (isMobile) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-6 text-center text-white gap-4 relative">
+        <Link to="/dashboard" className="absolute top-6 left-6 text-gray-400 hover:text-white transition-colors">
+          <ArrowLeft size={32} />
+        </Link>
+        <div className="bg-gray-800 p-8 rounded-2xl shadow-2xl max-w-md w-full border border-gray-700">
+          <h2 className="text-2xl font-bold text-red-400 mb-4">Desktop Only</h2>
+          <p className="text-lg text-gray-300">This functionality is only exclusive to desktop and PC devices not mobile or tablets.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-6">
@@ -526,9 +530,8 @@ RULES:
           </Link>
           <div className="flex items-center gap-2">
             <Volume2 className="text-purple-400" />
-            <span className="text-xl font-bold text-white tracking-tight">DwenLite Teacher</span>
+            <span className="text-xl font-bold text-white tracking-tight">AI Teacher</span>
           </div>
-          <div className="w-10"></div> {/* spacer for alignment */}
         </div>
 
         {/* Status Indicator */}
@@ -546,7 +549,15 @@ RULES:
         {/* Visualizer / Avatar Area */}
         <div className="flex-1 min-h-[22rem] py-8 flex flex-col items-center justify-center bg-gray-900 relative">
 
-          <div className="h-8"></div>
+          <div className="text-gray-400 text-sm h-8 font-medium animate-pulse">
+            {isSpeaking
+              ? 'Dwenlite is speaking...'
+              : isListening && stepRef.current !== 2 && stepRef.current !== 4
+                ? 'Listening...'
+                : uiStep === 4
+                  ? 'Session Complete!'
+                  : 'Idle'}
+          </div>
 
           <div className="relative flex items-center justify-center w-64 h-64">
             {/* Realtime Audio Pulses (For BOTH AI and User) */}
@@ -554,31 +565,13 @@ RULES:
               <>
                 <motion.div
                   className={`absolute rounded-full ${isSpeaking ? 'bg-purple-500/40' : 'bg-green-500/40'}`}
-                  style={{ width: 160, height: 160 }}
-                  animate={
-                    isMobile && isListening && !isSpeaking
-                      ? { scale: [1, 1.2, 1], opacity: [0.3, 0.6, 0.3] }
-                      : { scale: pulseScale, opacity: pulseOpacity }
-                  }
-                  transition={
-                    isMobile && isListening && !isSpeaking
-                      ? { duration: 1.5, repeat: Infinity, ease: "easeInOut" }
-                      : { duration: 0.1 }
-                  }
+                  style={{ width: 160 * pulseScale, height: 160 * pulseScale, opacity: pulseOpacity }}
+                  transition={{ duration: 0.1 }}
                 />
                 <motion.div
                   className={`absolute rounded-full ${isSpeaking ? 'bg-purple-400/20' : 'bg-green-400/20'}`}
-                  style={{ width: 160, height: 160 }}
-                  animate={
-                    isMobile && isListening && !isSpeaking
-                      ? { scale: [1.3, 1.6, 1.3], opacity: [0.2, 0.4, 0.2] }
-                      : { scale: pulseScale + 0.3, opacity: pulseOpacity * 0.7 }
-                  }
-                  transition={
-                    isMobile && isListening && !isSpeaking
-                      ? { duration: 1.5, repeat: Infinity, ease: "easeInOut", delay: 0.2 }
-                      : { duration: 0.1 }
-                  }
+                  style={{ width: 160 * (pulseScale + 0.3), height: 160 * (pulseScale + 0.3), opacity: pulseOpacity * 0.7 }}
+                  transition={{ duration: 0.1 }}
                 />
               </>
             )}
@@ -617,7 +610,11 @@ RULES:
           </div>
 
           {/* Text Status Indicator below circle */}
-          <div className="h-10 mt-6 flex items-center justify-center"></div>
+          <div className="h-10 mt-6 flex items-center justify-center">
+            {isListening && stepRef.current !== 2 && (
+              <span className="text-green-400 font-medium tracking-wide">Listening...</span>
+            )}
+          </div>
 
         </div>
 
