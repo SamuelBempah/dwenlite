@@ -39,6 +39,7 @@ const AITeacher = () => {
 
   const audioCtxRef = useRef(null);
   const speakerAnalyserRef = useRef(null);
+  const micStreamRef = useRef(null);
 
   // Create AudioContext ONCE on interaction (for Mic only)
   const initAudioContext = () => {
@@ -105,6 +106,10 @@ const AITeacher = () => {
     return () => {
       if (audioRef.current) audioRef.current.pause();
       if (recognitionRef.current) recognitionRef.current.abort();
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach(t => t.stop());
+        micStreamRef.current = null;
+      }
       setIsListening(false);
       isListeningRef.current = false;
       if (audioCtxRef.current) audioCtxRef.current.close();
@@ -122,7 +127,7 @@ const AITeacher = () => {
       } catch (e) {
         // already started
       }    // Start Mic Audio Visualization
-      if (navigator.mediaDevices) {
+      if (navigator.mediaDevices && !micStreamRef.current) {
         navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
@@ -130,6 +135,7 @@ const AITeacher = () => {
             autoGainControl: true,
           }
         }).then(stream => {
+          micStreamRef.current = stream;
           if (!audioCtxRef.current) initAudioContext();
           if (audioCtxRef.current.state === 'suspended') audioCtxRef.current.resume();
 
@@ -138,22 +144,21 @@ const AITeacher = () => {
           const micAnalyser = micCtx.createAnalyser();
           micAnalyser.fftSize = 256;
           micSource.connect(micAnalyser);
-          // DO NOT connect to destination (no echo)
 
           const dataArray = new Uint8Array(micAnalyser.frequencyBinCount);
           const updateMicVol = () => {
-            if (!isListeningRef.current) {
-              stream.getTracks().forEach(t => t.stop());
-              setMicVolume(0);
-              return;
-            }
+            if (!micStreamRef.current) return;
             micAnalyser.getByteFrequencyData(dataArray);
             let sum = 0;
             for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
             let avg = sum / dataArray.length;
-            // Noise gate: ignore subtle background noise
             if (avg < 5) avg = 0;
-            setMicVolume(avg);
+            
+            if (isListeningRef.current) {
+              setMicVolume(avg);
+            } else {
+              setMicVolume(0);
+            }
             requestAnimationFrame(updateMicVol);
           };
           updateMicVol();
