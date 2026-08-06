@@ -154,7 +154,7 @@ const AITeacher = () => {
             for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
             let avg = sum / dataArray.length;
             if (avg < 5) avg = 0;
-            
+
             if (isListeningRef.current) {
               setMicVolume(avg);
             } else {
@@ -518,7 +518,7 @@ RULES:
           </Link>
           <div className="flex items-center gap-2">
             <Volume2 className="text-purple-400" />
-            <span className="text-xl font-bold text-white tracking-tight">AI Teacher</span>
+            <span className="text-xl font-bold text-white tracking-tight">DwenLite Teacher</span>
           </div>
           <div className="w-10"></div> {/* spacer for alignment */}
         </div>
