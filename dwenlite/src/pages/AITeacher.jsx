@@ -455,6 +455,13 @@ RULES:
   const generateAIResponse = async (prompt, history) => {
     setIsSpeaking(true);
     isSpeakingRef.current = true;
+
+    if (recognitionRef.current && isListening) {
+      recognitionRef.current.abort();
+      setIsListening(false);
+      isListeningRef.current = false;
+    }
+
     try {
       const formattedHistory = history.map(h => `${h.role === 'system' ? 'System' : h.role === 'user' ? 'Student' : 'Teacher'}: ${h.content}`).join('\n');
       const finalPrompt = `${formattedHistory}\nStudent: ${prompt}\nTeacher:`;
