@@ -3,17 +3,8 @@ const cors = require('cors');
 const { exec } = require('child_process');
 const path = require('path');
 const fs = require('fs');
-const http = require('http');
-const { Server } = require('socket.io');
 
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
-});
 const PORT = process.env.PORT || 3001;
 
 app.use(cors());
@@ -49,46 +40,6 @@ app.post('/api/tts', (req, res) => {
     });
 });
 
-io.on('connection', (socket) => {
-    console.log('User connected:', socket.id);
-
-    socket.on('join-room', (roomId, userData) => {
-        socket.join(roomId);
-        // Let everyone in the room know someone joined
-        socket.to(roomId).emit('user-connected', { id: socket.id, ...userData });
-
-        socket.on('disconnect', () => {
-            socket.to(roomId).emit('user-disconnected', socket.id);
-        });
-    });
-
-    // WebRTC Signaling
-    socket.on('signal', (data) => {
-        io.to(data.to).emit('signal', {
-            from: socket.id,
-            signal: data.signal,
-            userData: data.userData
-        });
-    });
-
-    // AI Teacher Sync
-    socket.on('ai-speak', (roomId, text) => {
-        socket.to(roomId).emit('ai-speak', text);
-    });
-
-    socket.on('ai-state', (roomId, state) => {
-        socket.to(roomId).emit('ai-state', state);
-    });
-
-    socket.on('raise-hand', (roomId, userData) => {
-        socket.to(roomId).emit('raise-hand', { id: socket.id, ...userData });
-    });
-    
-    socket.on('called-on', (roomId, userId) => {
-        socket.to(roomId).emit('called-on', userId);
-    });
-});
-
-server.listen(PORT, () => {
+app.listen(PORT, () => {
     console.log(`Server listening on port ${PORT}`);
 });
