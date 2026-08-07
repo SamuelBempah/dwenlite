@@ -85,15 +85,37 @@ const AITeacher = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
+      recognition.continuous = true;
+      recognition.interimResults = true;
       recognition.lang = 'en-US';
 
+      let silenceTimer = null;
+      let finalTranscript = '';
+
       recognition.onresult = (event) => {
-        // Read the most recent transcript, not the first one in the buffer
-        const lastResultIndex = event.results.length - 1;
-        const transcript = event.results[lastResultIndex][0].transcript;
-        handleUserSpeech(transcript);
+        let interimTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript + ' ';
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+        
+        const currentText = (finalTranscript + interimTranscript).trim();
+        
+        clearTimeout(silenceTimer);
+        
+        if (currentText) {
+          silenceTimer = setTimeout(() => {
+            if (currentText) {
+              const textToSend = currentText;
+              finalTranscript = '';
+              recognition.stop();
+              handleUserSpeech(textToSend);
+            }
+          }, 2000);
+        }
       };
 
       recognition.onerror = (event) => {
@@ -356,7 +378,7 @@ const AITeacher = () => {
       const aiPrompt = `The user ${userNameRef.current} has provided study materials. You synthesized them into these notes: "${generatedNotes}". Acknowledge that the notes are ready. Then, teach the VERY FIRST core concept from the notes in 2-3 short, friendly sentences. Finally, ask a single question to test their understanding of it. ALWAYS end your turn after the question so the student can answer.`;
 
       await generateAIResponse(aiPrompt, [
-        { role: 'system', content: `You are an incredibly friendly, empathetic, and human-like personal AI teacher for ${userNameRef.current}. You are the absolute best at teaching, especially for students with ADHD. You make learning highly engaging, memorable, and easy to digest. Your goal is to cover ALL of the study materials comprehensively. Express emotions naturally (like happiness, enthusiasm, confusion) using your words, but NEVER use asterisks (like *smiles*) or brackets for actions, as the text-to-speech engine will read them out loud. Keep your responses relatively short, conversational and encouraging.` }
+        { role: 'system', content: `You are an incredibly friendly, empathetic, and human-like personal AI teacher for ${userNameRef.current}. You are the absolute best at teaching, especially for students with ADHD. You make learning highly engaging, memorable, and easy to digest. Your goal is to cover ALL of the study materials comprehensively. Express emotions naturally using your words. NEVER use emojis, asterisks (like *smiles*), brackets for actions, markdown formatting, or underscores (like __bold__) as the text-to-speech engine will read them out loud. Keep your responses relatively short, conversational and encouraging.` }
       ]);
 
     } catch (err) {
@@ -397,7 +419,7 @@ RULES:
 2. Evaluate the student's answer. Be encouraging! If they struggle or answer incorrectly, simplify the concept drastically. Use vivid real-world examples, fun acronyms, or mnemonics to make it stick in their long-term memory.
 3. Teach the next core concept from the notes in 2-3 short, punchy, conversational sentences. Keep their attention!
 4. Periodically, ask the student if they truly understand the concept. If they say no, ask them exactly what part is confusing, and reteach it from a completely new angle until it clicks.
-5. Express emotions naturally in your speech (e.g., happiness, encouragement), but NEVER use asterisks (like *smiles*) or brackets for actions.
+5. Express emotions naturally in your speech (e.g., happiness, encouragement). NEVER use emojis, asterisks (like *smiles*), brackets for actions, markdown formatting, or underscores (like __bold__) as the text-to-speech engine reads them out loud.
 6. Immediately after teaching a concept, ask ONE question to test their understanding. Stop speaking immediately after asking.
 7. Only when ALL material from the notes is fully covered AND you are confident the student has demonstrated clear understanding of everything, conclude by saying exactly "[SESSION COMPLETE]". Do not say this prematurely.` },
         ...messagesRef.current.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
@@ -467,8 +489,13 @@ RULES:
     saveSessionState();
 
     try {
-      // Clean newlines, double quotes, and special shell characters so it doesn't crash the Node server's exec()
-      const safeTextForTTS = text.replace(/[\n\r]+/g, ' ').replace(/"/g, "'").replace(/[$\\]/g, '');
+      // Clean newlines, double quotes, special shell characters, underscores, asterisks, and emojis for TTS
+      const safeTextForTTS = text
+        .replace(/[\n\r]+/g, ' ')
+        .replace(/"/g, "'")
+        .replace(/[$\\*_]/g, '')
+        .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '');
+        
       const response = await fetch('https://dwenlite-backend.fly.dev/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
