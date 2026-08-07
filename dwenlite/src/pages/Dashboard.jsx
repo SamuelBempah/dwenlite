@@ -269,7 +269,7 @@ function Dashboard() {
 
             <nav className="space-y-2">
               <NavItem icon={<LayoutDashboard size={20} />} label="Dashboard" active />
-              <NavItem icon={<GraduationCap size={20} />} label="AI Teacher" to="/ai-teacher" />
+              <NavItem icon={<GraduationCap size={20} />} label="Dwenlite Teacher" to="/ai-teacher" />
               <NavItem icon={<HelpCircle size={20} />} label="Support" to="/community-support" />
               <div onClick={() => navigate('/buy-coins')} className="cursor-pointer group">
                 <NavItem icon={<Coins size={20} className="text-yellow-400 group-hover:text-yellow-300" />} label="Buy G_COINS" />
@@ -466,7 +466,7 @@ function Dashboard() {
           </div>
           <Link to="/ai-teacher" className="text-slate-400 flex flex-col items-center gap-1">
             <GraduationCap size={24} />
-            <span className="text-[10px]">AI Teacher</span>
+            <span className="text-[10px]">Dwenlite Teacher</span>
           </Link>
           <Link to="/community-support" className="text-slate-400 flex flex-col items-center gap-1">
             <HelpCircle size={24} />
