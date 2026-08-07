@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Filter } from 'bad-words';
-import { Volume2, User, ArrowLeft, Upload, X, Mic } from 'lucide-react';
+import { Volume2, User, ArrowLeft, Upload, X, Mic, Pause, Play } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -45,6 +45,39 @@ const AITeacher = () => {
 
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [isRaisingHand, setIsRaisingHand] = useState(false);
+
+  const togglePause = () => {
+    if (audioRef.current) {
+      if (isPaused) {
+        audioRef.current.play().then(() => {
+          setIsPaused(false);
+          isPausedRef.current = false;
+          setIsSpeaking(true);
+          isSpeakingRef.current = true;
+          startSpeakerVisualizer();
+        }).catch(err => console.error(err));
+      } else {
+        audioRef.current.pause();
+        setIsPaused(true);
+        isPausedRef.current = true;
+        setIsSpeaking(false);
+        isSpeakingRef.current = false;
+      }
+    }
+  };
+
+  const raiseHand = () => {
+    setIsRaisingHand(true);
+    currentAudioSessionRef.current += 1; // abort current queue
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+    setIsPaused(false);
+    isPausedRef.current = false;
+    speakAndAdvance("I see you have a question! What's on your mind?", stepRef.current);
+  };
 
   // Realtime Audio Data
   const [speakerVolume, setSpeakerVolume] = useState(0);
@@ -64,6 +97,10 @@ const AITeacher = () => {
 
   const isListeningRef = useRef(false);
   const isSpeakingRef = useRef(false);
+  const isPausedRef = useRef(false);
+
+  const audioQueueRef = useRef([]);
+  const currentAudioSessionRef = useRef(0);
 
   const audioCtxRef = useRef(null);
   const speakerAnalyserRef = useRef(null);
@@ -470,9 +507,95 @@ RULES:
     updateSpeakerVol();
   };
 
+  const fetchAudioForSentence = async (sentence) => {
+    const response = await fetch('https://dwenlite-backend.fly.dev/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: sentence })
+    });
+    if (!response.ok) throw new Error('TTS failed');
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
+  };
+
+  const playAudioUrl = (url, sessionId) => {
+    return new Promise((resolve, reject) => {
+      initAudioContext();
+      if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+        audioCtxRef.current.resume();
+      }
+      
+      audioRef.current.src = url;
+      startSpeakerVisualizer();
+      
+      const onEnded = () => {
+        cleanup();
+        resolve();
+      };
+      
+      const onError = (e) => {
+        cleanup();
+        reject(e);
+      };
+
+      const cleanup = () => {
+        audioRef.current.removeEventListener('ended', onEnded);
+        audioRef.current.removeEventListener('error', onError);
+      };
+
+      audioRef.current.addEventListener('ended', onEnded);
+      audioRef.current.addEventListener('error', onError);
+
+      audioRef.current.play().catch(err => {
+         cleanup();
+         reject(err);
+      });
+    });
+  };
+
+  const processAudioQueue = async (sentences, sessionId) => {
+    let nextAudioPromise = sentences.length > 0 ? fetchAudioForSentence(sentences.shift()) : null;
+
+    while (nextAudioPromise) {
+      if (currentAudioSessionRef.current !== sessionId) break;
+
+      try {
+        const url = await nextAudioPromise;
+        if (!url || currentAudioSessionRef.current !== sessionId) break;
+
+        let nextSentence = sentences.shift();
+        nextAudioPromise = nextSentence ? fetchAudioForSentence(nextSentence) : null;
+
+        await playAudioUrl(url, sessionId);
+        URL.revokeObjectURL(url);
+        
+      } catch (err) {
+        console.error("Audio queue error", err);
+        break;
+      }
+    }
+
+    if (currentAudioSessionRef.current === sessionId) {
+      setIsSpeaking(false);
+      isSpeakingRef.current = false;
+      setIsPaused(false);
+      isPausedRef.current = false;
+      if (stepRef.current === 2) {
+        setShowUploadDrawer(true);
+      } else if (stepRef.current !== 2 && stepRef.current !== 4) {
+        startListening();
+      }
+    }
+  };
+
   const speakAndAdvance = async (text, nextStep) => {
     setIsSpeaking(true);
     isSpeakingRef.current = true;
+    setIsPaused(false);
+    isPausedRef.current = false;
+    
+    currentAudioSessionRef.current += 1;
+    const sessionId = currentAudioSessionRef.current;
 
     if (recognitionRef.current && isListening) {
       recognitionRef.current.abort();
@@ -489,59 +612,29 @@ RULES:
     saveSessionState();
 
     try {
-      // Clean newlines, double quotes, special shell characters, underscores, asterisks, and emojis for TTS
       const safeTextForTTS = text
         .replace(/[\n\r]+/g, ' ')
         .replace(/"/g, "'")
         .replace(/[$\\*_]/g, '')
         .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '');
         
-      const response = await fetch('https://dwenlite-backend.fly.dev/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: safeTextForTTS })
-      });
-
-      if (!response.ok) throw new Error('TTS failed');
-
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-
-      if (audioRef.current) {
-        initAudioContext();
-        if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
-          audioCtxRef.current.resume();
-        }
-
-        audioRef.current.src = url;
-        startSpeakerVisualizer();
-        audioRef.current.play().catch(err => {
-          console.error("Audio playback prevented:", err);
-          setIsSpeaking(false);
-          isSpeakingRef.current = false;
-          if (stepRef.current === 2) {
-            setShowUploadDrawer(true);
-          } else {
-            startListening();
-          }
-        });
-
-        audioRef.current.onended = () => {
-          setIsSpeaking(false);
-          isSpeakingRef.current = false;
-
-          if (stepRef.current === 2) {
-            setShowUploadDrawer(true);
-          } else if (stepRef.current !== 2 && stepRef.current !== 4) {
-            startListening();
-          }
-        };
+      const sentenceRegex = /[^.!?]+[.!?]+["']?(?=\s|$)/g;
+      let sentences = safeTextForTTS.match(sentenceRegex);
+      
+      if (!sentences || sentences.length === 0) {
+        sentences = [safeTextForTTS];
       }
+
+      sentences = sentences.map(s => s.trim()).filter(s => s.length > 0);
+
+      processAudioQueue(sentences, sessionId);
+
     } catch (error) {
-      console.error('TTS Error:', error);
+      console.error('TTS Setup Error:', error);
       setIsSpeaking(false);
       isSpeakingRef.current = false;
-      toast.error('Failed to generate audio.');
+      setIsPaused(false);
+      toast.error('Failed to start audio.');
       if (stepRef.current === 2) {
         setShowUploadDrawer(true);
       } else {
@@ -553,6 +646,7 @@ RULES:
   const generateAIResponse = async (prompt, history) => {
     setIsSpeaking(true);
     isSpeakingRef.current = true;
+    setIsRaisingHand(false);
     try {
       const formattedHistory = history.map(h => `${h.role === 'system' ? 'System' : h.role === 'user' ? 'Student' : 'Teacher'}: ${h.content}`).join('\n');
       const finalPrompt = `${formattedHistory}\nStudent: ${prompt}\nTeacher:`;
@@ -597,6 +691,7 @@ RULES:
       toast.error('Failed to get AI response.');
       setIsSpeaking(false);
       isSpeakingRef.current = false;
+      setIsPaused(false);
       if (stepRef.current !== 2 && stepRef.current !== 4) startListening();
     }
   };
@@ -666,15 +761,7 @@ RULES:
         {/* Visualizer / Avatar Area */}
         <div className="flex-1 min-h-[22rem] py-8 flex flex-col items-center justify-center bg-gray-900 relative">
 
-          <div className="text-gray-400 text-sm h-8 font-medium animate-pulse">
-            {isSpeaking
-              ? 'Dwenlite is speaking...'
-              : isListening && stepRef.current !== 2 && stepRef.current !== 4
-                ? 'Listening...'
-                : uiStep === 4
-                  ? 'Session Complete!'
-                  : 'Idle'}
-          </div>
+          <div className="h-8"></div>
 
           <div className="relative flex items-center justify-center w-64 h-64">
             {/* Realtime Audio Pulses (For BOTH AI and User) */}
@@ -692,6 +779,40 @@ RULES:
                 />
               </>
             )}
+
+            {/* Emerging Floating Icons (From behind the circle) */}
+            <AnimatePresence>
+              {isPaused && (
+                <motion.div
+                  key="floating-pause"
+                  initial={{ y: 0, opacity: 0, scale: 0.5 }}
+                  animate={{ y: -120, opacity: 1, scale: 1.2 }}
+                  exit={{ y: 0, opacity: 0, scale: 0.5 }}
+                  transition={{ type: 'spring', damping: 15, stiffness: 200 }}
+                  className="absolute z-0 flex flex-col items-center justify-center text-yellow-400 drop-shadow-2xl"
+                >
+                  <Pause size={64} fill="currentColor" />
+                </motion.div>
+              )}
+
+              {isRaisingHand && (
+                <motion.div
+                  key="floating-hand"
+                  initial={{ y: 0, opacity: 0, scale: 0.5 }}
+                  animate={{ y: -120, opacity: 1, scale: 2.5 }}
+                  exit={{ y: 0, opacity: 0, scale: 0.5 }}
+                  transition={{ type: 'spring', damping: 15, stiffness: 200 }}
+                  className="absolute z-0 flex flex-col items-center justify-center drop-shadow-2xl origin-bottom"
+                >
+                  <motion.span
+                    animate={{ rotate: [0, 20, -20, 20, -20, 0] }}
+                    transition={{ duration: 1.5, repeat: Infinity, repeatDelay: 0.5 }}
+                  >
+                    ✋
+                  </motion.span>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Main Avatar Circle (Clean Fade Transition) */}
             <div
@@ -726,11 +847,41 @@ RULES:
             </div>
           </div>
 
-          {/* Text Status Indicator below circle */}
-          <div className="h-10 mt-6 flex items-center justify-center">
-            {isListening && stepRef.current !== 2 && (
-              <span className="text-green-400 font-medium tracking-wide">Listening...</span>
-            )}
+          {/* Action Controls below circle */}
+          <div className="min-h-[4rem] mt-6 flex flex-col items-center justify-center gap-2 z-20">
+            <AnimatePresence>
+              {stepRef.current === 3 && (isSpeaking || isPaused || isRaisingHand) && (
+                <div className="flex gap-4 items-center mt-2">
+                  <motion.button 
+                    onClick={togglePause} 
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.9, rotate: -5 }}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-gray-700 hover:bg-gray-600 rounded-full text-white shadow-lg transition-colors"
+                  >
+                    <motion.div animate={{ scale: isPaused ? 1.1 : 1 }}>
+                      {isPaused ? <Play size={18} className="text-green-400" /> : <Pause size={18} className="text-yellow-400" />}
+                    </motion.div>
+                    <span className="text-sm font-medium">{isPaused ? 'Resume' : 'Pause'}</span>
+                  </motion.button>
+                  
+                  <motion.button 
+                    onClick={isRaisingHand ? null : raiseHand} 
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.9 }}
+                    className={`flex items-center gap-2 px-5 py-2.5 bg-purple-600/20 hover:bg-purple-600/40 border border-purple-500/30 rounded-full text-purple-300 shadow-lg shadow-purple-900/20 transition-colors group ${isRaisingHand ? 'opacity-50 cursor-default' : ''}`}
+                  >
+                    <motion.span 
+                      className="text-xl leading-none origin-bottom"
+                      whileHover={!isRaisingHand ? { rotate: [0, -15, 15, -15, 15, 0], y: -2 } : {}}
+                      transition={{ duration: 0.6 }}
+                    >
+                      ✋
+                    </motion.span>
+                    <span className="text-sm font-medium relative z-10">{isRaisingHand ? 'Asking...' : 'Raise Hand'}</span>
+                  </motion.button>
+                </div>
+              )}
+            </AnimatePresence>
           </div>
 
         </div>
