@@ -24,6 +24,25 @@ const AITeacher = () => {
   const studyMaterialRef = useRef('');
   const messagesRef = useRef([]);
 
+  const saveSessionState = () => {
+    if (stepRef.current >= 3) {
+      try {
+        localStorage.setItem('aiTeacherSession', JSON.stringify({
+          step: stepRef.current,
+          userName: userNameRef.current,
+          studyMaterial: studyMaterialRef.current,
+          messages: messagesRef.current
+        }));
+      } catch (e) {
+        console.warn("Could not save session state (likely quota exceeded)", e);
+      }
+    }
+  };
+
+  const clearSessionState = () => {
+    localStorage.removeItem('aiTeacherSession');
+  };
+
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
 
@@ -34,6 +53,7 @@ const AITeacher = () => {
   // File Upload State
   const [uiStep, setUiStep] = useState(0);
   const [showUploadDrawer, setShowUploadDrawer] = useState(false);
+  const [showEndSessionModal, setShowEndSessionModal] = useState(false);
   const [files, setFiles] = useState([]);
   const [uploadLoading, setUploadLoading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState('');
@@ -97,6 +117,24 @@ const AITeacher = () => {
       recognitionRef.current = recognition;
     } else {
       toast.error('Your browser does not support speech recognition. Please use Chrome.');
+    }
+
+    const storedSessionJSON = localStorage.getItem('aiTeacherSession');
+    if (storedSessionJSON) {
+      try {
+        const storedSession = JSON.parse(storedSessionJSON);
+        userNameRef.current = storedSession.userName || localStorage.getItem('aiTeacherUserName') || '';
+        if (storedSession.step === 3 && storedSession.studyMaterial) {
+          stepRef.current = 3;
+          setUiStep(3);
+          studyMaterialRef.current = storedSession.studyMaterial;
+          messagesRef.current = storedSession.messages || [];
+          speakAndAdvance(`Welcome back, ${userNameRef.current}! We didn't finish our last session, so let's pick up right where we left off.`, 3);
+          return;
+        }
+      } catch (e) {
+        console.error("Error parsing session state", e);
+      }
     }
 
     const storedName = localStorage.getItem('aiTeacherUserName');
@@ -186,6 +224,31 @@ const AITeacher = () => {
     }
   };
 
+  const extractPptxText = async (file) => {
+    try {
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      const contents = await zip.loadAsync(file);
+      let fullText = '';
+      
+      const slideRegex = /ppt\/slides\/slide\d+\.xml/;
+      const slidePaths = Object.keys(contents.files).filter(path => slideRegex.test(path));
+      
+      for (const slidePath of slidePaths) {
+        const xmlString = await contents.file(slidePath).async('text');
+        const textMatches = xmlString.match(/<a:t>([\s\S]*?)<\/a:t>/g);
+        if (textMatches) {
+          const slideText = textMatches.map(tag => tag.replace(/<\/?a:t>/g, '')).join(' ');
+          fullText += slideText + '\n\n';
+        }
+      }
+      
+      return fullText.trim() || 'No text found in the PPTX.';
+    } catch (error) {
+      throw new Error('PPTX extraction failed: ' + error.message);
+    }
+  };
+
   const transcribeMedia = async (url, type) => {
     try {
       const apiKey = import.meta.env.VITE_ASSEMBLYAI_API_KEY;
@@ -244,7 +307,8 @@ const AITeacher = () => {
         const fileExtension = file.name.split('.').pop().toLowerCase();
         const isAudio = fileType.startsWith('audio/') || ['mp3', 'wav', 'm4a'].includes(fileExtension);
         const isVideo = fileType.startsWith('video/') || ['mp4', 'mov', 'avi'].includes(fileExtension);
-        const isText = fileType === 'text/plain' || fileType === 'application/pdf' || ['txt', 'pdf'].includes(fileExtension);
+        const isPptx = fileType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' || fileType === 'application/vnd.ms-powerpoint' || ['ppt', 'pptx'].includes(fileExtension);
+        const isText = fileType === 'text/plain' || fileType === 'application/pdf' || ['txt', 'pdf'].includes(fileExtension) || isPptx;
 
         if (!isAudio && !isVideo && !isText) {
           toast.error(`Skipped ${file.name}: Unsupported type.`);
@@ -260,8 +324,9 @@ const AITeacher = () => {
         if (isAudio) extractedText = await transcribeMedia(downloadURL, 'Audio');
         else if (isVideo) extractedText = await transcribeMedia(downloadURL, 'Video');
         else if (isText) {
-          if (fileExtension === 'txt') extractedText = await file.text();
-          else if (fileExtension === 'pdf') extractedText = await extractPdfText(file);
+          if (fileExtension === 'txt' || fileType === 'text/plain') extractedText = await file.text();
+          else if (fileExtension === 'pdf' || fileType === 'application/pdf') extractedText = await extractPdfText(file);
+          else if (isPptx) extractedText = await extractPptxText(file);
         }
 
         combinedText += `\n\n--- Content from ${file.name} ---\n${extractedText}`;
@@ -271,7 +336,7 @@ const AITeacher = () => {
 
       // Step 2: Generate detailed notes
       setUploadStatus('Getting ready, please wait...');
-      const notesPrompt = `You are an expert teacher. Summarize the following raw material into detailed, structured study notes. This will be your knowledge base. Material: "${combinedText.slice(0, 30000)}"`;
+      const notesPrompt = `You are an expert teacher. Restructure the following raw material into detailed, comprehensive study notes. Ensure you do not leave any important information out, as this will be your entire knowledge base. Material: "${combinedText}"`;
       const functionUrl = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
 
       const notesResponse = await axios.post(functionUrl, { prompt: notesPrompt });
@@ -288,10 +353,10 @@ const AITeacher = () => {
       stepRef.current = 3;
       setUiStep(3);
 
-      const aiPrompt = `The user ${userNameRef.current} has provided study materials. You synthesized them into these notes: "${generatedNotes.slice(0, 5000)}". Acknowledge that the notes are ready. Then, teach the VERY FIRST core concept from the notes in 2-3 short, friendly sentences. Finally, ask a single question to test their understanding of it. ALWAYS end your turn after the question so the student can answer.`;
+      const aiPrompt = `The user ${userNameRef.current} has provided study materials. You synthesized them into these notes: "${generatedNotes}". Acknowledge that the notes are ready. Then, teach the VERY FIRST core concept from the notes in 2-3 short, friendly sentences. Finally, ask a single question to test their understanding of it. ALWAYS end your turn after the question so the student can answer.`;
 
       await generateAIResponse(aiPrompt, [
-        { role: 'system', content: `You are an incredibly friendly, empathetic, and human-like personal AI teacher for ${userNameRef.current}. Keep your responses relatively short, conversational and encouraging.` }
+        { role: 'system', content: `You are an incredibly friendly, empathetic, and human-like personal AI teacher for ${userNameRef.current}. You are the absolute best at teaching, especially for students with ADHD. You make learning highly engaging, memorable, and easy to digest. Your goal is to cover ALL of the study materials comprehensively. Express emotions naturally (like happiness, enthusiasm, confusion) using your words, but NEVER use asterisks (like *smiles*) or brackets for actions, as the text-to-speech engine will read them out loud. Keep your responses relatively short, conversational and encouraging.` }
       ]);
 
     } catch (err) {
@@ -308,6 +373,7 @@ const AITeacher = () => {
     if (stepRef.current === 2) return;
 
     messagesRef.current.push({ role: 'user', content: text });
+    saveSessionState();
 
     if (stepRef.current === 1) {
       if (filter.isProfane(text)) {
@@ -322,15 +388,18 @@ const AITeacher = () => {
       await generateAIResponse(text, [
         {
           role: 'system', content: `You are an incredibly friendly, empathetic, and human-like personal AI teacher for ${userNameRef.current}. 
-Your goal is to teach the following study material chunk by chunk, then test their understanding.
-STUDY MATERIAL: ${studyMaterialRef.current.slice(0, 8000)}
+You are the absolute best at teaching, especially for students with ADHD. You make learning highly engaging, memorable, and easy to digest.
+Your goal is to teach ALL of the following study material segment by segment, testing their understanding along the way.
+STUDY MATERIAL: ${studyMaterialRef.current}
 
 RULES:
 1. ALWAYS wait for the student to speak. NEVER answer your own questions.
-2. Evaluate the student's previous answer. Be encouraging and friendly!
-3. Teach the next core concept from the notes in 2-3 short, conversational sentences.
-4. Immediately after teaching the concept, ask ONE question to test their understanding. Stop speaking immediately after asking.
-5. If the material is fully covered and the student demonstrates clear understanding, conclude by saying "[SESSION COMPLETE]".` },
+2. Evaluate the student's answer. Be encouraging! If they struggle or answer incorrectly, simplify the concept drastically. Use vivid real-world examples, fun acronyms, or mnemonics to make it stick in their long-term memory.
+3. Teach the next core concept from the notes in 2-3 short, punchy, conversational sentences. Keep their attention!
+4. Periodically, ask the student if they truly understand the concept. If they say no, ask them exactly what part is confusing, and reteach it from a completely new angle until it clicks.
+5. Express emotions naturally in your speech (e.g., happiness, encouragement), but NEVER use asterisks (like *smiles*) or brackets for actions.
+6. Immediately after teaching a concept, ask ONE question to test their understanding. Stop speaking immediately after asking.
+7. Only when ALL material from the notes is fully covered AND you are confident the student has demonstrated clear understanding of everything, conclude by saying exactly "[SESSION COMPLETE]". Do not say this prematurely.` },
         ...messagesRef.current.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
       ]);
     }
@@ -394,6 +463,8 @@ RULES:
       stepRef.current = nextStep;
       setUiStep(nextStep);
     }
+    
+    saveSessionState();
 
     try {
       // Clean newlines, double quotes, and special shell characters so it doesn't crash the Node server's exec()
@@ -489,6 +560,7 @@ RULES:
         stepRef.current = 4;
         setUiStep(4);
         toast.success("Session completed successfully!");
+        clearSessionState();
       }
 
       await speakAndAdvance(aiText);
@@ -500,6 +572,14 @@ RULES:
       isSpeakingRef.current = false;
       if (stepRef.current !== 2 && stepRef.current !== 4) startListening();
     }
+  };
+
+  const endSession = () => {
+    clearSessionState();
+    stepRef.current = 4;
+    setUiStep(4);
+    setShowEndSessionModal(false);
+    speakAndAdvance("Session ended. Great job studying today!", 4);
   };
 
   // Map 0-255 volume to a visual scale/size
@@ -532,6 +612,16 @@ RULES:
             <Volume2 className="text-purple-400" />
             <span className="text-xl font-bold text-white tracking-tight">AI Teacher</span>
           </div>
+          {uiStep === 3 ? (
+            <button 
+              onClick={() => setShowEndSessionModal(true)}
+              className="px-3 py-1.5 bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20 rounded-lg text-sm font-semibold transition"
+            >
+              End Session
+            </button>
+          ) : (
+            <div className="w-8"></div>
+          )}
         </div>
 
         {/* Status Indicator */}
@@ -667,6 +757,42 @@ RULES:
         </AnimatePresence>
 
       </div>
+
+      {/* End Session Modal */}
+      <AnimatePresence>
+        {showEndSessionModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-gray-800 border border-gray-700 rounded-2xl p-6 max-w-sm w-full shadow-2xl"
+            >
+              <h3 className="text-xl font-bold text-white mb-2">End Session?</h3>
+              <p className="text-gray-300 mb-6">Are you sure you want to end this study session early? Your progress will be cleared.</p>
+              <div className="flex justify-end gap-3">
+                <button 
+                  onClick={() => setShowEndSessionModal(false)}
+                  className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={endSession}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg font-medium transition shadow-lg shadow-red-600/30"
+                >
+                  End Session
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Hidden Audio Element */}
       <audio ref={audioRef} className="hidden" crossOrigin="anonymous" />

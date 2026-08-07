@@ -139,6 +139,31 @@ function ExamsPreparation() {
     }
   };
 
+  const extractPptxText = async (file) => {
+    try {
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      const contents = await zip.loadAsync(file);
+      let fullText = '';
+      
+      const slideRegex = /ppt\/slides\/slide\d+\.xml/;
+      const slidePaths = Object.keys(contents.files).filter(path => slideRegex.test(path));
+      
+      for (const slidePath of slidePaths) {
+        const xmlString = await contents.file(slidePath).async('text');
+        const textMatches = xmlString.match(/<a:t>([\s\S]*?)<\/a:t>/g);
+        if (textMatches) {
+          const slideText = textMatches.map(tag => tag.replace(/<\/?a:t>/g, '')).join(' ');
+          fullText += slideText + '\n\n';
+        }
+      }
+      
+      return fullText.trim() || 'No text found in the PPTX.';
+    } catch (error) {
+      throw new Error('PPTX extraction failed: ' + error.message);
+    }
+  };
+
   const transcribeMedia = async (url, type) => {
     try {
       const apiKey = import.meta.env.VITE_ASSEMBLYAI_API_KEY;
@@ -211,7 +236,8 @@ function ExamsPreparation() {
           const fileExtension = selectedFile.name.split('.').pop().toLowerCase();
           const isAudio = fileType.startsWith('audio/') || ['mp3', 'wav', 'm4a', 'ogg', 'flac'].includes(fileExtension);
           const isVideo = fileType.startsWith('video/') || ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(fileExtension);
-          const isText = fileType === 'text/plain' || fileType === 'application/pdf' || ['txt', 'pdf'].includes(fileExtension);
+          const isPptx = fileType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' || fileType === 'application/vnd.ms-powerpoint' || ['ppt', 'pptx'].includes(fileExtension);
+          const isText = fileType === 'text/plain' || fileType === 'application/pdf' || ['txt', 'pdf'].includes(fileExtension) || isPptx;
 
           if (!isAudio && !isVideo && !isText) {
             throw new Error(`Skipped ${selectedFile.name}: Unsupported file type.`);
@@ -231,6 +257,8 @@ function ExamsPreparation() {
               extractedText = await selectedFile.text();
             } else if (fileType === 'application/pdf' || fileExtension === 'pdf') {
               extractedText = await extractPdfText(selectedFile);
+            } else if (isPptx) {
+              extractedText = await extractPptxText(selectedFile);
             }
           }
 
