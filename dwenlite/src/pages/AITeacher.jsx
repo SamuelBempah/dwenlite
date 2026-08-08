@@ -12,10 +12,28 @@ const filter = new Filter();
 
 const AITeacher = () => {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
+  const [isSpeechSupported, setIsSpeechSupported] = useState(
+    'SpeechRecognition' in window || 'webkitSpeechRecognition' in window
+  );
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 1024);
     window.addEventListener('resize', handleResize);
+    
+    // 1. Check for Brave browser (reports having the API but blocks it)
+    if (navigator.brave && navigator.brave.isBrave) {
+      navigator.brave.isBrave().then(isBrave => {
+        if (isBrave) setIsSpeechSupported(false);
+      });
+    }
+
+    // 2. Check for Firefox or other browsers with known broken implementations
+    // Even if users enable the about:config flag in Firefox, it lacks a default cloud backend
+    const ua = navigator.userAgent.toLowerCase();
+    if (ua.includes('firefox') || ua.includes('tor')) {
+      setIsSpeechSupported(false);
+    }
+    
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
@@ -767,6 +785,20 @@ RULES:
         <div className="bg-gray-800 p-8 rounded-2xl shadow-2xl max-w-md w-full border border-gray-700">
           <h2 className="text-2xl font-bold text-red-400 mb-4">Desktop Only</h2>
           <p className="text-lg text-gray-300">This functionality is only exclusive to desktop and PC devices not mobile or tablets.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isSpeechSupported) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-6 text-center text-white gap-4 relative">
+        <Link to="/dashboard" className="absolute top-6 left-6 text-gray-400 hover:text-white transition-colors">
+          <ArrowLeft size={32} />
+        </Link>
+        <div className="bg-gray-800 p-8 rounded-2xl shadow-2xl max-w-md w-full border border-gray-700">
+          <h2 className="text-2xl font-bold text-red-400 mb-4">Browser Not Supported</h2>
+          <p className="text-lg text-gray-300">This browser does not support the voice recognition needed to use Dwenlite Teacher. Please install a different browser.</p>
         </div>
       </div>
     );
