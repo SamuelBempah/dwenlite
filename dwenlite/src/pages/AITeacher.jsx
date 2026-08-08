@@ -775,7 +775,7 @@ RULES:
   return (
     <div className="h-screen max-h-screen overflow-hidden bg-[#0E0E0E] text-white flex flex-col font-sans">
       {/* Top Navigation Bar */}
-      <div className="flex items-center justify-between px-6 py-4 bg-[#1A1A1A] border-b border-gray-800 z-50">
+      <div className="flex items-center justify-between px-6 py-4 bg-[#0E0E0E] z-50">
         <div className="flex items-center gap-4">
           <Link to="/dashboard" className="text-gray-400 hover:text-white transition-colors">
             <ArrowLeft size={24} />
@@ -866,8 +866,8 @@ RULES:
           )}
         </AnimatePresence>
 
-        {/* Video Frame */}
-        <div className="relative w-full max-w-5xl max-h-full aspect-video bg-[#18181B] rounded-3xl border border-gray-800 shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden flex flex-col items-center justify-center">
+        {/* Main Stage Container */}
+        <div className="relative w-full h-full flex flex-col items-center justify-center">
           
           {/* Avatar Container inside Video Frame */}
           <div className="relative flex items-center justify-center w-full h-full">
@@ -952,18 +952,11 @@ RULES:
               </AnimatePresence>
             </div>
           </div>
-          
-          {/* Label Bottom Left of Video Frame */}
-          <div className="absolute bottom-6 left-6 bg-black/60 backdrop-blur-md px-4 py-2 rounded-xl border border-white/10 flex items-center gap-2">
-            <Volume2 size={18} className="text-blue-400" />
-            <span className="text-sm font-semibold text-gray-200">AI Teacher</span>
-          </div>
-
         </div>
       </div>
 
       {/* Bottom Control Bar */}
-      <div className="flex items-center justify-center px-6 py-6 bg-[#1A1A1A] border-t border-gray-800 z-50">
+      <div className="flex items-center justify-center px-6 py-6 bg-[#0E0E0E] z-50">
          <div className="flex items-center gap-4">
             
             {/* Mic Button */}
