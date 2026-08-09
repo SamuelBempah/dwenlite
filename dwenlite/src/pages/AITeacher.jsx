@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Filter } from 'bad-words';
-import { Volume2, User, ArrowLeft, Upload, X, Mic, Pause, Play, Edit2, Check, PhoneOff, Hand, Maximize, Minimize } from 'lucide-react';
+import { Volume2, User, ArrowLeft, Upload, X, Mic, Pause, Play, Edit2, Check, PhoneOff, Hand, Maximize, Minimize, Menu } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import TeacherSidebar from '../components/TeacherSidebar';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { auth, storage } from '../firebase';
@@ -58,6 +59,49 @@ const AITeacher = () => {
   const [hasStarted, setHasStarted] = useState(false);
   const [isHoldingMic, setIsHoldingMic] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [eyeEmotion, setEyeEmotion] = useState('closed');
+  const [currentEmoji, setCurrentEmoji] = useState(null);
+  const [isBlinking, setIsBlinking] = useState(false);
+
+  const EMOTION_EMOJIS = {
+    happy: ['😊', '😄', '🤩', '🎉', '😁', '🥳', '😎'],
+    sad: ['😢', '😞', '😕', '😔', '😟', '🥺'],
+    eyeRoll: ['🙄', '😒', '🤦', '🤷'],
+    surprised: ['😲', '😮', '🤯', '😳', '🙀'],
+    think: ['🤔', '🧐', '💭', '🤨']
+  };
+
+  const triggerEmotion = (emotionCat, duration = 3000) => {
+    const emojis = EMOTION_EMOJIS[emotionCat];
+    if (emojis) {
+      const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
+      setCurrentEmoji(randomEmoji);
+      setEyeEmotion(emotionCat);
+      setTimeout(() => {
+        setCurrentEmoji(null);
+        setEyeEmotion('center');
+      }, duration);
+    } else {
+      setEyeEmotion(emotionCat);
+      setTimeout(() => setEyeEmotion('center'), duration);
+    }
+  };
+
+  useEffect(() => {
+    sessionStorage.setItem('aiTeacherVisited', 'true');
+  }, []);
+
+  // Blinking Logic
+  useEffect(() => {
+    if (eyeEmotion === 'closed') return;
+    const blinkInterval = setInterval(() => {
+      setIsBlinking(true);
+      setTimeout(() => setIsBlinking(false), 150); // fast blink
+    }, Math.random() * 4000 + 3000); // blink every 3-7 seconds
+
+    return () => clearInterval(blinkInterval);
+  }, [eyeEmotion]);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -73,6 +117,15 @@ const AITeacher = () => {
     }
   };
 
+  useEffect(() => {
+    const captionLower = currentCaption.toLowerCase();
+    if (captionLower.includes('menu button in the top left')) {
+      setEyeEmotion('lookUpLeft');
+    } else if (captionLower.includes('when you are ready')) {
+      setEyeEmotion('center');
+    }
+  }, [currentCaption]);
+
   // Timer Effect
   useEffect(() => {
     let interval;
@@ -83,6 +136,81 @@ const AITeacher = () => {
     }
     return () => clearInterval(interval);
   }, [isTimerActive]);
+
+  const getEyeAnimation = () => {
+    if (currentEmoji) {
+      let scale = 1;
+      if (isSpeaking) {
+        scale = 1 + (speakerVolume / 255) * 0.3;
+      }
+      return { width: 64, height: 64, x: 0, y: 0, scale, borderRadius: '50%' };
+    }
+
+    if (eyeEmotion === 'closed') {
+      return { height: 4, width: 64, y: 0, x: 0, opacity: 0.3, borderRadius: '10px' };
+    }
+    if (isBlinking) {
+      return { height: 4, width: 64, y: 0, x: 0, opacity: 1, borderRadius: '10px', transition: { duration: 0.1 } };
+    }
+    
+    let base = { width: 64, height: 64, x: 0, y: 0, opacity: 1, borderRadius: '50%' };
+    
+    switch (eyeEmotion) {
+      case 'lookLeft': base.x = -30; break;
+      case 'lookRight': base.x = 30; break;
+      case 'lookUp': base.y = -30; break;
+      case 'lookDown': base.y = 30; break;
+      case 'lookUpLeft': base.x = -25; base.y = -25; break;
+      case 'happy': 
+        base.height = 70; 
+        base.width = 70; 
+        base.borderRadius = '30% 30% 50% 50%'; 
+        base.y = -5;
+        break;
+      case 'sad':
+        base.height = 45;
+        base.width = 64;
+        base.borderRadius = '50% 50% 30% 30%';
+        base.y = 10;
+        break;
+      case 'eyeRoll':
+        base.x = [0, -20, 0, 20, 0];
+        base.y = [0, -20, -30, -20, 0];
+        base.transition = { duration: 1.5, ease: "easeInOut" };
+        break;
+      case 'surprised':
+        base.height = 80;
+        base.width = 80;
+        base.borderRadius = '50%';
+        break;
+      case 'think':
+        base.x = 20;
+        base.y = -20;
+        base.height = 50;
+        base.width = 50;
+        break;
+      case 'multiBlink':
+        base.height = [64, 4, 64, 4, 64];
+        base.transition = { duration: 0.6, times: [0, 0.25, 0.5, 0.75, 1] };
+        break;
+      case 'sleep':
+        base.height = 4;
+        base.width = 64;
+        base.opacity = [0.3, 0.8, 0.3];
+        base.transition = { duration: 3, repeat: Infinity, ease: "easeInOut" };
+        break;
+      case 'center':
+      default:
+        break;
+    }
+    
+    // Add speaking pulse
+    if (isSpeaking && !['lookLeft', 'lookRight', 'lookUpLeft'].includes(eyeEmotion)) {
+       base.width = 64 + (speakerVolume / 255) * 30;
+       base.height = 64 + (speakerVolume / 255) * 30;
+    }
+    return base;
+  };
 
   const formatTime = (seconds) => {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0');
@@ -253,7 +381,6 @@ const AITeacher = () => {
             interimTranscriptRef.current = '';
             setIsListening(false);
             isListeningRef.current = false;
-            stopMicVisualizer();
             handleUserSpeech(textToSend);
           } else {
              // If they just tapped it and no speech was recorded, keep it in listening mode so they can try again.
@@ -270,7 +397,6 @@ const AITeacher = () => {
           } else {
             setIsListening(false);
             isListeningRef.current = false;
-            stopMicVisualizer();
           }
         }
       };
@@ -306,6 +432,14 @@ const AITeacher = () => {
       }
     } catch (e) {}
 
+    const hasSeenIntro = localStorage.getItem('hasSeenAITeacherIntro');
+    if (!hasSeenIntro) {
+      stepRef.current = 10;
+      setUiStep(10);
+      playIntroSequence();
+      return;
+    }
+
     const storedSessionJSON = localStorage.getItem('aiTeacherSession');
     if (storedSessionJSON) {
       try {
@@ -318,6 +452,7 @@ const AITeacher = () => {
           setIsTimerActive(true);
           studyMaterialRef.current = storedSession.studyMaterial;
           messagesRef.current = storedSession.messages || [];
+          setEyeEmotion('center');
           speakAndAdvance(`Welcome back, ${userNameRef.current}! We didn't finish our last session, so let's pick up right where we left off.`, 3);
           return;
         }
@@ -331,10 +466,35 @@ const AITeacher = () => {
       userNameRef.current = storedName;
       stepRef.current = 2;
       setUiStep(2);
+      playLookAroundAnimation();
       speakAndAdvance(`Welcome back, ${storedName}! Please upload the study materials you want to review today using the drawer below.`, 2);
     } else {
+      setEyeEmotion('center');
       speakAndAdvance("Welcome! I am your personal AI Teacher. What should I call you?", 1);
     }
+  };
+
+  const playLookAroundAnimation = () => {
+    setEyeEmotion('closed');
+    setTimeout(() => setEyeEmotion('center'), 500);
+    setTimeout(() => setEyeEmotion('lookLeft'), 1500);
+    setTimeout(() => setEyeEmotion('lookRight'), 2500);
+    setTimeout(() => setEyeEmotion('center'), 3500);
+  };
+
+  const playIntroSequence = async () => {
+    setEyeEmotion('closed');
+    setTimeout(() => setEyeEmotion('center'), 500);
+    setTimeout(() => setEyeEmotion('lookLeft'), 1500);
+    setTimeout(() => setEyeEmotion('lookRight'), 2500);
+    setTimeout(() => setEyeEmotion('center'), 3500);
+
+    setTimeout(async () => {
+      await speakAndAdvance("Hello! I am your new AI Teacher. Welcome to DwenLite! Before we begin studying, let me show you around. Click the menu button in the top left to access your Library, Exams, Support, and G-Coins. When you are ready to study, just tell me your name!");
+      localStorage.setItem('hasSeenAITeacherIntro', 'true');
+      stepRef.current = 1;
+      setUiStep(1);
+    }, 4500);
   };
 
 
@@ -440,6 +600,7 @@ const AITeacher = () => {
     await speakAndAdvance("Checking out your materials, please wait a moment while I process them.", 2);
     setUploadLoading(true);
     uploadLoadingRef.current = true;
+    setEyeEmotion('sleep');
 
     try {
       let combinedText = '';
@@ -515,6 +676,7 @@ const AITeacher = () => {
       setUploadLoading(false);
       uploadLoadingRef.current = false;
       setUploadStatus('');
+      setEyeEmotion('center');
     }
   };
 
@@ -531,6 +693,7 @@ const AITeacher = () => {
           userNameRef.current = pendingNameRef.current;
           localStorage.setItem('aiTeacherUserName', pendingNameRef.current);
           pendingNameRef.current = '';
+          playLookAroundAnimation();
           speakAndAdvance(`Nice to meet you, ${userNameRef.current}. Please upload the study materials you would like me to test you on today using the upload button below.`, 2);
         } else {
           pendingNameRef.current = '';
@@ -613,7 +776,6 @@ RULES:
           recognitionRef.current.start();
         } catch (e) { }
       }
-      startMicVisualizer();
     }
   };
 
@@ -668,49 +830,6 @@ RULES:
       requestAnimationFrame(updateSpeakerVol);
     };
     updateSpeakerVol();
-  };
-
-  const startMicVisualizer = async () => {
-    if (isMobileRef.current) return;
-    try {
-      if (!audioCtxRef.current) {
-        audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
-      }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      micStreamRef.current = stream;
-      const source = audioCtxRef.current.createMediaStreamSource(stream);
-      const analyser = audioCtxRef.current.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-      micAnalyserRef.current = analyser;
-
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      const updateMicVolume = () => {
-        if (!isListeningRef.current) {
-          setMicVolume(0);
-          return;
-        }
-        if (micAnalyserRef.current) {
-           micAnalyserRef.current.getByteFrequencyData(dataArray);
-           let sum = 0;
-           for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-           setMicVolume(sum / dataArray.length);
-           requestAnimationFrame(updateMicVolume);
-        }
-      };
-      updateMicVolume();
-    } catch (err) {
-      console.error("Mic visualizer error:", err);
-    }
-  };
-
-  const stopMicVisualizer = () => {
-    if (micStreamRef.current) {
-      micStreamRef.current.getTracks().forEach(track => track.stop());
-      micStreamRef.current = null;
-    }
-    micAnalyserRef.current = null;
-    setMicVolume(0);
   };
 
   const fetchAudioForSentence = async (sentence) => {
@@ -906,6 +1025,22 @@ RULES:
         setIsTimerActive(false);
         toast.success("Session completed successfully!");
         clearSessionState();
+        setEyeEmotion('sleep');
+      } else {
+        const lowerText = aiText.toLowerCase();
+        if (lowerText.includes('incorrect') || lowerText.includes('not quite') || lowerText.includes('wrong') || lowerText.includes('mistake') || lowerText.includes('try again')) {
+          triggerEmotion('sad', 4000);
+        } else if (lowerText.includes('correct') || lowerText.includes('great job') || lowerText.includes('excellent') || lowerText.includes('perfect') || lowerText.includes('exactly') || lowerText.includes('awesome')) {
+          triggerEmotion('happy', 4000);
+        } else if (lowerText.includes('look at') || lowerText.includes('over there')) {
+          triggerEmotion('lookRight', 3000);
+        } else if (lowerText.includes('obviously') || lowerText.includes('of course') || lowerText.includes('sigh')) {
+          triggerEmotion('eyeRoll', 2000);
+        } else if (lowerText.includes('wow') || lowerText.includes('surprised') || lowerText.includes('whoa') || lowerText.includes('amazing') || lowerText.includes('really')) {
+          triggerEmotion('surprised', 2000);
+        } else if (lowerText.includes('hmm') || lowerText.includes('let me think') || lowerText.includes("let's see") || lowerText.includes('interesting')) {
+          triggerEmotion('think', 3000);
+        }
       }
 
       setIsThinking(false);
@@ -927,12 +1062,14 @@ RULES:
     stepRef.current = 4;
     setUiStep(4);
     setShowEndSessionModal(false);
-    speakAndAdvance("Session ended. Great job studying today!", 4);
+    speakAndAdvance("Session ended. Great job studying today!", 4).then(() => {
+      setEyeEmotion('sleep');
+    });
   };
 
   // Map 0-255 volume to a visual scale/size
-  const pulseScale = isListening ? 1 + (micVolume / 255) * 0.7 : (isSpeaking ? 1 + (speakerVolume / 255) * 0.7 : 1);
-  const pulseOpacity = isListening ? Math.min(1, 0.3 + (micVolume / 255)) : (isSpeaking ? Math.min(1, 0.3 + (speakerVolume / 255)) : 0.5);
+  const pulseScale = isSpeaking ? 1 + (speakerVolume / 255) * 0.7 : 1;
+  const pulseOpacity = isSpeaking ? Math.min(1, 0.3 + (speakerVolume / 255)) : 0.5;
 
   if (!isSpeechSupported) {
     return (
@@ -993,9 +1130,10 @@ RULES:
         className="min-h-screen bg-[#09090b] flex flex-col items-center justify-center p-6 text-center text-white relative overflow-hidden"
       >
         <div className="absolute inset-0 bg-blue-900/10 blur-[120px] rounded-full mix-blend-screen pointer-events-none" />
-        <Link to="/dashboard" className="absolute top-6 left-6 text-gray-500 hover:text-white transition-colors z-20">
-          <ArrowLeft size={32} />
-        </Link>
+        <button onClick={() => setIsSidebarOpen(true)} className="absolute top-6 left-6 text-gray-500 hover:text-white transition-colors z-20">
+          <Menu size={32} />
+        </button>
+        <TeacherSidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
         <div className="max-w-md w-full flex flex-col items-center gap-8 z-10">
           <motion.div
             initial={{ scale: 0.8, opacity: 0 }}
@@ -1025,21 +1163,16 @@ RULES:
 
   return (
     <div className="h-[100dvh] max-h-[100dvh] overflow-hidden bg-[#0E0E0E] text-white flex flex-col font-sans">
+      <TeacherSidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
       {/* Top Navigation Bar */}
       <div className="flex items-center justify-between px-4 md:px-6 py-4 bg-[#0E0E0E] z-50">
         <div className="flex items-center gap-4">
-          <Link 
-            to="/dashboard" 
-            onClick={() => {
-              if (isFullscreen && document.exitFullscreen) {
-                document.exitFullscreen().catch(()=>{});
-                setIsFullscreen(false);
-              }
-            }}
+          <button 
+            onClick={() => setIsSidebarOpen(true)}
             className="text-gray-400 hover:text-white transition-colors"
           >
-            <ArrowLeft size={24} />
-          </Link>
+            <Menu size={28} />
+          </button>
           <div className="flex items-center gap-2">
             <Volume2 className="text-blue-500" />
             <span className="text-lg font-bold text-white tracking-tight hidden sm:block">DwenLite Teacher Session</span>
@@ -1143,15 +1276,15 @@ RULES:
               <>
                 <motion.div
                   className={`absolute rounded-full ${isSpeaking ? 'bg-blue-500/30' : 'bg-emerald-500/30'}`}
-                  style={!(isMobile && isHoldingMic) ? { width: 240 * pulseScale, height: 240 * pulseScale, opacity: pulseOpacity } : undefined}
-                  animate={isMobile && isHoldingMic ? { width: [240, 280, 240], height: [240, 280, 240], opacity: [0.5, 0.8, 0.5] } : undefined}
-                  transition={isMobile && isHoldingMic ? { duration: 1.5, repeat: Infinity, ease: "easeInOut" } : { duration: 0.1 }}
+                  style={isSpeaking ? { width: 240 * pulseScale, height: 240 * pulseScale, opacity: pulseOpacity } : undefined}
+                  animate={!isSpeaking ? { width: [240, 280, 240], height: [240, 280, 240], opacity: [0.5, 0.8, 0.5] } : undefined}
+                  transition={!isSpeaking ? { duration: 1.5, repeat: Infinity, ease: "easeInOut" } : { duration: 0.1 }}
                 />
                 <motion.div
                   className={`absolute rounded-full ${isSpeaking ? 'bg-blue-400/10' : 'bg-emerald-400/10'}`}
-                  style={!(isMobile && isHoldingMic) ? { width: 240 * (pulseScale + 0.3), height: 240 * (pulseScale + 0.3), opacity: pulseOpacity * 0.7 } : undefined}
-                  animate={isMobile && isHoldingMic ? { width: [240, 310, 240], height: [240, 310, 240], opacity: [0.3, 0.6, 0.3] } : undefined}
-                  transition={isMobile && isHoldingMic ? { duration: 1.5, repeat: Infinity, ease: "easeInOut" } : { duration: 0.1 }}
+                  style={isSpeaking ? { width: 240 * (pulseScale + 0.3), height: 240 * (pulseScale + 0.3), opacity: pulseOpacity * 0.7 } : undefined}
+                  animate={!isSpeaking ? { width: [240, 310, 240], height: [240, 310, 240], opacity: [0.3, 0.6, 0.3] } : undefined}
+                  transition={!isSpeaking ? { duration: 1.5, repeat: Infinity, ease: "easeInOut" } : { duration: 0.1 }}
                 />
               </>
             )}
@@ -1235,34 +1368,26 @@ RULES:
               />
               <AnimatePresence mode="wait">
                 <motion.div
-                  key={isSpeaking ? 'speak' : isHoldingMic ? 'recording' : isListening && stepRef.current !== 2 ? 'listen' : 'idle'}
+                  key="eye-container"
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.8 }}
                   transition={{ duration: 0.3 }}
-                  className="flex items-center justify-center w-full h-full"
+                  className="flex flex-col items-center justify-center w-full h-full relative"
                 >
-                  {isSpeaking ? (
-                    <motion.div
-                      className="bg-white rounded-full shadow-[0_0_40px_rgba(255,255,255,0.9)]"
-                      animate={{
-                        width: 64 + (speakerVolume / 255) * 48,
-                        height: 64 + (speakerVolume / 255) * 48
-                      }}
-                      transition={{ duration: 0.1 }}
-                    />
-                  ) : isHoldingMic ? (
-                    <div className="flex flex-col items-center gap-2">
-                       <Mic size={48} className="text-white drop-shadow-lg animate-pulse" />
-                       <span className="text-white font-bold tracking-widest text-sm uppercase">Recording</span>
+                  <motion.div
+                    className={`flex items-center justify-center ${currentEmoji ? 'text-6xl select-none' : 'bg-white shadow-[0_0_40px_rgba(255,255,255,0.9)]'}`}
+                    animate={getEyeAnimation()}
+                    transition={{ duration: 0.3, type: 'spring' }}
+                  >
+                    {currentEmoji && <span>{currentEmoji}</span>}
+                  </motion.div>
+                  {/* Overlay for mic status */}
+                  {(isHoldingMic || (isListening && stepRef.current !== 2)) && (
+                    <div className="absolute bottom-4 flex flex-col items-center gap-1 opacity-80">
+                       <Mic size={20} className="text-white drop-shadow-lg animate-pulse" />
+                       {isMobile && !isHoldingMic && <span className="text-white font-bold tracking-widest text-[8px] uppercase">Hold to Speak</span>}
                     </div>
-                  ) : isListening && stepRef.current !== 2 ? (
-                    <div className="flex flex-col items-center gap-2">
-                       <Mic size={isMobile ? 48 : 64} className="text-white opacity-90 drop-shadow-lg" />
-                       {isMobile && <span className="text-white font-bold tracking-widest text-[11px] uppercase">Hold to Speak</span>}
-                    </div>
-                  ) : (
-                    <Volume2 size={64} className="text-gray-500" />
                   )}
                 </motion.div>
               </AnimatePresence>

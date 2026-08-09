@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Welcome from './pages/Welcome';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
@@ -36,10 +36,20 @@ const isMaintenanceWindow = () => {
 };
 
 const MaintenanceRoute = ({ component: Component, setShowBanPopup, isAuthenticated, isAccountDisabled, ...rest }) => {
+  const location = useLocation();
+  const hasVisitedAI = sessionStorage.getItem('aiTeacherVisited');
+
   if (isAuthenticated && isAccountDisabled) {
     console.log('Redirecting to login due to disabled account');
     return <Navigate to="/login" replace state={{ reason: 'account_disabled' }} />;
   }
+
+  const publicRoutes = ['/', '/login', '/signup', '/verify-email', '/reset-password', '/terms', '/maintenance', '/ai-teacher'];
+  if (isAuthenticated && !hasVisitedAI && !publicRoutes.includes(location.pathname)) {
+    console.log('Redirecting to AI Teacher (mandatory first stop)');
+    return <Navigate to="/ai-teacher" replace />;
+  }
+
   return isMaintenanceWindow() ? <Maintenance /> : <Component {...rest} setShowBanPopup={setShowBanPopup} />;
 };
 

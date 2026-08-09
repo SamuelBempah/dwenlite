@@ -17,7 +17,7 @@ function Login({ setShowBanPopup }) {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       console.log('onAuthStateChanged:', user ? user.uid : null); // Debug log
       if (user) {
-        navigate('/dashboard');
+        navigate('/ai-teacher');
       }
       setCheckingStatus(false);
     });
@@ -64,7 +64,7 @@ function Login({ setShowBanPopup }) {
       .then(() => {
         setTimeout(() => {
           toast.success('Successfully logged in!');
-          navigate('/dashboard');
+          navigate('/ai-teacher');
           setSignInLoading(false);
         }, 3000); // 3-second delay
       })
@@ -92,7 +92,7 @@ function Login({ setShowBanPopup }) {
       console.log('signInWithPopup:', result.user.uid); // Debug log
       setTimeout(() => {
         toast.success('Successfully logged in with Google!');
-        navigate('/dashboard');
+        navigate('/ai-teacher');
         setGoogleLoading(false);
       }, 3000); // 3-second delay
     } catch (err) {
