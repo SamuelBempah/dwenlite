@@ -285,6 +285,9 @@ const AITeacher = () => {
       setIsListening(false);
       isListeningRef.current = false;
       if (audioCtxRef.current) audioCtxRef.current.close();
+      if (document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(()=>{});
+      }
     };
   }, []);
 
@@ -294,6 +297,13 @@ const AITeacher = () => {
     if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
       audioCtxRef.current.resume();
     }
+    
+    try {
+      if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(()=>{});
+        setIsFullscreen(true);
+      }
+    } catch (e) {}
 
     const storedSessionJSON = localStorage.getItem('aiTeacherSession');
     if (storedSessionJSON) {
@@ -915,7 +925,24 @@ RULES:
         </Link>
         <div className="bg-gray-800 p-8 rounded-2xl shadow-2xl max-w-md w-full border border-gray-700">
           <h2 className="text-2xl font-bold text-red-400 mb-4">Browser Not Supported</h2>
-          <p className="text-lg text-gray-300">This browser does not support the voice recognition needed to use Dwenlite Teacher. Please install a different browser.</p>
+          <p className="text-base text-gray-300 mb-5">This browser restricts or lacks support for the native voice recognition needed to use Dwenlite Teacher.</p>
+          <div className="bg-gray-900 rounded-xl p-5 border border-gray-700/50">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 text-left">Please use a supported browser:</p>
+            <ul className="text-left space-y-3 text-sm text-gray-200 font-medium">
+              <li className="flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.8)]"/> 
+                Google Chrome (Recommended)
+              </li>
+              <li className="flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-blue-400"/> 
+                Microsoft Edge
+              </li>
+              <li className="flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-blue-400"/> 
+                Safari (macOS 14.1+ or iOS 14.5+)
+              </li>
+            </ul>
+          </div>
         </div>
       </div>
     );
