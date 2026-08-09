@@ -326,61 +326,6 @@ const AITeacher = () => {
     }
   };
 
-  const startListening = () => {
-    if (stepRef.current === 2) return;
-    if (recognitionRef.current) {
-      if (isSpeakingRef.current) return;
-      setIsListening(true);
-      isListeningRef.current = true;
-      try {
-        finalTranscriptRef.current = '';
-        clearTimeout(silenceTimerRef.current);
-        if (recognitionRef.current && !isMobileRef.current) {
-          recognitionRef.current.start();
-        }
-      } catch (e) {
-        // already started
-      }    // Start Mic Audio Visualization
-      if (navigator.mediaDevices) {
-        navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-          }
-        }).then(stream => {
-          if (!audioCtxRef.current) initAudioContext();
-          if (audioCtxRef.current.state === 'suspended') audioCtxRef.current.resume();
-
-          const micCtx = audioCtxRef.current;
-          const micSource = micCtx.createMediaStreamSource(stream);
-          const micAnalyser = micCtx.createAnalyser();
-          micAnalyser.fftSize = 256;
-          micSource.connect(micAnalyser);
-          // DO NOT connect to destination (no echo)
-
-          const dataArray = new Uint8Array(micAnalyser.frequencyBinCount);
-          const updateMicVol = () => {
-            if (!isListeningRef.current) {
-              stream.getTracks().forEach(t => t.stop());
-              setMicVolume(0);
-              return;
-            }
-            micAnalyser.getByteFrequencyData(dataArray);
-            let sum = 0;
-            for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-            let avg = sum / dataArray.length;
-            // Noise gate: ignore subtle background noise
-            if (avg < 5) avg = 0;
-            setMicVolume(avg);
-            requestAnimationFrame(updateMicVol);
-          };
-          updateMicVol();
-        }).catch(err => console.error('Mic access denied:', err));
-      }
-
-    }
-  };
 
   const extractPdfText = async (file) => {
     try {
@@ -627,8 +572,14 @@ RULES:
   };
 
   const startListening = () => {
+    if (stepRef.current === 2) return;
+    if (isSpeakingRef.current) return;
+
     setIsListening(true);
     isListeningRef.current = true;
+    finalTranscriptRef.current = '';
+    clearTimeout(silenceTimerRef.current);
+
     if (!isMobileRef.current) {
       if (recognitionRef.current) {
         try {
