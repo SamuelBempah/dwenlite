@@ -151,6 +151,9 @@ const AITeacher = () => {
 
   const audioCtxRef = useRef(null);
   const speakerAnalyserRef = useRef(null);
+  
+  const finalTranscriptRef = useRef('');
+  const silenceTimerRef = useRef(null);
 
   // Create AudioContext ONCE on interaction (for Mic only)
   const initAudioContext = () => {
@@ -173,28 +176,25 @@ const AITeacher = () => {
       recognition.interimResults = true;
       recognition.lang = 'en-US';
 
-      let silenceTimer = null;
-      let finalTranscript = '';
-
       recognition.onresult = (event) => {
         let interimTranscript = '';
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript + ' ';
+            finalTranscriptRef.current += event.results[i][0].transcript + ' ';
           } else {
             interimTranscript += event.results[i][0].transcript;
           }
         }
         
-        const currentText = (finalTranscript + interimTranscript).trim();
+        const currentText = (finalTranscriptRef.current + interimTranscript).trim();
         
-        clearTimeout(silenceTimer);
+        clearTimeout(silenceTimerRef.current);
         
-        if (currentText) {
-          silenceTimer = setTimeout(() => {
-            if (currentText) {
+        if (currentText.length > 0) {
+          silenceTimerRef.current = setTimeout(() => {
+            if (currentText.length > 0) {
               const textToSend = currentText;
-              finalTranscript = '';
+              finalTranscriptRef.current = '';
               recognition.stop();
               handleUserSpeech(textToSend);
             }
@@ -271,6 +271,8 @@ const AITeacher = () => {
       setIsListening(true);
       isListeningRef.current = true;
       try {
+        finalTranscriptRef.current = '';
+        clearTimeout(silenceTimerRef.current);
         if (recognitionRef.current) recognitionRef.current.start();
       } catch (e) {
         // already started
@@ -667,6 +669,8 @@ RULES:
 
     if (recognitionRef.current && isListening) {
       recognitionRef.current.abort();
+      finalTranscriptRef.current = '';
+      clearTimeout(silenceTimerRef.current);
       setIsListening(false);
       isListeningRef.current = false;
     }
@@ -717,6 +721,8 @@ RULES:
 
     if (recognitionRef.current && isListeningRef.current) {
       recognitionRef.current.abort();
+      finalTranscriptRef.current = '';
+      clearTimeout(silenceTimerRef.current);
       setIsListening(false);
       isListeningRef.current = false;
     }
@@ -784,20 +790,6 @@ RULES:
   // Map 0-255 volume to a visual scale/size
   const pulseScale = isListening ? 1 + (micVolume / 255) * 0.7 : (isSpeaking ? 1 + (speakerVolume / 255) * 0.7 : 1);
   const pulseOpacity = isListening ? Math.min(1, 0.3 + (micVolume / 255)) : (isSpeaking ? Math.min(1, 0.3 + (speakerVolume / 255)) : 0.5);
-
-  if (isMobile) {
-    return (
-      <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-6 text-center text-white gap-4 relative">
-        <Link to="/dashboard" className="absolute top-6 left-6 text-gray-400 hover:text-white transition-colors">
-          <ArrowLeft size={32} />
-        </Link>
-        <div className="bg-gray-800 p-8 rounded-2xl shadow-2xl max-w-md w-full border border-gray-700">
-          <h2 className="text-2xl font-bold text-red-400 mb-4">Desktop Only</h2>
-          <p className="text-lg text-gray-300">This functionality is only exclusive to desktop and PC devices not mobile or tablets.</p>
-        </div>
-      </div>
-    );
-  }
 
   if (!isSpeechSupported) {
     return (
