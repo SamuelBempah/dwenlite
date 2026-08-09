@@ -235,14 +235,6 @@ const AITeacher = () => {
 
       recognition.onend = () => {
         if (isMobileRef.current) {
-          // If the browser auto-stopped the mic due to silence, but the user is STILL holding the button, restart it!
-          if (isHoldingMicRef.current) {
-            try {
-              recognition.start();
-            } catch(e) {}
-            return;
-          }
-
           const currentText = (finalTranscriptRef.current + (interimTranscriptRef.current || '')).trim();
           if (currentText.length > 0 && isListeningRef.current) {
             const textToSend = currentText;
@@ -250,12 +242,15 @@ const AITeacher = () => {
             interimTranscriptRef.current = '';
             setIsListening(false);
             isListeningRef.current = false;
+            setIsHoldingMic(false);
+            isHoldingMicRef.current = false;
             handleUserSpeech(textToSend);
           } else {
-             // If they just tapped it and no speech was recorded, keep it in listening mode so they can try again.
-             // We still clear the transcript just in case.
+             // If they just tapped it and no speech was recorded, or it auto-timed out.
              finalTranscriptRef.current = '';
              interimTranscriptRef.current = '';
+             setIsHoldingMic(false);
+             isHoldingMicRef.current = false;
           }
         } else {
           // Persistent Listening Logic for Desktop
@@ -621,11 +616,24 @@ RULES:
   };
 
   const handleMicTouchEnd = (e) => {
-    e.preventDefault();
+    if (e && e.cancelable) e.preventDefault();
     if (!isMobileRef.current) return;
+    if (!isHoldingMicRef.current) return; // Already stopped
 
     setIsHoldingMic(false);
     isHoldingMicRef.current = false;
+    
+    // Salvage any text immediately before stop() is called, as mobile browsers often abort on stop().
+    const currentText = (finalTranscriptRef.current + (interimTranscriptRef.current || '')).trim();
+    if (currentText.length > 0 && isListeningRef.current) {
+        const textToSend = currentText;
+        finalTranscriptRef.current = '';
+        interimTranscriptRef.current = '';
+        setIsListening(false);
+        isListeningRef.current = false;
+        handleUserSpeech(textToSend);
+    }
+    
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
