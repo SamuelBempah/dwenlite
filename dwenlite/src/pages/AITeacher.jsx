@@ -173,6 +173,8 @@ const AITeacher = () => {
 
   const audioCtxRef = useRef(null);
   const speakerAnalyserRef = useRef(null);
+  const micAnalyserRef = useRef(null);
+  const micStreamRef = useRef(null);
 
   const finalTranscriptRef = useRef('');
   const interimTranscriptRef = useRef('');
@@ -250,6 +252,7 @@ const AITeacher = () => {
             interimTranscriptRef.current = '';
             setIsListening(false);
             isListeningRef.current = false;
+            stopMicVisualizer();
             handleUserSpeech(textToSend);
           } else {
              // If they just tapped it and no speech was recorded, keep it in listening mode so they can try again.
@@ -266,6 +269,7 @@ const AITeacher = () => {
           } else {
             setIsListening(false);
             isListeningRef.current = false;
+            stopMicVisualizer();
           }
         }
       };
@@ -597,7 +601,6 @@ RULES:
   };
 
   const handleMicTouchStart = (e) => {
-    e.preventDefault();
     if (!isMobileRef.current || stepRef.current === 2 || isSpeakingRef.current || isThinking) return;
 
     setIsHoldingMic(true);
@@ -612,7 +615,6 @@ RULES:
   };
 
   const handleMicTouchEnd = (e) => {
-    e.preventDefault();
     if (!isMobileRef.current) return;
 
     setIsHoldingMic(false);
@@ -621,6 +623,19 @@ RULES:
       try {
         recognitionRef.current.stop();
       } catch (err) { }
+    }
+  };
+
+  const startListening = () => {
+    setIsListening(true);
+    isListeningRef.current = true;
+    if (!isMobileRef.current) {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.start();
+        } catch (e) { }
+      }
+      startMicVisualizer();
     }
   };
 
@@ -675,6 +690,49 @@ RULES:
       requestAnimationFrame(updateSpeakerVol);
     };
     updateSpeakerVol();
+  };
+
+  const startMicVisualizer = async () => {
+    if (isMobileRef.current) return;
+    try {
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micStreamRef.current = stream;
+      const source = audioCtxRef.current.createMediaStreamSource(stream);
+      const analyser = audioCtxRef.current.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      micAnalyserRef.current = analyser;
+
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const updateMicVolume = () => {
+        if (!isListeningRef.current) {
+          setMicVolume(0);
+          return;
+        }
+        if (micAnalyserRef.current) {
+           micAnalyserRef.current.getByteFrequencyData(dataArray);
+           let sum = 0;
+           for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+           setMicVolume(sum / dataArray.length);
+           requestAnimationFrame(updateMicVolume);
+        }
+      };
+      updateMicVolume();
+    } catch (err) {
+      console.error("Mic visualizer error:", err);
+    }
+  };
+
+  const stopMicVisualizer = () => {
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach(track => track.stop());
+      micStreamRef.current = null;
+    }
+    micAnalyserRef.current = null;
+    setMicVolume(0);
   };
 
   const fetchAudioForSentence = async (sentence) => {
@@ -1071,13 +1129,15 @@ RULES:
               <>
                 <motion.div
                   className={`absolute rounded-full ${isSpeaking ? 'bg-blue-500/30' : 'bg-emerald-500/30'}`}
-                  style={{ width: 240 * pulseScale, height: 240 * pulseScale, opacity: pulseOpacity }}
-                  transition={{ duration: 0.1 }}
+                  style={!(isMobile && isHoldingMic) ? { width: 240 * pulseScale, height: 240 * pulseScale, opacity: pulseOpacity } : undefined}
+                  animate={isMobile && isHoldingMic ? { width: [240, 280, 240], height: [240, 280, 240], opacity: [0.5, 0.8, 0.5] } : undefined}
+                  transition={isMobile && isHoldingMic ? { duration: 1.5, repeat: Infinity, ease: "easeInOut" } : { duration: 0.1 }}
                 />
                 <motion.div
                   className={`absolute rounded-full ${isSpeaking ? 'bg-blue-400/10' : 'bg-emerald-400/10'}`}
-                  style={{ width: 240 * (pulseScale + 0.3), height: 240 * (pulseScale + 0.3), opacity: pulseOpacity * 0.7 }}
-                  transition={{ duration: 0.1 }}
+                  style={!(isMobile && isHoldingMic) ? { width: 240 * (pulseScale + 0.3), height: 240 * (pulseScale + 0.3), opacity: pulseOpacity * 0.7 } : undefined}
+                  animate={isMobile && isHoldingMic ? { width: [240, 310, 240], height: [240, 310, 240], opacity: [0.3, 0.6, 0.3] } : undefined}
+                  transition={isMobile && isHoldingMic ? { duration: 1.5, repeat: Infinity, ease: "easeInOut" } : { duration: 0.1 }}
                 />
               </>
             )}
@@ -1153,13 +1213,11 @@ RULES:
             >
               {/* TOUCH OVERLAY - Captures all events and never unmounts so touchend is guaranteed */}
               <div 
-                className="absolute inset-0 z-50 rounded-full"
-                onTouchStart={isMobile ? handleMicTouchStart : undefined}
-                onTouchEnd={isMobile ? handleMicTouchEnd : undefined}
-                onTouchCancel={isMobile ? handleMicTouchEnd : undefined}
-                onMouseDown={isMobile ? handleMicTouchStart : undefined}
-                onMouseUp={isMobile ? handleMicTouchEnd : undefined}
-                onMouseLeave={isMobile ? handleMicTouchEnd : undefined}
+                className="absolute inset-0 z-50 rounded-full touch-none"
+                onPointerDown={isMobile ? handleMicTouchStart : undefined}
+                onPointerUp={isMobile ? handleMicTouchEnd : undefined}
+                onPointerCancel={isMobile ? handleMicTouchEnd : undefined}
+                onPointerLeave={isMobile ? handleMicTouchEnd : undefined}
               />
               <AnimatePresence mode="wait">
                 <motion.div
