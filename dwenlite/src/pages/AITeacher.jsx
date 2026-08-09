@@ -1039,7 +1039,7 @@ RULES:
                   transition={{ duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
                   className="inline-block"
                 >
-                  <p className="text-2xl md:text-3xl lg:text-4xl font-extrabold tracking-wide bg-gradient-to-r from-blue-200 via-white to-purple-300 bg-clip-text text-transparent drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] leading-relaxed pb-2">
+                  <p className="text-sm md:text-base font-medium tracking-wide bg-gradient-to-r from-blue-200 via-gray-100 to-purple-200 bg-clip-text text-transparent drop-shadow-md leading-relaxed pb-2 opacity-80">
                     {currentCaption}
                   </p>
                 </motion.div>
