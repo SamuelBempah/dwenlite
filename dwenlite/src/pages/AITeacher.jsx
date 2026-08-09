@@ -159,6 +159,7 @@ const AITeacher = () => {
   const [uploadLoading, setUploadLoading] = useState(false);
   const uploadLoadingRef = useRef(false);
   const [uploadStatus, setUploadStatus] = useState('');
+  const [isProcessingSpeech, setIsProcessingSpeech] = useState(false);
 
   const recognitionRef = useRef(null);
   const audioRef = useRef(null);
@@ -234,6 +235,7 @@ const AITeacher = () => {
       };
 
       recognition.onend = () => {
+        setIsProcessingSpeech(false);
         if (isMobileRef.current) {
           const currentText = (finalTranscriptRef.current + (interimTranscriptRef.current || '')).trim();
           if (currentText.length > 0 && isListeningRef.current) {
@@ -623,7 +625,6 @@ RULES:
     setIsHoldingMic(false);
     isHoldingMicRef.current = false;
     
-    // Salvage any text immediately before stop() is called, as mobile browsers often abort on stop().
     const currentText = (finalTranscriptRef.current + (interimTranscriptRef.current || '')).trim();
     if (currentText.length > 0 && isListeningRef.current) {
         const textToSend = currentText;
@@ -632,12 +633,16 @@ RULES:
         setIsListening(false);
         isListeningRef.current = false;
         handleUserSpeech(textToSend);
-    }
-    
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop();
-      } catch (err) { }
+        
+        if (recognitionRef.current) {
+          try {
+            recognitionRef.current.stop();
+          } catch (err) { }
+        }
+    } else {
+        // We have no text yet! The mobile browser's SpeechRecognition is likely still processing.
+        // DO NOT call stop(). Let the browser finish processing and fire onend naturally.
+        setIsProcessingSpeech(true);
     }
   };
 
@@ -1180,7 +1185,7 @@ RULES:
               />
               <AnimatePresence mode="wait">
                 <motion.div
-                  key={isSpeaking ? 'speak' : isHoldingMic ? 'recording' : isListening && stepRef.current !== 2 ? 'listen' : 'idle'}
+                  key={isSpeaking ? 'speak' : isHoldingMic ? 'recording' : isProcessingSpeech ? 'processing' : isListening && stepRef.current !== 2 ? 'listen' : 'idle'}
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.8 }}
@@ -1200,6 +1205,11 @@ RULES:
                     <div className="flex flex-col items-center gap-2">
                        <Mic size={48} className="text-white drop-shadow-lg animate-pulse" />
                        <span className="text-white font-bold tracking-widest text-sm uppercase">Recording</span>
+                    </div>
+                  ) : isProcessingSpeech ? (
+                    <div className="flex flex-col items-center gap-2">
+                       <Mic size={48} className="text-emerald-300 drop-shadow-lg animate-pulse" />
+                       <span className="text-emerald-200 font-bold tracking-widest text-[11px] uppercase">Processing</span>
                     </div>
                   ) : isListening && stepRef.current !== 2 ? (
                     <div className="flex flex-col items-center gap-2">
