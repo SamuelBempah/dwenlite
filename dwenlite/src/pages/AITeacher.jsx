@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Filter } from 'bad-words';
 import { Volume2, User, ArrowLeft, Upload, X, Mic, Pause, Play, Edit2, Check, PhoneOff, Hand, Maximize, Minimize, Menu } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -56,6 +56,8 @@ const AITeacher = () => {
   const [newNameInput, setNewNameInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const [currentCaption, setCurrentCaption] = useState('');
+  const [currentHand, setCurrentHand] = useState(null);
+  const RANDOM_TEACHING_HANDS = ['👐', '🤲', '🤚', '🖐️', '🙌', '👇', '🤌', '🫰'];
   const [hasStarted, setHasStarted] = useState(false);
   const [isHoldingMic, setIsHoldingMic] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -67,26 +69,29 @@ const AITeacher = () => {
   const EMOTION_EMOJIS = {
     happy: ['😊', '😄', '🤩', '🎉', '😁', '🥳', '😎'],
     sad: ['😢', '😞', '😕', '😔', '😟', '🥺'],
-    eyeRoll: ['🙄', '😒', '🤦', '🤷'],
-    surprised: ['😲', '😮', '🤯', '😳', '🙀'],
-    think: ['🤔', '🧐', '💭', '🤨']
+    close: ['🤔', '🧐', '💭', '🤨', '😉', '🤞']
   };
 
-  const triggerEmotion = (emotionCat, duration = 3000) => {
+  const triggerEmotion = useCallback((emotionCat, duration = 3000) => {
     const emojis = EMOTION_EMOJIS[emotionCat];
     if (emojis) {
       const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
-      setCurrentEmoji(randomEmoji);
-      setEyeEmotion(emotionCat);
+      setEyeEmotion('closed');
+      setTimeout(() => {
+        setCurrentEmoji(randomEmoji);
+        setEyeEmotion(emotionCat);
+      }, 150);
+
       setTimeout(() => {
         setCurrentEmoji(null);
-        setEyeEmotion('center');
+        setEyeEmotion('closed');
+        setTimeout(() => setEyeEmotion('center'), 150);
       }, duration);
     } else {
       setEyeEmotion(emotionCat);
       setTimeout(() => setEyeEmotion('center'), duration);
     }
-  };
+  }, []);
 
   useEffect(() => {
     sessionStorage.setItem('aiTeacherVisited', 'true');
@@ -118,13 +123,51 @@ const AITeacher = () => {
   };
 
   useEffect(() => {
+    if (!currentCaption) return;
     const captionLower = currentCaption.toLowerCase();
+    
+    // Intro Sequence Sync
     if (captionLower.includes('menu button in the top left')) {
       setEyeEmotion('lookUpLeft');
     } else if (captionLower.includes('when you are ready')) {
       setEyeEmotion('center');
     }
-  }, [currentCaption]);
+
+    // Dynamic Emotion Triggers during speech playback
+    if (captionLower.includes('incorrect') || captionLower.includes('not quite') || captionLower.includes('wrong') || captionLower.includes('mistake') || captionLower.includes('try again')) {
+      triggerEmotion('sad', 4000);
+    } else if (captionLower.includes('almost') || captionLower.includes('close') || captionLower.includes('right track') || captionLower.includes('getting there')) {
+      triggerEmotion('close', 3000);
+    } else if (captionLower.includes('correct') || captionLower.includes('great job') || captionLower.includes('excellent') || captionLower.includes('perfect') || captionLower.includes('exactly') || captionLower.includes('awesome')) {
+      triggerEmotion('happy', 4000);
+    } else if (captionLower.includes('look at') || captionLower.includes('over there')) {
+      triggerEmotion('lookRight', 3000);
+    } else if (captionLower.includes('obviously') || captionLower.includes('of course') || captionLower.includes('sigh')) {
+      triggerEmotion('eyeRoll', 2000);
+    } else if (captionLower.includes('wow') || captionLower.includes('surprised') || captionLower.includes('whoa') || captionLower.includes('amazing') || captionLower.includes('really')) {
+      triggerEmotion('surprised', 2000);
+    } else if (captionLower.includes('hmm') || captionLower.includes('let me think') || captionLower.includes("let's see") || captionLower.includes('interesting')) {
+      triggerEmotion('think', 3000);
+    }
+
+    // Dynamic Hand Gestures
+    let newHand = null;
+    if (captionLower.includes('you') || captionLower.includes('your')) newHand = '🫵';
+    else if (captionLower.includes('question') || captionLower.includes('ask') || captionLower.includes('?')) newHand = '🖐️';
+    else if (captionLower.includes('first') || captionLower.includes('one')) newHand = '☝️';
+    else if (captionLower.includes('second') || captionLower.includes('two')) newHand = '✌️';
+    else if (captionLower.includes('important') || captionLower.includes('remember') || captionLower.includes('key')) newHand = '👆';
+    else if (captionLower.includes('stop') || captionLower.includes('wait') || captionLower.includes('hold on')) newHand = '🛑';
+    else if (captionLower.includes('perfect') || captionLower.includes('good') || captionLower.includes('great')) newHand = '👌';
+    else if (captionLower.includes('hello') || captionLower.includes('welcome') || captionLower.includes('hi')) newHand = '👋';
+    else if (captionLower.includes('look') || captionLower.includes('see') || captionLower.includes('here')) newHand = '👇';
+    else if (captionLower.includes('explain') || captionLower.includes('dive in')) newHand = '👐';
+    else newHand = RANDOM_TEACHING_HANDS[Math.floor(Math.random() * RANDOM_TEACHING_HANDS.length)];
+    
+    if (isSpeakingRef.current) {
+      setCurrentHand(newHand);
+    }
+  }, [currentCaption, triggerEmotion]);
 
   // Timer Effect
   useEffect(() => {
@@ -244,6 +287,12 @@ const AITeacher = () => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [isRaisingHand, setIsRaisingHand] = useState(false);
+
+  useEffect(() => {
+    if (!isSpeaking) {
+      setCurrentHand(null);
+    }
+  }, [isSpeaking]);
 
   const togglePause = () => {
     if (audioRef.current) {
@@ -979,6 +1028,11 @@ RULES:
 
   const generateAIResponse = async (prompt, history) => {
     setIsThinking(true);
+    setEyeEmotion('closed');
+    setTimeout(() => {
+      setCurrentEmoji('🤔');
+      setEyeEmotion('think');
+    }, 150);
     setIsRaisingHand(false);
 
     if (recognitionRef.current && isListeningRef.current) {
@@ -1026,23 +1080,11 @@ RULES:
         toast.success("Session completed successfully!");
         clearSessionState();
         setEyeEmotion('sleep');
-      } else {
-        const lowerText = aiText.toLowerCase();
-        if (lowerText.includes('incorrect') || lowerText.includes('not quite') || lowerText.includes('wrong') || lowerText.includes('mistake') || lowerText.includes('try again')) {
-          triggerEmotion('sad', 4000);
-        } else if (lowerText.includes('correct') || lowerText.includes('great job') || lowerText.includes('excellent') || lowerText.includes('perfect') || lowerText.includes('exactly') || lowerText.includes('awesome')) {
-          triggerEmotion('happy', 4000);
-        } else if (lowerText.includes('look at') || lowerText.includes('over there')) {
-          triggerEmotion('lookRight', 3000);
-        } else if (lowerText.includes('obviously') || lowerText.includes('of course') || lowerText.includes('sigh')) {
-          triggerEmotion('eyeRoll', 2000);
-        } else if (lowerText.includes('wow') || lowerText.includes('surprised') || lowerText.includes('whoa') || lowerText.includes('amazing') || lowerText.includes('really')) {
-          triggerEmotion('surprised', 2000);
-        } else if (lowerText.includes('hmm') || lowerText.includes('let me think') || lowerText.includes("let's see") || lowerText.includes('interesting')) {
-          triggerEmotion('think', 3000);
-        }
       }
 
+      setCurrentEmoji(null);
+      setEyeEmotion('closed');
+      setTimeout(() => setEyeEmotion('center'), 150);
       setIsThinking(false);
       await speakAndAdvance(aiText);
 
@@ -1392,6 +1434,28 @@ RULES:
                 </motion.div>
               </AnimatePresence>
             </div>
+
+            {/* Teaching Hand */}
+            <motion.div 
+              className="absolute z-20 top-1/2 left-1/2 ml-10 mt-10 pointer-events-none"
+              animate={{ y: [-5, 5, -5], rotate: [-2, 2, -2] }}
+              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+            >
+              <AnimatePresence mode="wait">
+                {currentHand && (
+                  <motion.div
+                    key={currentHand}
+                    initial={{ y: 20, opacity: 0, scale: 0.8, rotate: -10 }}
+                    animate={{ y: 0, opacity: 1, scale: 1, rotate: 0 }}
+                    exit={{ y: 20, opacity: 0, scale: 0.8, rotate: 10 }}
+                    transition={{ duration: 0.25 }}
+                    className="text-[70px] drop-shadow-2xl"
+                  >
+                    {currentHand}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </motion.div>
           </div>
 
           {/* Realtime Animated Captions */}
