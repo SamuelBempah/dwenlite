@@ -49,7 +49,7 @@ const AITeacher = () => {
   // New States
   const [sessionTime, setSessionTime] = useState(0);
   const [isTimerActive, setIsTimerActive] = useState(false);
-  const [pendingName, setPendingName] = useState('');
+  const pendingNameRef = useRef('');
   const [showNameEditModal, setShowNameEditModal] = useState(false);
   const [newNameInput, setNewNameInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
@@ -508,15 +508,15 @@ const AITeacher = () => {
     saveSessionState();
 
     if (stepRef.current === 1) {
-      if (pendingName) {
+      if (pendingNameRef.current) {
         const lowerText = text.toLowerCase();
         if (lowerText.includes('yes') || lowerText.includes('yeah') || lowerText.includes('correct') || lowerText.includes('right') || lowerText.includes('yep')) {
-          userNameRef.current = pendingName;
-          localStorage.setItem('aiTeacherUserName', pendingName);
-          setPendingName('');
-          speakAndAdvance(`Nice to meet you, ${pendingName}. Please upload the study materials you would like me to test you on today using the upload button below.`, 2);
+          userNameRef.current = pendingNameRef.current;
+          localStorage.setItem('aiTeacherUserName', pendingNameRef.current);
+          pendingNameRef.current = '';
+          speakAndAdvance(`Nice to meet you, ${userNameRef.current}. Please upload the study materials you would like me to test you on today using the upload button below.`, 2);
         } else {
-          setPendingName('');
+          pendingNameRef.current = '';
           speakAndAdvance("My apologies. Could you please tell me your name again?", 1);
         }
       } else {
@@ -528,7 +528,7 @@ const AITeacher = () => {
         let proposedName = text.replace(/my name is/i, '').replace(/i am/i, '').replace(/i'm/i, '').replace(/call me/i, '').trim();
         if (!proposedName) proposedName = text;
 
-        setPendingName(proposedName);
+        pendingNameRef.current = proposedName;
         speakAndAdvance(`Did you say your name is ${proposedName}?`, 1);
       }
     }
