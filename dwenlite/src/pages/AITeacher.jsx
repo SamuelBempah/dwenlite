@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Filter } from 'bad-words';
-import { Volume2, User, ArrowLeft, Upload, X, Mic, Pause, Play, Edit2, Check, PhoneOff, Hand } from 'lucide-react';
+import { Volume2, User, ArrowLeft, Upload, X, Mic, Pause, Play, Edit2, Check, PhoneOff, Hand, Maximize, Minimize } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -12,14 +12,18 @@ const filter = new Filter();
 
 const AITeacher = () => {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
+  const isMobileRef = useRef(window.innerWidth < 1024);
   const [isSpeechSupported, setIsSpeechSupported] = useState(
     'SpeechRecognition' in window || 'webkitSpeechRecognition' in window
   );
 
   useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 1024);
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 1024);
+      isMobileRef.current = window.innerWidth < 1024;
+    };
     window.addEventListener('resize', handleResize);
-    
+
     // 1. Check for Brave browser (reports having the API but blocks it)
     if (navigator.brave && navigator.brave.isBrave) {
       navigator.brave.isBrave().then(isBrave => {
@@ -33,7 +37,7 @@ const AITeacher = () => {
     if (ua.includes('firefox') || ua.includes('tor')) {
       setIsSpeechSupported(false);
     }
-    
+
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
@@ -51,6 +55,22 @@ const AITeacher = () => {
   const [isThinking, setIsThinking] = useState(false);
   const [currentCaption, setCurrentCaption] = useState('');
   const [hasStarted, setHasStarted] = useState(false);
+  const [isHoldingMic, setIsHoldingMic] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(err => {
+        console.warn(`Error attempting to enable fullscreen: ${err.message}`);
+      });
+      setIsFullscreen(true);
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+        setIsFullscreen(false);
+      }
+    }
+  };
 
   // Timer Effect
   useEffect(() => {
@@ -153,7 +173,7 @@ const AITeacher = () => {
 
   const audioCtxRef = useRef(null);
   const speakerAnalyserRef = useRef(null);
-  
+
   const finalTranscriptRef = useRef('');
   const silenceTimerRef = useRef(null);
 
@@ -173,7 +193,7 @@ const AITeacher = () => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
-      recognition.continuous = true;
+      recognition.continuous = !isMobileRef.current;
       recognition.interimResults = true;
       recognition.lang = 'en-US';
 
@@ -186,38 +206,50 @@ const AITeacher = () => {
             interimTranscript += event.results[i][0].transcript;
           }
         }
-        
+
         const currentText = (finalTranscriptRef.current + interimTranscript).trim();
-        
-        clearTimeout(silenceTimerRef.current);
-        
-        if (currentText.length > 0) {
-          silenceTimerRef.current = setTimeout(() => {
-            if (currentText.length > 0) {
-              const textToSend = currentText;
-              finalTranscriptRef.current = '';
-              recognition.stop();
-              handleUserSpeech(textToSend);
-            }
-          }, 2000);
+
+        if (!isMobileRef.current) {
+          clearTimeout(silenceTimerRef.current);
+          if (currentText.length > 0) {
+            silenceTimerRef.current = setTimeout(() => {
+              if (currentText.length > 0) {
+                const textToSend = currentText;
+                finalTranscriptRef.current = '';
+                recognition.stop();
+                handleUserSpeech(textToSend);
+              }
+            }, 2000);
+          }
         }
       };
 
       recognition.onerror = (event) => {
-        if (event.error !== 'no-speech') {
+        if (event.error !== 'no-speech' && event.error !== 'aborted') {
           console.error('Speech recognition error', event.error);
         }
       };
 
       recognition.onend = () => {
-        // Persistent Listening Logic
-        if (!isSpeakingRef.current && stepRef.current !== 2 && stepRef.current !== 4 && !showUploadDrawer) {
-          try {
-            recognitionRef.current.start();
-          } catch (e) { }
-        } else {
+        if (isMobileRef.current) {
+          const currentText = finalTranscriptRef.current.trim();
+          if (currentText.length > 0 && isListeningRef.current) {
+            const textToSend = currentText;
+            finalTranscriptRef.current = '';
+            handleUserSpeech(textToSend);
+          }
           setIsListening(false);
           isListeningRef.current = false;
+        } else {
+          // Persistent Listening Logic for Desktop
+          if (!isSpeakingRef.current && stepRef.current !== 2 && stepRef.current !== 4 && !showUploadDrawer) {
+            try {
+              recognitionRef.current.start();
+            } catch (e) { }
+          } else {
+            setIsListening(false);
+            isListeningRef.current = false;
+          }
         }
       };
 
@@ -241,7 +273,7 @@ const AITeacher = () => {
     if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
       audioCtxRef.current.resume();
     }
-    
+
     const storedSessionJSON = localStorage.getItem('aiTeacherSession');
     if (storedSessionJSON) {
       try {
@@ -282,7 +314,9 @@ const AITeacher = () => {
       try {
         finalTranscriptRef.current = '';
         clearTimeout(silenceTimerRef.current);
-        if (recognitionRef.current) recognitionRef.current.start();
+        if (recognitionRef.current && !isMobileRef.current) {
+          recognitionRef.current.start();
+        }
       } catch (e) {
         // already started
       }    // Start Mic Audio Visualization
@@ -349,10 +383,10 @@ const AITeacher = () => {
       const zip = new JSZip();
       const contents = await zip.loadAsync(file);
       let fullText = '';
-      
+
       const slideRegex = /ppt\/slides\/slide\d+\.xml/;
       const slidePaths = Object.keys(contents.files).filter(path => slideRegex.test(path));
-      
+
       for (const slidePath of slidePaths) {
         const xmlString = await contents.file(slidePath).async('text');
         const textMatches = xmlString.match(/<a:t>([\s\S]*?)<\/a:t>/g);
@@ -361,7 +395,7 @@ const AITeacher = () => {
           fullText += slideText + '\n\n';
         }
       }
-      
+
       return fullText.trim() || 'No text found in the PPTX.';
     } catch (error) {
       throw new Error('PPTX extraction failed: ' + error.message);
@@ -514,10 +548,10 @@ const AITeacher = () => {
           speakAndAdvance("I'm sorry, I cannot use that name. Please tell me your real name.", 1);
           return;
         }
-        
+
         let proposedName = text.replace(/my name is/i, '').replace(/i am/i, '').replace(/i'm/i, '').replace(/call me/i, '').trim();
         if (!proposedName) proposedName = text;
-        
+
         setPendingName(proposedName);
         speakAndAdvance(`Did you say your name is ${proposedName}?`, 1);
       }
@@ -542,6 +576,41 @@ RULES:
 9. BACKGROUND NOISE FILTER: If the transcript contains random fragments of background conversations from other people that do not pertain to the study material, completely ignore them and focus only on the relevant parts of the student's input.` },
         ...messagesRef.current.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
       ]);
+    }
+  };
+
+  const handleMicTouchStart = (e) => {
+    e.preventDefault();
+    if (!isMobileRef.current || stepRef.current === 2 || isSpeakingRef.current || isThinking) return;
+
+    setIsHoldingMic(true);
+    if (recognitionRef.current) {
+      try {
+        finalTranscriptRef.current = '';
+        recognitionRef.current.start();
+      } catch (err) { }
+    }
+  };
+
+  const handleMicTouchEnd = (e) => {
+    e.preventDefault();
+    if (!isMobileRef.current) return;
+
+    setIsHoldingMic(false);
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (err) { }
+    }
+  };
+
+  const stopSpeakerVisualizer = () => {
+    if (!audioCtxRef.current) {
+      audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    }
+
+    if (!speakerAnalyserRef.current) {
+      // ...
     }
   };
 
@@ -605,15 +674,15 @@ RULES:
       if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
         audioCtxRef.current.resume();
       }
-      
+
       audioRef.current.src = url;
       startSpeakerVisualizer();
-      
+
       const onEnded = () => {
         cleanup();
         resolve();
       };
-      
+
       const onError = (e) => {
         cleanup();
         reject(e);
@@ -628,15 +697,15 @@ RULES:
       audioRef.current.addEventListener('error', onError);
 
       audioRef.current.play().catch(err => {
-         cleanup();
-         reject(err);
+        cleanup();
+        reject(err);
       });
     });
   };
 
   const processAudioQueue = async (sentences, sessionId) => {
     if (sentences.length === 0) return;
-    
+
     let currentSentence = sentences.shift();
     let nextAudioPromise = fetchAudioForSentence(currentSentence);
 
@@ -655,7 +724,7 @@ RULES:
 
         await playAudioUrl(url, sessionId);
         URL.revokeObjectURL(url);
-        
+
       } catch (err) {
         console.error("Audio queue error", err);
         break;
@@ -681,7 +750,7 @@ RULES:
     isSpeakingRef.current = true;
     setIsPaused(false);
     isPausedRef.current = false;
-    
+
     currentAudioSessionRef.current += 1;
     const sessionId = currentAudioSessionRef.current;
 
@@ -698,7 +767,7 @@ RULES:
       stepRef.current = nextStep;
       setUiStep(nextStep);
     }
-    
+
     saveSessionState();
 
     try {
@@ -707,10 +776,10 @@ RULES:
         .replace(/"/g, "'")
         .replace(/[$\\*_]/g, '')
         .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '');
-        
+
       const sentenceRegex = /[^.!?]+[.!?]+["']?(?=\s|$)/g;
       let sentences = safeTextForTTS.match(sentenceRegex);
-      
+
       if (!sentences || sentences.length === 0) {
         sentences = [safeTextForTTS];
       }
@@ -825,116 +894,138 @@ RULES:
 
   if (!hasStarted) {
     return (
-      <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-6 text-center text-white gap-4 relative">
-        <Link to="/dashboard" className="absolute top-6 left-6 text-gray-400 hover:text-white transition-colors">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="min-h-screen bg-[#09090b] flex flex-col items-center justify-center p-6 text-center text-white relative overflow-hidden"
+      >
+        <div className="absolute inset-0 bg-blue-900/10 blur-[120px] rounded-full mix-blend-screen pointer-events-none" />
+        <Link to="/dashboard" className="absolute top-6 left-6 text-gray-500 hover:text-white transition-colors z-20">
           <ArrowLeft size={32} />
         </Link>
-        <div className="bg-gray-800 p-10 rounded-3xl shadow-[0_0_50px_rgba(59,130,246,0.15)] max-w-md w-full border border-gray-700 flex flex-col items-center gap-6">
-          <div className="w-24 h-24 bg-blue-600/20 rounded-full flex items-center justify-center mb-2">
-            <Mic size={48} className="text-blue-400" />
-          </div>
-          <h2 className="text-3xl font-bold text-white tracking-tight">Ready to Study?</h2>
-          <p className="text-lg text-gray-300 mb-2">Ensure your volume is turned up and tap below to begin your session.</p>
-          <button 
-            onClick={handleStartSession}
-            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 px-8 rounded-xl transition-all shadow-lg hover:shadow-blue-500/30 text-lg flex items-center justify-center gap-3"
+        <div className="max-w-md w-full flex flex-col items-center gap-8 z-10">
+          <motion.div
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ delay: 0.2, type: 'spring' }}
+            className="w-32 h-32 bg-gradient-to-br from-blue-500/20 to-purple-600/20 rounded-full flex items-center justify-center mb-4 shadow-[0_0_80px_rgba(59,130,246,0.3)]"
           >
-            <Play size={24} fill="currentColor" />
+            <Mic size={56} className="text-blue-400 drop-shadow-[0_0_15px_rgba(96,165,250,0.8)]" />
+          </motion.div>
+          <div className="space-y-4">
+            <h2 className="text-4xl md:text-5xl font-extrabold text-white tracking-tight bg-gradient-to-r from-blue-100 to-blue-400 bg-clip-text text-transparent">Ready to Study?</h2>
+            <p className="text-lg md:text-xl text-gray-400 font-medium">Turn up your volume and tap below to begin.</p>
+          </div>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={handleStartSession}
+            className="w-full bg-white text-black font-bold py-5 px-8 rounded-2xl transition-all shadow-[0_0_40px_rgba(255,255,255,0.2)] text-xl flex items-center justify-center gap-3 mt-4"
+          >
+            <Play size={28} fill="currentColor" />
             Start Session
-          </button>
+          </motion.button>
         </div>
-      </div>
+      </motion.div>
     );
   }
 
   return (
     <div className="h-screen max-h-screen overflow-hidden bg-[#0E0E0E] text-white flex flex-col font-sans">
       {/* Top Navigation Bar */}
-      <div className="flex items-center justify-between px-6 py-4 bg-[#0E0E0E] z-50">
+      <div className="flex items-center justify-between px-4 md:px-6 py-4 bg-[#0E0E0E] z-50">
         <div className="flex items-center gap-4">
           <Link to="/dashboard" className="text-gray-400 hover:text-white transition-colors">
             <ArrowLeft size={24} />
           </Link>
           <div className="flex items-center gap-2">
             <Volume2 className="text-blue-500" />
-            <span className="text-lg font-bold text-white tracking-tight">AI Teacher Session</span>
+            <span className="text-lg font-bold text-white tracking-tight hidden sm:block">DwenLite Teacher Session</span>
           </div>
         </div>
 
-        {/* Timer */}
-        <AnimatePresence>
-          {uiStep >= 3 && (
-            <motion.div 
-              initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
-              className="flex items-center gap-2 px-4 py-1.5 bg-gray-800 rounded-md border border-gray-700"
-            >
-              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
-              <span className="font-mono text-gray-200">{formatTime(sessionTime)}</span>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {/* Top Right Controls */}
+        <div className="flex items-center gap-4">
+          <button onClick={toggleFullscreen} className="text-gray-400 hover:text-white transition-colors">
+            {isFullscreen ? <Minimize size={24} /> : <Maximize size={24} />}
+          </button>
 
-        {/* User Profile / Name */}
-        <div className="flex items-center gap-3 relative">
-          <div 
-            onClick={() => setShowNameEditModal(!showNameEditModal)}
-            className="flex items-center gap-2 cursor-pointer hover:bg-gray-800 px-3 py-1.5 rounded-lg transition border border-transparent hover:border-gray-700"
-          >
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-sm font-bold shadow-lg">
-              {userNameRef.current ? userNameRef.current.charAt(0).toUpperCase() : <User size={16} />}
-            </div>
-            <span className="font-medium text-gray-300 hidden sm:block">
-              {userNameRef.current || 'Guest'}
-            </span>
-            <Edit2 size={14} className="text-gray-500" />
-          </div>
-
-          {/* Name Edit Modal (Absolute) */}
+          {/* Timer */}
           <AnimatePresence>
-             {showNameEditModal && (
-               <motion.div 
-                 initial={{ opacity: 0, y: -10, scale: 0.95 }}
-                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                 exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                 className="absolute top-14 right-0 w-64 bg-gray-800 border border-gray-700 rounded-xl p-4 shadow-2xl z-50"
-               >
-                 <h4 className="text-sm font-semibold mb-3 text-gray-200">Change your name</h4>
-                 <div className="flex gap-2">
-                   <input 
-                     type="text" 
-                     value={newNameInput}
-                     onChange={(e) => setNewNameInput(e.target.value)}
-                     placeholder="New name..."
-                     className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 text-white"
-                   />
-                   <button 
-                     onClick={() => {
-                        if(newNameInput.trim()) {
+            {uiStep >= 3 && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
+                className="flex items-center gap-2 px-4 py-1.5 bg-gray-800 rounded-md border border-gray-700"
+              >
+                <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                <span className="font-mono text-gray-200">{formatTime(sessionTime)}</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* User Profile / Name */}
+          <div className="flex items-center gap-3 relative">
+            <div
+              onClick={() => setShowNameEditModal(!showNameEditModal)}
+              className="flex items-center gap-2 cursor-pointer hover:bg-gray-800 px-3 py-1.5 rounded-lg transition border border-transparent hover:border-gray-700"
+            >
+              <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center text-sm font-bold shadow-lg">
+                {userNameRef.current ? userNameRef.current.charAt(0).toUpperCase() : <User size={16} />}
+              </div>
+              <span className="font-medium text-gray-300 hidden sm:block">
+                {userNameRef.current || 'Guest'}
+              </span>
+              <Edit2 size={14} className="text-gray-500" />
+            </div>
+
+            {/* Name Edit Modal (Absolute) */}
+            <AnimatePresence>
+              {showNameEditModal && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -10, scale: 0.95 }}
+                  className="absolute top-14 right-0 w-64 bg-gray-800 border border-gray-700 rounded-xl p-4 shadow-2xl z-50"
+                >
+                  <h4 className="text-sm font-semibold mb-3 text-gray-200">Change your name</h4>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={newNameInput}
+                      onChange={(e) => setNewNameInput(e.target.value)}
+                      placeholder="New name..."
+                      className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 text-white"
+                    />
+                    <button
+                      onClick={() => {
+                        if (newNameInput.trim()) {
                           userNameRef.current = newNameInput.trim();
                           localStorage.setItem('aiTeacherUserName', newNameInput.trim());
                         }
                         setShowNameEditModal(false);
                         setNewNameInput('');
-                     }}
-                     className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-lg transition"
-                   >
-                     <Check size={16} />
-                   </button>
-                 </div>
-               </motion.div>
-             )}
-          </AnimatePresence>
+                      }}
+                      className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-lg transition"
+                    >
+                      <Check size={16} />
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </div>
 
       {/* Main Stage (Zoom-like Video Area) */}
       <div className="flex-1 p-4 md:p-6 flex flex-col items-center justify-center relative bg-[#0E0E0E] overflow-hidden min-h-0">
-        
+
         <AnimatePresence>
           {uploadLoading && (
             <motion.div
-              initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
-              className="absolute top-6 left-1/2 -translate-x-1/2 bg-blue-600/20 text-blue-300 px-6 py-2 rounded-full border border-blue-500/20 text-sm font-medium animate-pulse z-20 shadow-lg"
+              initial={{ opacity: 0, y: -20, x: "-50%" }} animate={{ opacity: 1, y: 0, x: "-50%" }} exit={{ opacity: 0, y: -20, x: "-50%" }}
+              className="fixed top-24 left-1/2 bg-blue-600/20 text-blue-300 px-6 py-2 rounded-full border border-blue-500/20 text-sm font-medium animate-pulse z-[60] shadow-lg whitespace-nowrap"
             >
               {uploadStatus || 'Processing files...'}
             </motion.div>
@@ -943,9 +1034,9 @@ RULES:
 
         {/* Main Stage Container */}
         <div className="relative w-full h-full flex flex-col items-center justify-center">
-          
+
           {/* Avatar Container inside Video Frame */}
-          <div className="relative flex items-center justify-center w-full h-full">
+          <div className="relative flex-1 flex items-center justify-center w-full min-h-0">
             {/* Realtime Audio Pulses (For BOTH AI and User) */}
             {((isListening && stepRef.current !== 2 && stepRef.current !== 4) || isSpeaking) && (
               <>
@@ -1002,20 +1093,20 @@ RULES:
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1, rotate: 360 }}
                   exit={{ opacity: 0 }}
-                  transition={{ 
-                    rotate: { duration: 1.5, repeat: Infinity, ease: "linear" }, 
-                    opacity: { duration: 0.3 } 
+                  transition={{
+                    rotate: { duration: 1.5, repeat: Infinity, ease: "linear" },
+                    opacity: { duration: 0.3 }
                   }}
                   className="absolute z-0 drop-shadow-[0_0_15px_rgba(59,130,246,1)]"
                   width="220" height="220" viewBox="0 0 220 220"
                 >
-                  <circle 
-                    cx="110" cy="110" r="104" 
-                    fill="none" 
-                    stroke="url(#glow-gradient)" 
-                    strokeWidth="4" 
-                    strokeLinecap="round" 
-                    strokeDasharray="160 600" 
+                  <circle
+                    cx="110" cy="110" r="104"
+                    fill="none"
+                    stroke="url(#glow-gradient)"
+                    strokeWidth="4"
+                    strokeLinecap="round"
+                    strokeDasharray="160 600"
                   />
                   <defs>
                     <linearGradient id="glow-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -1029,11 +1120,16 @@ RULES:
 
             {/* Main Avatar Circle */}
             <div
-              className={`relative z-10 w-48 h-48 rounded-full flex items-center justify-center overflow-hidden transition-colors duration-500 ${isSpeaking ? 'bg-blue-600 shadow-[0_0_80px_rgba(59,130,246,0.6)]' : isListening && stepRef.current !== 2 ? 'bg-emerald-600 shadow-[0_0_50px_rgba(16,185,129,0.4)]' : 'bg-[#27272A] border border-gray-700 shadow-xl'}`}
+              onTouchStart={isMobile ? handleMicTouchStart : undefined}
+              onTouchEnd={isMobile ? handleMicTouchEnd : undefined}
+              onMouseDown={isMobile ? handleMicTouchStart : undefined}
+              onMouseUp={isMobile ? handleMicTouchEnd : undefined}
+              onMouseLeave={isMobile ? handleMicTouchEnd : undefined}
+              className={`relative z-10 w-48 h-48 rounded-full flex items-center justify-center overflow-hidden transition-all duration-500 ${isMobile && isListening && stepRef.current !== 2 ? 'cursor-pointer select-none ' : ''}${isHoldingMic ? 'bg-red-500 scale-95 shadow-[0_0_80px_rgba(239,68,68,0.6)]' : isSpeaking ? 'bg-blue-600 shadow-[0_0_80px_rgba(59,130,246,0.6)]' : isListening && stepRef.current !== 2 ? 'bg-emerald-600 shadow-[0_0_50px_rgba(16,185,129,0.4)]' : 'bg-[#27272A] border border-gray-700 shadow-xl'}`}
             >
               <AnimatePresence mode="wait">
                 <motion.div
-                  key={isSpeaking ? 'speak' : isListening && stepRef.current !== 2 ? 'listen' : 'idle'}
+                  key={isSpeaking ? 'speak' : isHoldingMic ? 'recording' : isListening && stepRef.current !== 2 ? 'listen' : 'idle'}
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.8 }}
@@ -1049,8 +1145,16 @@ RULES:
                       }}
                       transition={{ duration: 0.1 }}
                     />
+                  ) : isHoldingMic ? (
+                    <div className="flex flex-col items-center gap-2">
+                       <Mic size={48} className="text-white drop-shadow-lg animate-pulse" />
+                       <span className="text-white font-bold tracking-widest text-sm uppercase">Recording</span>
+                    </div>
                   ) : isListening && stepRef.current !== 2 ? (
-                    <Mic size={64} className="text-white opacity-90 drop-shadow-lg" />
+                    <div className="flex flex-col items-center gap-2">
+                       <Mic size={isMobile ? 48 : 64} className="text-white opacity-90 drop-shadow-lg" />
+                       {isMobile && <span className="text-white font-bold tracking-widest text-[11px] uppercase">Hold to Speak</span>}
+                    </div>
                   ) : (
                     <Volume2 size={64} className="text-gray-500" />
                   )}
@@ -1060,7 +1164,7 @@ RULES:
           </div>
 
           {/* Realtime Animated Captions */}
-          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-full max-w-4xl px-6 text-center z-30 min-h-[4rem] flex flex-col justify-end pointer-events-none">
+          <div className="w-full max-w-4xl px-6 pb-8 pt-4 text-center z-30 min-h-[5rem] flex flex-col justify-end pointer-events-none shrink-0">
             <AnimatePresence mode="wait">
               {currentCaption && (
                 <motion.div
@@ -1082,79 +1186,83 @@ RULES:
       </div>
 
       {/* Bottom Control Bar */}
-      <div className="flex items-center justify-center px-6 py-6 bg-[#0E0E0E] z-50">
-         <div className="flex items-center gap-4">
-            
-            {/* Mic Button */}
+      <div className="flex items-center justify-center px-4 md:px-6 py-4 md:py-6 bg-[#0E0E0E] z-50">
+        <div className="flex items-center justify-between w-full max-w-md md:justify-center md:gap-4 md:w-auto">
+
+          {/* Mic Button (Desktop Continuous Listening Indicator) */}
+          {!isMobile && (
             <div className="flex flex-col items-center gap-1.5 w-16">
-              <button 
-                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg ${isListening && stepRef.current !== 2 && stepRef.current !== 4 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
+              <div
+                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg ${
+                   isListening && stepRef.current !== 2 && stepRef.current !== 4 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50' : 'bg-gray-800 text-gray-400 border border-gray-700'
+                  }`}
               >
                 <Mic size={24} />
-              </button>
-              <span className="text-[11px] text-gray-400 font-medium tracking-wide">
+              </div>
+              <span className="text-[11px] text-gray-400 font-medium tracking-wide whitespace-nowrap">
                 {isListening && stepRef.current !== 2 && stepRef.current !== 4 ? 'Listening' : 'Mic Off'}
               </span>
             </div>
+          )}
 
-            {stepRef.current === 3 && (
-              <>
-                <div className="w-px h-10 bg-gray-700 mx-1"></div>
-                
-                {/* Pause/Resume */}
-                <div className="flex flex-col items-center gap-1.5 w-16">
-                  <button 
-                    onClick={togglePause}
-                    className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg ${isPaused ? 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/50' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
-                  >
-                    {isPaused ? <Play size={24} className="ml-1" /> : <Pause size={24} />}
-                  </button>
-                  <span className="text-[11px] text-gray-400 font-medium tracking-wide">{isPaused ? 'Resume' : 'Pause'}</span>
-                </div>
+          {stepRef.current === 3 && (
+            <>
+              <div className="hidden md:block w-px h-10 bg-gray-700 mx-1"></div>
 
-                {/* Raise Hand */}
-                <div className="flex flex-col items-center gap-1.5 w-16">
-                  <button 
-                    onClick={isRaisingHand ? null : raiseHand}
-                    className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg ${isRaisingHand ? 'bg-blue-500/20 text-blue-400 border border-blue-500/50 opacity-70 cursor-default' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
-                  >
-                    <Hand size={24} />
-                  </button>
-                  <span className="text-[11px] text-gray-400 font-medium tracking-wide whitespace-nowrap">Raise Hand</span>
-                </div>
+              {/* Pause/Resume */}
+              <div className="flex flex-col items-center gap-1.5 w-16">
+                <button
+                  onClick={togglePause}
+                  className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg ${isPaused ? 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/50' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+                >
+                  {isPaused ? <Play size={24} className="ml-1" /> : <Pause size={24} />}
+                </button>
+                <span className="text-[11px] text-gray-400 font-medium tracking-wide">{isPaused ? 'Resume' : 'Pause'}</span>
+              </div>
 
-                <div className="w-px h-10 bg-gray-700 mx-1"></div>
+              {/* Raise Hand */}
+              <div className="flex flex-col items-center gap-1.5 w-16">
+                <button
+                  onClick={isRaisingHand ? null : raiseHand}
+                  className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg ${isRaisingHand ? 'bg-blue-500/20 text-blue-400 border border-blue-500/50 opacity-70 cursor-default' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+                >
+                  <Hand size={24} />
+                </button>
+                <span className="text-[11px] text-gray-400 font-medium tracking-wide whitespace-nowrap">Raise Hand</span>
+              </div>
 
-                {/* End Session */}
-                <div className="flex flex-col items-center gap-1.5 w-16">
-                  <button 
-                    onClick={() => setShowEndSessionModal(true)}
-                    className="w-14 h-14 rounded-full bg-red-600 hover:bg-red-500 flex items-center justify-center text-white transition-all shadow-lg shadow-red-600/20"
-                  >
-                    <PhoneOff size={24} />
-                  </button>
-                  <span className="text-[11px] text-red-400 font-medium tracking-wide">End</span>
-                </div>
-              </>
-            )}
+              <div className="w-px h-10 bg-gray-700 mx-1"></div>
 
-            {stepRef.current === 2 && (
-              <>
-                <div className="w-px h-10 bg-gray-700 mx-1"></div>
-                {/* Upload Button */}
-                <div className="flex flex-col items-center gap-1.5 w-16">
-                  <button 
-                    onClick={() => setShowUploadDrawer(!showUploadDrawer)}
-                    className="w-14 h-14 rounded-full bg-blue-600 hover:bg-blue-500 flex items-center justify-center text-white transition-all shadow-lg shadow-blue-600/20"
-                  >
-                    <Upload size={24} />
-                  </button>
-                  <span className="text-[11px] text-blue-400 font-medium tracking-wide">Upload</span>
-                </div>
-              </>
-            )}
+              {/* End Session */}
+              <div className="flex flex-col items-center gap-1.5 w-16">
+                <button
+                  onClick={() => setShowEndSessionModal(true)}
+                  className="w-14 h-14 rounded-full bg-red-600 hover:bg-red-500 flex items-center justify-center text-white transition-all shadow-lg shadow-red-600/20"
+                >
+                  <PhoneOff size={24} />
+                </button>
+                <span className="text-[11px] text-red-400 font-medium tracking-wide">End</span>
+              </div>
+            </>
+          )}
 
-         </div>
+          {stepRef.current === 2 && (
+            <>
+              <div className="w-px h-10 bg-gray-700 mx-1"></div>
+              {/* Upload Button */}
+              <div className="flex flex-col items-center gap-1.5 w-16">
+                <button
+                  onClick={() => setShowUploadDrawer(!showUploadDrawer)}
+                  className="w-14 h-14 rounded-full bg-blue-600 hover:bg-blue-500 flex items-center justify-center text-white transition-all shadow-lg shadow-blue-600/20"
+                >
+                  <Upload size={24} />
+                </button>
+                <span className="text-[11px] text-blue-400 font-medium tracking-wide">Upload</span>
+              </div>
+            </>
+          )}
+
+        </div>
       </div>
 
       {/* Upload Drawer Overlay */}
@@ -1165,7 +1273,7 @@ RULES:
             initial={{ opacity: 0, y: 50 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 50 }}
-            className="absolute bottom-32 left-1/2 -translate-x-1/2 w-full max-w-md bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl p-6 z-40"
+            className="fixed bottom-32 left-4 right-4 md:left-1/2 md:-translate-x-1/2 md:w-full md:right-auto md:max-w-md bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl p-6 z-[60]"
           >
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-xl font-bold text-gray-100">Study Materials</h3>
@@ -1173,7 +1281,7 @@ RULES:
                 <X size={24} />
               </button>
             </div>
-            
+
             <input
               type="file"
               multiple
@@ -1199,7 +1307,7 @@ RULES:
                 ))}
               </div>
             )}
-            
+
             {files.length > 0 && (
               <button
                 onClick={handleFileUpload}
@@ -1234,13 +1342,13 @@ RULES:
               <h3 className="text-2xl font-bold text-white mb-2">End Session?</h3>
               <p className="text-gray-400 mb-8 text-sm">Are you sure you want to end this study session early? Your progress will be cleared.</p>
               <div className="flex gap-3">
-                <button 
+                <button
                   onClick={() => setShowEndSessionModal(false)}
                   className="flex-1 py-3 bg-gray-800 hover:bg-gray-700 text-white rounded-xl font-semibold transition"
                 >
                   Cancel
                 </button>
-                <button 
+                <button
                   onClick={endSession}
                   className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-semibold transition shadow-lg shadow-red-600/20"
                 >
