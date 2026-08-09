@@ -49,6 +49,7 @@ const AITeacher = () => {
   const [showNameEditModal, setShowNameEditModal] = useState(false);
   const [newNameInput, setNewNameInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
+  const [currentCaption, setCurrentCaption] = useState('');
 
   // Timer Effect
   useEffect(() => {
@@ -468,7 +469,7 @@ const AITeacher = () => {
       const aiPrompt = `The user ${userNameRef.current} has provided study materials. You synthesized them into these notes: "${generatedNotes}". Acknowledge that the notes are ready. Then, teach the VERY FIRST core concept from the notes in 2-3 short, friendly sentences. Finally, ask a single question to test their understanding of it. ALWAYS end your turn after the question so the student can answer.`;
 
       await generateAIResponse(aiPrompt, [
-        { role: 'system', content: `You are an incredibly friendly, empathetic, and human-like personal AI teacher for ${userNameRef.current}. You are the absolute best at teaching, especially for students with ADHD. You make learning highly engaging, memorable, and easy to digest. Your goal is to cover ALL of the study materials comprehensively. Express emotions naturally using your words. NEVER use emojis, asterisks (like *smiles*), brackets for actions, markdown formatting, or underscores (like __bold__) as the text-to-speech engine will read them out loud. Keep your responses relatively short, conversational and encouraging.` }
+        { role: 'system', content: `You are an incredibly friendly, empathetic, and human-like personal AI teacher for ${userNameRef.current}. You are the absolute best at teaching, especially for students with ADHD. You make learning highly engaging, memorable, and easy to digest. Your goal is to cover ALL of the study materials comprehensively. Express emotions naturally using your words. NEVER use emojis, asterisks (like *smiles*), brackets for actions, markdown formatting, or underscores (like __bold__) as the text-to-speech engine will read them out loud. Keep your responses relatively short, conversational and encouraging. IMPORTANT STT RULE: The student's input is from a Speech-to-Text engine. If a sentence contains words that sound similar but make no contextual sense (e.g., 'eye sea' instead of 'I see'), you MUST infer their true phonetic meaning and respond to what they actually meant. Don't point out the typo, just answer naturally.` }
       ]);
 
     } catch (err) {
@@ -528,7 +529,8 @@ RULES:
 4. Periodically, ask the student if they truly understand the concept. If they say no, ask them exactly what part is confusing, and reteach it from a completely new angle until it clicks.
 5. Express emotions naturally in your speech (e.g., happiness, encouragement). NEVER use emojis, asterisks (like *smiles*), brackets for actions, markdown formatting, or underscores (like __bold__) as the text-to-speech engine reads them out loud.
 6. Immediately after teaching a concept, ask ONE question to test their understanding. Stop speaking immediately after asking.
-7. Only when ALL material from the notes is fully covered AND you are confident the student has demonstrated clear understanding of everything, conclude by saying exactly "[SESSION COMPLETE]". Do not say this prematurely.` },
+7. Only when ALL material from the notes is fully covered AND you are confident the student has demonstrated clear understanding of everything, conclude by saying exactly "[SESSION COMPLETE]". Do not say this prematurely.
+8. STT TRANSLATOR: The student is speaking via a Speech-to-Text engine. If their words sound phonetically similar to something else that makes sense in context, assume they meant that (e.g. "eye sea" -> "I see"). Do not point out the typo, just answer their true meaning naturally.` },
         ...messagesRef.current.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
       ]);
     }
@@ -624,7 +626,10 @@ RULES:
   };
 
   const processAudioQueue = async (sentences, sessionId) => {
-    let nextAudioPromise = sentences.length > 0 ? fetchAudioForSentence(sentences.shift()) : null;
+    if (sentences.length === 0) return;
+    
+    let currentSentence = sentences.shift();
+    let nextAudioPromise = fetchAudioForSentence(currentSentence);
 
     while (nextAudioPromise) {
       if (currentAudioSessionRef.current !== sessionId) break;
@@ -633,8 +638,11 @@ RULES:
         const url = await nextAudioPromise;
         if (!url || currentAudioSessionRef.current !== sessionId) break;
 
+        setCurrentCaption(currentSentence);
+
         let nextSentence = sentences.shift();
         nextAudioPromise = nextSentence ? fetchAudioForSentence(nextSentence) : null;
+        currentSentence = nextSentence;
 
         await playAudioUrl(url, sessionId);
         URL.revokeObjectURL(url);
@@ -646,6 +654,7 @@ RULES:
     }
 
     if (currentAudioSessionRef.current === sessionId) {
+      setCurrentCaption('');
       setIsSpeaking(false);
       isSpeakingRef.current = false;
       setIsPaused(false);
@@ -1015,6 +1024,26 @@ RULES:
                 </motion.div>
               </AnimatePresence>
             </div>
+          </div>
+
+          {/* Realtime Animated Captions */}
+          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-full max-w-4xl px-6 text-center z-30 min-h-[4rem] flex flex-col justify-end pointer-events-none">
+            <AnimatePresence mode="wait">
+              {currentCaption && (
+                <motion.div
+                  key={currentCaption}
+                  initial={{ opacity: 0, y: 15, filter: 'blur(8px)' }}
+                  animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                  exit={{ opacity: 0, y: -10, filter: 'blur(5px)' }}
+                  transition={{ duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
+                  className="inline-block"
+                >
+                  <p className="text-2xl md:text-3xl lg:text-4xl font-extrabold tracking-wide bg-gradient-to-r from-blue-200 via-white to-purple-300 bg-clip-text text-transparent drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] leading-relaxed pb-2">
+                    {currentCaption}
+                  </p>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
       </div>
