@@ -432,6 +432,10 @@ const AITeacher = () => {
   const handleFileUpload = async () => {
     if (files.length === 0) return;
 
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    }
+
     setShowUploadDrawer(false);
     await speakAndAdvance("Checking out your materials, please wait a moment while I process them.", 2);
     setUploadLoading(true);
