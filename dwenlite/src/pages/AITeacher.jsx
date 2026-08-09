@@ -936,32 +936,51 @@ RULES:
 
   if (!isSpeechSupported) {
     return (
-      <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-6 text-center text-white gap-4 relative">
-        <Link to="/dashboard" className="absolute top-6 left-6 text-gray-400 hover:text-white transition-colors">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="min-h-screen bg-[#09090b] flex flex-col items-center justify-center p-6 text-center text-white relative overflow-hidden"
+      >
+        <div className="absolute inset-0 bg-red-900/10 blur-[120px] rounded-full mix-blend-screen pointer-events-none" />
+        <Link to="/dashboard" className="absolute top-6 left-6 text-gray-500 hover:text-white transition-colors z-20">
           <ArrowLeft size={32} />
         </Link>
-        <div className="bg-gray-800 p-8 rounded-2xl shadow-2xl max-w-md w-full border border-gray-700">
-          <h2 className="text-2xl font-bold text-red-400 mb-4">Browser Not Supported</h2>
-          <p className="text-base text-gray-300 mb-5">This browser restricts or lacks support for the native voice recognition needed to use Dwenlite Teacher.</p>
-          <div className="bg-gray-900 rounded-xl p-5 border border-gray-700/50">
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 text-left">Please use a supported browser:</p>
-            <ul className="text-left space-y-3 text-sm text-gray-200 font-medium">
-              <li className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.8)]"/> 
-                Google Chrome (Recommended)
+        <div className="max-w-md w-full flex flex-col items-center gap-8 z-10">
+          <motion.div
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ delay: 0.2, type: 'spring' }}
+            className="w-28 h-28 bg-gradient-to-br from-red-500/10 to-orange-600/10 rounded-full flex items-center justify-center mb-2 shadow-[0_0_60px_rgba(239,68,68,0.15)] relative"
+          >
+            <Mic size={40} className="text-red-400/50" />
+            <div className="absolute w-16 h-1 bg-red-500/60 rotate-45 transform origin-center rounded-full shadow-[0_0_10px_rgba(239,68,68,0.5)]" />
+          </motion.div>
+          <div className="space-y-4">
+            <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight bg-gradient-to-r from-red-200 to-red-500 bg-clip-text text-transparent">Browser Not Supported</h2>
+            <p className="text-base md:text-lg text-gray-400 font-medium">This browser restricts or lacks support for the native voice recognition needed to use Dwenlite Teacher.</p>
+          </div>
+          <div className="w-full bg-white/5 backdrop-blur-md rounded-3xl p-7 border border-white/5 mt-2 shadow-[0_0_40px_rgba(0,0,0,0.5)]">
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-5 text-left">Please use a supported browser</p>
+            <ul className="text-left space-y-4 text-sm md:text-base text-gray-200 font-medium">
+              <li className="flex items-center gap-4">
+                <div className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-[0_0_12px_rgba(59,130,246,1)]"/> 
+                Google Chrome 
+                <span className="text-[10px] uppercase tracking-wider text-blue-400 bg-blue-500/10 px-2 py-1 rounded-full ml-auto font-bold">Recommended</span>
               </li>
-              <li className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-blue-400"/> 
+              <li className="flex items-center gap-4">
+                <div className="w-2.5 h-2.5 rounded-full bg-blue-400/40"/> 
                 Microsoft Edge
               </li>
-              <li className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-blue-400"/> 
-                Safari (macOS 14.1+ or iOS 14.5+)
+              <li className="flex items-center gap-4">
+                <div className="w-2.5 h-2.5 rounded-full bg-blue-400/40"/> 
+                Safari 
+                <span className="text-[10px] uppercase tracking-wider text-gray-500 ml-auto font-bold">macOS 14.1+ / iOS 14.5+</span>
               </li>
             </ul>
           </div>
         </div>
-      </div>
+      </motion.div>
     );
   }
 
