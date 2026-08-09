@@ -175,6 +175,7 @@ const AITeacher = () => {
   const speakerAnalyserRef = useRef(null);
 
   const finalTranscriptRef = useRef('');
+  const interimTranscriptRef = useRef('');
   const silenceTimerRef = useRef(null);
 
   // Create AudioContext ONCE on interaction (for Mic only)
@@ -206,7 +207,8 @@ const AITeacher = () => {
             interimTranscript += event.results[i][0].transcript;
           }
         }
-
+        
+        interimTranscriptRef.current = interimTranscript;
         const currentText = (finalTranscriptRef.current + interimTranscript).trim();
 
         if (!isMobileRef.current) {
@@ -232,14 +234,20 @@ const AITeacher = () => {
 
       recognition.onend = () => {
         if (isMobileRef.current) {
-          const currentText = finalTranscriptRef.current.trim();
+          const currentText = (finalTranscriptRef.current + (interimTranscriptRef.current || '')).trim();
           if (currentText.length > 0 && isListeningRef.current) {
             const textToSend = currentText;
             finalTranscriptRef.current = '';
+            interimTranscriptRef.current = '';
+            setIsListening(false);
+            isListeningRef.current = false;
             handleUserSpeech(textToSend);
+          } else {
+             // If they just tapped it and no speech was recorded, keep it in listening mode so they can try again.
+             // We still clear the transcript just in case.
+             finalTranscriptRef.current = '';
+             interimTranscriptRef.current = '';
           }
-          setIsListening(false);
-          isListeningRef.current = false;
         } else {
           // Persistent Listening Logic for Desktop
           if (!isSpeakingRef.current && stepRef.current !== 2 && stepRef.current !== 4 && !showUploadDrawer) {
