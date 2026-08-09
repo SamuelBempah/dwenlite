@@ -177,6 +177,7 @@ const AITeacher = () => {
   const finalTranscriptRef = useRef('');
   const interimTranscriptRef = useRef('');
   const silenceTimerRef = useRef(null);
+  const isHoldingMicRef = useRef(false);
 
   // Create AudioContext ONCE on interaction (for Mic only)
   const initAudioContext = () => {
@@ -234,6 +235,14 @@ const AITeacher = () => {
 
       recognition.onend = () => {
         if (isMobileRef.current) {
+          // If the browser auto-stopped the mic due to silence, but the user is STILL holding the button, restart it!
+          if (isHoldingMicRef.current) {
+            try {
+              recognition.start();
+            } catch(e) {}
+            return;
+          }
+
           const currentText = (finalTranscriptRef.current + (interimTranscriptRef.current || '')).trim();
           if (currentText.length > 0 && isListeningRef.current) {
             const textToSend = currentText;
@@ -592,9 +601,11 @@ RULES:
     if (!isMobileRef.current || stepRef.current === 2 || isSpeakingRef.current || isThinking) return;
 
     setIsHoldingMic(true);
+    isHoldingMicRef.current = true;
     if (recognitionRef.current) {
       try {
         finalTranscriptRef.current = '';
+        interimTranscriptRef.current = '';
         recognitionRef.current.start();
       } catch (err) { }
     }
@@ -605,6 +616,7 @@ RULES:
     if (!isMobileRef.current) return;
 
     setIsHoldingMic(false);
+    isHoldingMicRef.current = false;
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
@@ -940,11 +952,20 @@ RULES:
   }
 
   return (
-    <div className="h-screen max-h-screen overflow-hidden bg-[#0E0E0E] text-white flex flex-col font-sans">
+    <div className="h-[100dvh] max-h-[100dvh] overflow-hidden bg-[#0E0E0E] text-white flex flex-col font-sans">
       {/* Top Navigation Bar */}
       <div className="flex items-center justify-between px-4 md:px-6 py-4 bg-[#0E0E0E] z-50">
         <div className="flex items-center gap-4">
-          <Link to="/dashboard" className="text-gray-400 hover:text-white transition-colors">
+          <Link 
+            to="/dashboard" 
+            onClick={() => {
+              if (isFullscreen && document.exitFullscreen) {
+                document.exitFullscreen().catch(()=>{});
+                setIsFullscreen(false);
+              }
+            }}
+            className="text-gray-400 hover:text-white transition-colors"
+          >
             <ArrowLeft size={24} />
           </Link>
           <div className="flex items-center gap-2">
