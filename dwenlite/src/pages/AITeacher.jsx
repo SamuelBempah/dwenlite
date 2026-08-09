@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { auth, storage } from '../firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import axios from 'axios';
+import mammoth from 'mammoth';
 
 const filter = new Filter();
 
@@ -159,6 +160,7 @@ const AITeacher = () => {
   const [uploadLoading, setUploadLoading] = useState(false);
   const uploadLoadingRef = useRef(false);
   const [uploadStatus, setUploadStatus] = useState('');
+  const fileInputRef = useRef(null);
 
   const recognitionRef = useRef(null);
   const audioRef = useRef(null);
@@ -378,6 +380,16 @@ const AITeacher = () => {
     }
   };
 
+  const extractDocxText = async (file) => {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await mammoth.extractRawText({ arrayBuffer });
+      return result.value || 'No text found in DOCX.';
+    } catch (err) {
+      throw new Error('DOCX extraction failed: ' + err.message);
+    }
+  };
+
   const transcribeMedia = async (url, type) => {
     try {
       const apiKey = import.meta.env.VITE_ASSEMBLYAI_API_KEY;
@@ -438,7 +450,8 @@ const AITeacher = () => {
         const isAudio = fileType.startsWith('audio/') || ['mp3', 'wav', 'm4a'].includes(fileExtension);
         const isVideo = fileType.startsWith('video/') || ['mp4', 'mov', 'avi'].includes(fileExtension);
         const isPptx = fileType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' || fileType === 'application/vnd.ms-powerpoint' || ['ppt', 'pptx'].includes(fileExtension);
-        const isText = fileType === 'text/plain' || fileType === 'application/pdf' || ['txt', 'pdf'].includes(fileExtension) || isPptx;
+        const isDocx = fileType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || fileExtension === 'docx';
+        const isText = fileType === 'text/plain' || fileType === 'application/pdf' || ['txt', 'pdf'].includes(fileExtension) || isPptx || isDocx;
 
         if (!isAudio && !isVideo && !isText) {
           toast.error(`Skipped ${file.name}: Unsupported type.`);
@@ -457,6 +470,7 @@ const AITeacher = () => {
           if (fileExtension === 'txt' || fileType === 'text/plain') extractedText = await file.text();
           else if (fileExtension === 'pdf' || fileType === 'application/pdf') extractedText = await extractPdfText(file);
           else if (isPptx) extractedText = await extractPptxText(file);
+          else if (isDocx) extractedText = await extractDocxText(file);
         }
 
         combinedText += `\n\n--- Content from ${file.name} ---\n${extractedText}`;
@@ -778,6 +792,9 @@ RULES:
       isPausedRef.current = false;
       if (stepRef.current === 2 && !uploadLoadingRef.current) {
         setShowUploadDrawer(true);
+        if (fileInputRef.current) {
+          setTimeout(() => fileInputRef.current.click(), 100);
+        }
       } else if (stepRef.current !== 2 && stepRef.current !== 4) {
         startListening();
       }
@@ -1355,6 +1372,8 @@ RULES:
             <input
               type="file"
               multiple
+              ref={fileInputRef}
+              accept=".pdf,.txt,.ppt,.pptx,.docx,.mp3,.wav,.m4a,.mp4,.mov,.avi"
               onChange={(e) => setFiles([...files, ...Array.from(e.target.files)])}
               className="hidden"
               id="material-upload"
@@ -1362,7 +1381,7 @@ RULES:
             <label htmlFor="material-upload" className="cursor-pointer flex flex-col items-center justify-center w-full h-36 border-2 border-dashed border-blue-500/40 rounded-xl bg-blue-500/5 hover:bg-blue-500/10 transition group">
               <Upload className="text-blue-400 mb-3 group-hover:scale-110 transition-transform" size={36} />
               <span className="text-sm text-gray-300 font-medium">Click to browse files</span>
-              <span className="text-xs text-gray-500 mt-1">PDF, TXT, PPTX, Video, Audio</span>
+              <span className="text-xs text-gray-500 mt-1">PDF, TXT, DOCX, PPTX, Video, Audio</span>
             </label>
 
             {files.length > 0 && (
