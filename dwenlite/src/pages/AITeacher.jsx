@@ -286,6 +286,15 @@ const AITeacher = () => {
 
   const handleStartSession = () => {
     setHasStarted(true);
+    
+    try {
+      if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().then(() => {
+          setIsFullscreen(true);
+        }).catch(() => {});
+      }
+    } catch(e) {}
+
     initAudioContext();
     if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
       audioCtxRef.current.resume();
