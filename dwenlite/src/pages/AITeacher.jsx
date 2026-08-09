@@ -50,6 +50,7 @@ const AITeacher = () => {
   const [newNameInput, setNewNameInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const [currentCaption, setCurrentCaption] = useState('');
+  const [hasStarted, setHasStarted] = useState(false);
 
   // Timer Effect
   useEffect(() => {
@@ -166,7 +167,6 @@ const AITeacher = () => {
   };
 
   useEffect(() => {
-    if (isMobile) return;
     if (initializedRef.current) return;
     initializedRef.current = true;
 
@@ -226,6 +226,22 @@ const AITeacher = () => {
       toast.error('Your browser does not support speech recognition. Please use Chrome.');
     }
 
+    return () => {
+      if (audioRef.current) audioRef.current.pause();
+      if (recognitionRef.current) recognitionRef.current.abort();
+      setIsListening(false);
+      isListeningRef.current = false;
+      if (audioCtxRef.current) audioCtxRef.current.close();
+    };
+  }, []);
+
+  const handleStartSession = () => {
+    setHasStarted(true);
+    initAudioContext();
+    if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
+      audioCtxRef.current.resume();
+    }
+    
     const storedSessionJSON = localStorage.getItem('aiTeacherSession');
     if (storedSessionJSON) {
       try {
@@ -255,15 +271,7 @@ const AITeacher = () => {
     } else {
       speakAndAdvance("Welcome! I am your personal AI Teacher. What should I call you?", 1);
     }
-
-    return () => {
-      if (audioRef.current) audioRef.current.pause();
-      if (recognitionRef.current) recognitionRef.current.abort();
-      setIsListening(false);
-      isListeningRef.current = false;
-      if (audioCtxRef.current) audioCtxRef.current.close();
-    };
-  }, []);
+  };
 
   const startListening = () => {
     if (stepRef.current === 2) return;
@@ -810,6 +818,30 @@ RULES:
         <div className="bg-gray-800 p-8 rounded-2xl shadow-2xl max-w-md w-full border border-gray-700">
           <h2 className="text-2xl font-bold text-red-400 mb-4">Browser Not Supported</h2>
           <p className="text-lg text-gray-300">This browser does not support the voice recognition needed to use Dwenlite Teacher. Please install a different browser.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasStarted) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-6 text-center text-white gap-4 relative">
+        <Link to="/dashboard" className="absolute top-6 left-6 text-gray-400 hover:text-white transition-colors">
+          <ArrowLeft size={32} />
+        </Link>
+        <div className="bg-gray-800 p-10 rounded-3xl shadow-[0_0_50px_rgba(59,130,246,0.15)] max-w-md w-full border border-gray-700 flex flex-col items-center gap-6">
+          <div className="w-24 h-24 bg-blue-600/20 rounded-full flex items-center justify-center mb-2">
+            <Mic size={48} className="text-blue-400" />
+          </div>
+          <h2 className="text-3xl font-bold text-white tracking-tight">Ready to Study?</h2>
+          <p className="text-lg text-gray-300 mb-2">Ensure your volume is turned up and tap below to begin your session.</p>
+          <button 
+            onClick={handleStartSession}
+            className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-4 px-8 rounded-xl transition-all shadow-lg hover:shadow-blue-500/30 text-lg flex items-center justify-center gap-3"
+          >
+            <Play size={24} fill="currentColor" />
+            Start Session
+          </button>
         </div>
       </div>
     );
