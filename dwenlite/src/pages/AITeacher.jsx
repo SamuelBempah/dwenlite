@@ -1149,13 +1149,18 @@ RULES:
 
             {/* Main Avatar Circle */}
             <div
-              onTouchStart={isMobile ? handleMicTouchStart : undefined}
-              onTouchEnd={isMobile ? handleMicTouchEnd : undefined}
-              onMouseDown={isMobile ? handleMicTouchStart : undefined}
-              onMouseUp={isMobile ? handleMicTouchEnd : undefined}
-              onMouseLeave={isMobile ? handleMicTouchEnd : undefined}
               className={`relative z-10 w-48 h-48 rounded-full flex items-center justify-center overflow-hidden transition-all duration-500 ${isMobile && isListening && stepRef.current !== 2 ? 'cursor-pointer select-none ' : ''}${isHoldingMic ? 'bg-red-500 scale-95 shadow-[0_0_80px_rgba(239,68,68,0.6)]' : isSpeaking ? 'bg-blue-600 shadow-[0_0_80px_rgba(59,130,246,0.6)]' : isListening && stepRef.current !== 2 ? 'bg-emerald-600 shadow-[0_0_50px_rgba(16,185,129,0.4)]' : 'bg-[#27272A] border border-gray-700 shadow-xl'}`}
             >
+              {/* TOUCH OVERLAY - Captures all events and never unmounts so touchend is guaranteed */}
+              <div 
+                className="absolute inset-0 z-50 rounded-full"
+                onTouchStart={isMobile ? handleMicTouchStart : undefined}
+                onTouchEnd={isMobile ? handleMicTouchEnd : undefined}
+                onTouchCancel={isMobile ? handleMicTouchEnd : undefined}
+                onMouseDown={isMobile ? handleMicTouchStart : undefined}
+                onMouseUp={isMobile ? handleMicTouchEnd : undefined}
+                onMouseLeave={isMobile ? handleMicTouchEnd : undefined}
+              />
               <AnimatePresence mode="wait">
                 <motion.div
                   key={isSpeaking ? 'speak' : isHoldingMic ? 'recording' : isListening && stepRef.current !== 2 ? 'listen' : 'idle'}
