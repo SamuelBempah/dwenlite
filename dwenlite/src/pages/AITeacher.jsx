@@ -160,7 +160,6 @@ const AITeacher = () => {
   const [uploadLoading, setUploadLoading] = useState(false);
   const uploadLoadingRef = useRef(false);
   const [uploadStatus, setUploadStatus] = useState('');
-  const fileInputRef = useRef(null);
 
   const recognitionRef = useRef(null);
   const audioRef = useRef(null);
@@ -792,9 +791,6 @@ RULES:
       isPausedRef.current = false;
       if (stepRef.current === 2 && !uploadLoadingRef.current) {
         setShowUploadDrawer(true);
-        if (fileInputRef.current) {
-          setTimeout(() => fileInputRef.current.click(), 100);
-        }
       } else if (stepRef.current !== 2 && stepRef.current !== 4) {
         startListening();
       }
@@ -1087,7 +1083,7 @@ RULES:
                   initial={{ opacity: 0, y: -10, scale: 0.95 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -10, scale: 0.95 }}
-                  className="absolute top-14 right-0 w-64 bg-gray-800 border border-gray-700 rounded-xl p-4 shadow-2xl z-50"
+                  className="absolute top-14 right-0 w-[calc(100vw-3rem)] sm:w-72 max-w-sm bg-gray-800 border border-gray-700 rounded-xl p-4 shadow-2xl z-50"
                 >
                   <h4 className="text-sm font-semibold mb-3 text-gray-200">Change your name</h4>
                   <div className="flex gap-2">
@@ -1096,7 +1092,7 @@ RULES:
                       value={newNameInput}
                       onChange={(e) => setNewNameInput(e.target.value)}
                       placeholder="New name..."
-                      className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 text-white"
+                      className="flex-1 min-w-0 bg-gray-900 border border-gray-700 rounded-lg px-4 py-3 sm:px-3 sm:py-2 text-base sm:text-sm focus:outline-none focus:border-blue-500 text-white"
                     />
                     <button
                       onClick={() => {
@@ -1107,9 +1103,9 @@ RULES:
                         setShowNameEditModal(false);
                         setNewNameInput('');
                       }}
-                      className="bg-blue-600 hover:bg-blue-500 text-white p-2 rounded-lg transition"
+                      className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-3 sm:p-2 rounded-lg transition flex items-center justify-center shrink-0"
                     >
-                      <Check size={16} />
+                      <Check size={18} />
                     </button>
                   </div>
                 </motion.div>
@@ -1391,7 +1387,6 @@ RULES:
             <input
               type="file"
               multiple
-              ref={fileInputRef}
               accept=".pdf,.txt,.ppt,.pptx,.docx,.mp3,.wav,.m4a,.mp4,.mov,.avi"
               onChange={(e) => setFiles([...files, ...Array.from(e.target.files)])}
               className="hidden"
