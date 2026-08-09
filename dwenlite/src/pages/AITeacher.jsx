@@ -159,7 +159,6 @@ const AITeacher = () => {
   const [uploadLoading, setUploadLoading] = useState(false);
   const uploadLoadingRef = useRef(false);
   const [uploadStatus, setUploadStatus] = useState('');
-  const [isProcessingSpeech, setIsProcessingSpeech] = useState(false);
 
   const recognitionRef = useRef(null);
   const audioRef = useRef(null);
@@ -235,8 +234,15 @@ const AITeacher = () => {
       };
 
       recognition.onend = () => {
-        setIsProcessingSpeech(false);
         if (isMobileRef.current) {
+          // If the browser auto-stopped the mic due to silence, but the user is STILL holding the button, restart it!
+          if (isHoldingMicRef.current) {
+            try {
+              recognition.start();
+            } catch(e) {}
+            return;
+          }
+
           const currentText = (finalTranscriptRef.current + (interimTranscriptRef.current || '')).trim();
           if (currentText.length > 0 && isListeningRef.current) {
             const textToSend = currentText;
@@ -244,15 +250,12 @@ const AITeacher = () => {
             interimTranscriptRef.current = '';
             setIsListening(false);
             isListeningRef.current = false;
-            setIsHoldingMic(false);
-            isHoldingMicRef.current = false;
             handleUserSpeech(textToSend);
           } else {
-             // If they just tapped it and no speech was recorded, or it auto-timed out.
+             // If they just tapped it and no speech was recorded, keep it in listening mode so they can try again.
+             // We still clear the transcript just in case.
              finalTranscriptRef.current = '';
              interimTranscriptRef.current = '';
-             setIsHoldingMic(false);
-             isHoldingMicRef.current = false;
           }
         } else {
           // Persistent Listening Logic for Desktop
@@ -283,15 +286,6 @@ const AITeacher = () => {
 
   const handleStartSession = () => {
     setHasStarted(true);
-    
-    try {
-      if (document.documentElement.requestFullscreen) {
-        document.documentElement.requestFullscreen().then(() => {
-          setIsFullscreen(true);
-        }).catch(() => {});
-      }
-    } catch(e) {}
-
     initAudioContext();
     if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
       audioCtxRef.current.resume();
@@ -618,31 +612,15 @@ RULES:
   };
 
   const handleMicTouchEnd = (e) => {
-    if (e && e.cancelable) e.preventDefault();
+    e.preventDefault();
     if (!isMobileRef.current) return;
-    if (!isHoldingMicRef.current) return; // Already stopped
 
     setIsHoldingMic(false);
     isHoldingMicRef.current = false;
-    
-    const currentText = (finalTranscriptRef.current + (interimTranscriptRef.current || '')).trim();
-    if (currentText.length > 0 && isListeningRef.current) {
-        const textToSend = currentText;
-        finalTranscriptRef.current = '';
-        interimTranscriptRef.current = '';
-        setIsListening(false);
-        isListeningRef.current = false;
-        handleUserSpeech(textToSend);
-        
-        if (recognitionRef.current) {
-          try {
-            recognitionRef.current.stop();
-          } catch (err) { }
-        }
-    } else {
-        // We have no text yet! The mobile browser's SpeechRecognition is likely still processing.
-        // DO NOT call stop(). Let the browser finish processing and fire onend naturally.
-        setIsProcessingSpeech(true);
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (err) { }
     }
   };
 
@@ -1185,7 +1163,7 @@ RULES:
               />
               <AnimatePresence mode="wait">
                 <motion.div
-                  key={isSpeaking ? 'speak' : isHoldingMic ? 'recording' : isProcessingSpeech ? 'processing' : isListening && stepRef.current !== 2 ? 'listen' : 'idle'}
+                  key={isSpeaking ? 'speak' : isHoldingMic ? 'recording' : isListening && stepRef.current !== 2 ? 'listen' : 'idle'}
                   initial={{ opacity: 0, scale: 0.8 }}
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.8 }}
@@ -1205,11 +1183,6 @@ RULES:
                     <div className="flex flex-col items-center gap-2">
                        <Mic size={48} className="text-white drop-shadow-lg animate-pulse" />
                        <span className="text-white font-bold tracking-widest text-sm uppercase">Recording</span>
-                    </div>
-                  ) : isProcessingSpeech ? (
-                    <div className="flex flex-col items-center gap-2">
-                       <Mic size={48} className="text-emerald-300 drop-shadow-lg animate-pulse" />
-                       <span className="text-emerald-200 font-bold tracking-widest text-[11px] uppercase">Processing</span>
                     </div>
                   ) : isListening && stepRef.current !== 2 ? (
                     <div className="flex flex-col items-center gap-2">
