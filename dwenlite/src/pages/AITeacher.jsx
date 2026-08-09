@@ -48,6 +48,7 @@ const AITeacher = () => {
   const [pendingName, setPendingName] = useState('');
   const [showNameEditModal, setShowNameEditModal] = useState(false);
   const [newNameInput, setNewNameInput] = useState('');
+  const [isThinking, setIsThinking] = useState(false);
 
   // Timer Effect
   useEffect(() => {
@@ -711,8 +712,7 @@ RULES:
   };
 
   const generateAIResponse = async (prompt, history) => {
-    setIsSpeaking(true);
-    isSpeakingRef.current = true;
+    setIsThinking(true);
     setIsRaisingHand(false);
     try {
       const formattedHistory = history.map(h => `${h.role === 'system' ? 'System' : h.role === 'user' ? 'Student' : 'Teacher'}: ${h.content}`).join('\n');
@@ -752,11 +752,13 @@ RULES:
         clearSessionState();
       }
 
+      setIsThinking(false);
       await speakAndAdvance(aiText);
 
     } catch (error) {
       console.error('AI generation error:', error);
       toast.error('Failed to get AI response.');
+      setIsThinking(false);
       setIsSpeaking(false);
       isSpeakingRef.current = false;
       setIsPaused(false);
@@ -950,6 +952,37 @@ RULES:
                     ✋
                   </motion.span>
                 </motion.div>
+              )}
+
+              {/* Thinking Glowing Spinner */}
+              {(isThinking || uploadLoading) && (
+                <motion.svg
+                  key="thinking-spinner"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1, rotate: 360 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ 
+                    rotate: { duration: 1.5, repeat: Infinity, ease: "linear" }, 
+                    opacity: { duration: 0.3 } 
+                  }}
+                  className="absolute z-0 drop-shadow-[0_0_15px_rgba(59,130,246,1)]"
+                  width="220" height="220" viewBox="0 0 220 220"
+                >
+                  <circle 
+                    cx="110" cy="110" r="104" 
+                    fill="none" 
+                    stroke="url(#glow-gradient)" 
+                    strokeWidth="4" 
+                    strokeLinecap="round" 
+                    strokeDasharray="160 600" 
+                  />
+                  <defs>
+                    <linearGradient id="glow-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="#3b82f6" />
+                      <stop offset="100%" stopColor="#a855f7" />
+                    </linearGradient>
+                  </defs>
+                </motion.svg>
               )}
             </AnimatePresence>
 
