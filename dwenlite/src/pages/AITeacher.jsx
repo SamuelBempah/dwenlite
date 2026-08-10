@@ -65,6 +65,16 @@ const AITeacher = () => {
   const [eyeEmotion, setEyeEmotion] = useState('closed');
   const [currentEmoji, setCurrentEmoji] = useState(null);
   const [isBlinking, setIsBlinking] = useState(false);
+  const [isIdle, setIsIdle] = useState(false);
+  const [currentEasterEgg, setCurrentEasterEgg] = useState(null);
+
+  const EASTER_EGGS = [
+    { type: 'video', src: 'https://media.giphy.com/media/3o7TKSjRrfIPjeiVyM/giphy.mp4' },
+    { type: 'video', src: 'https://media.giphy.com/media/Jk4ZT6R0OEUoM/giphy.mp4' },
+    { type: 'video', src: 'https://media.giphy.com/media/xT8qBhrlOaPMybEEzC/giphy.mp4' },
+    { type: 'video', src: 'https://media.giphy.com/media/3oEduV4SOS9mmmIOkw/giphy.mp4' },
+    { type: 'video', src: 'https://media.giphy.com/media/l0HlRnAWXxn0MhKLK/giphy.mp4' }
+  ];
 
   const EMOTION_EMOJIS = {
     happy: ['😊', '😄', '🤩', '🎉', '😁', '🥳', '😎'],
@@ -73,23 +83,34 @@ const AITeacher = () => {
   };
 
   const triggerEmotion = useCallback((emotionCat, duration = 3000) => {
+    if (stepRef.current === 4) return;
     const emojis = EMOTION_EMOJIS[emotionCat];
     if (emojis) {
       const randomEmoji = emojis[Math.floor(Math.random() * emojis.length)];
       setEyeEmotion('closed');
       setTimeout(() => {
+        if (stepRef.current === 4) return;
         setCurrentEmoji(randomEmoji);
         setEyeEmotion(emotionCat);
       }, 150);
 
       setTimeout(() => {
         setCurrentEmoji(null);
+        if (stepRef.current === 4) {
+          setEyeEmotion('sleep');
+          return;
+        }
         setEyeEmotion('closed');
-        setTimeout(() => setEyeEmotion('center'), 150);
+        setTimeout(() => {
+          if (stepRef.current !== 4) setEyeEmotion('center');
+        }, 150);
       }, duration);
     } else {
       setEyeEmotion(emotionCat);
-      setTimeout(() => setEyeEmotion('center'), duration);
+      setTimeout(() => {
+        if (stepRef.current === 4) setEyeEmotion('sleep');
+        else setEyeEmotion('center');
+      }, duration);
     }
   }, []);
 
@@ -99,7 +120,7 @@ const AITeacher = () => {
 
   // Blinking Logic
   useEffect(() => {
-    if (eyeEmotion === 'closed') return;
+    if (eyeEmotion === 'closed' || eyeEmotion === 'sleep') return;
     const blinkInterval = setInterval(() => {
       setIsBlinking(true);
       setTimeout(() => setIsBlinking(false), 150); // fast blink
@@ -107,6 +128,8 @@ const AITeacher = () => {
 
     return () => clearInterval(blinkInterval);
   }, [eyeEmotion]);
+
+
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -239,8 +262,8 @@ const AITeacher = () => {
       case 'sleep':
         base.height = 4;
         base.width = 64;
-        base.opacity = [0.3, 0.8, 0.3];
-        base.transition = { duration: 3, repeat: Infinity, ease: "easeInOut" };
+        base.opacity = 0.3;
+        base.transition = { duration: 0.15 };
         break;
       case 'center':
       default:
@@ -359,6 +382,33 @@ const AITeacher = () => {
   const silenceTimerRef = useRef(null);
   const isHoldingMicRef = useRef(false);
 
+  // Idle Easter Egg Timer
+  useEffect(() => {
+    let idleTimer;
+    let cycleInterval;
+    
+    // Only start timer if waiting for upload (step 2) OR paused, AND not speaking
+    const isWaitingToUpload = uiStep === 2 && !uploadLoading;
+    if ((isWaitingToUpload || isPaused) && !isSpeaking) {
+      idleTimer = setTimeout(() => {
+        setIsIdle(true);
+        setCurrentEasterEgg(EASTER_EGGS[Math.floor(Math.random() * EASTER_EGGS.length)]);
+        
+        cycleInterval = setInterval(() => {
+          setCurrentEasterEgg(EASTER_EGGS[Math.floor(Math.random() * EASTER_EGGS.length)]);
+        }, 5000);
+      }, 10000); // 10 seconds
+    } else {
+      setIsIdle(false);
+      setCurrentEasterEgg(null);
+    }
+
+    return () => {
+      clearTimeout(idleTimer);
+      clearInterval(cycleInterval);
+    };
+  }, [uiStep, uploadLoading, isPaused, isSpeaking]);
+
   // Create AudioContext ONCE on interaction (for Mic only)
   const initAudioContext = () => {
     if (!audioCtxRef.current) {
@@ -439,7 +489,7 @@ const AITeacher = () => {
           }
         } else {
           // Persistent Listening Logic for Desktop
-          if (!isSpeakingRef.current && stepRef.current !== 2 && stepRef.current !== 4 && !showUploadDrawer) {
+          if (!isSpeakingRef.current && !isPausedRef.current && stepRef.current !== 2 && stepRef.current !== 4 && !showUploadDrawer) {
             try {
               recognitionRef.current.start();
             } catch (e) { }
@@ -646,10 +696,10 @@ const AITeacher = () => {
     }
 
     setShowUploadDrawer(false);
-    await speakAndAdvance("Checking out your materials, please wait a moment while I process them.", 2);
     setUploadLoading(true);
     uploadLoadingRef.current = true;
     setEyeEmotion('sleep');
+    await speakAndAdvance("Checking out your materials, please wait a moment while I process them.", 2);
 
     try {
       let combinedText = '';
@@ -711,6 +761,10 @@ const AITeacher = () => {
       setUiStep(3);
       setIsTimerActive(true);
 
+      setUploadLoading(false);
+      uploadLoadingRef.current = false;
+      setUploadStatus('');
+
       const aiPrompt = `The user ${userNameRef.current} has provided study materials. You synthesized them into these notes: "${generatedNotes}". Acknowledge that the notes are ready. Then, teach the VERY FIRST core concept from the notes in 2-3 short, friendly sentences. Finally, ask a single question to test their understanding of it. ALWAYS end your turn after the question so the student can answer.`;
 
       await generateAIResponse(aiPrompt, [
@@ -730,7 +784,7 @@ const AITeacher = () => {
   };
 
   const handleUserSpeech = async (text) => {
-    if (stepRef.current === 2 || isThinking || isSpeakingRef.current) return;
+    if (stepRef.current === 2 || isThinking || isSpeakingRef.current || isPausedRef.current) return;
 
     messagesRef.current.push({ role: 'user', content: text });
     saveSessionState();
@@ -1009,6 +1063,12 @@ RULES:
       }
 
       sentences = sentences.map(s => s.trim()).filter(s => s.length > 0);
+
+      if (sentences.length === 0) {
+        setIsSpeaking(false);
+        isSpeakingRef.current = false;
+        return;
+      }
 
       await processAudioQueue(sentences, sessionId);
 
@@ -1421,11 +1481,42 @@ RULES:
                   className="flex flex-col items-center justify-center w-full h-full relative"
                 >
                   <motion.div
-                    className={`flex items-center justify-center ${currentEmoji ? 'text-6xl select-none' : 'bg-white shadow-[0_0_40px_rgba(255,255,255,0.9)]'}`}
-                    animate={getEyeAnimation()}
+                    className={`flex items-center justify-center overflow-hidden relative ${currentEmoji ? 'text-4xl select-none bg-transparent' : 'bg-white shadow-[0_0_40px_rgba(255,255,255,0.9)]'}`}
+                    animate={isIdle ? { width: 80, height: 80, borderRadius: '50%', x: 0, y: 0, scale: 1, opacity: 1 } : getEyeAnimation()}
                     transition={{ duration: 0.3, type: 'spring' }}
                   >
-                    {currentEmoji && <span>{currentEmoji}</span>}
+                    {currentEmoji ? (
+                      <span className="relative z-10">{currentEmoji}</span>
+                    ) : isIdle && currentEasterEgg ? (
+                      <AnimatePresence>
+                        {currentEasterEgg.type === 'video' ? (
+                          <motion.video 
+                            key={currentEasterEgg.src} 
+                            src={currentEasterEgg.src} 
+                            autoPlay 
+                            loop 
+                            muted 
+                            playsInline 
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 1 }}
+                            className="absolute inset-0 w-full h-full object-cover" 
+                          />
+                        ) : (
+                          <motion.img 
+                            key={currentEasterEgg.src} 
+                            src={currentEasterEgg.src} 
+                            alt="idle easter egg" 
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 1 }}
+                            className="absolute inset-0 w-full h-full object-cover" 
+                          />
+                        )}
+                      </AnimatePresence>
+                    ) : null}
                   </motion.div>
                   {/* Overlay for mic status */}
                   {(isHoldingMic || (isListening && stepRef.current !== 2)) && (
