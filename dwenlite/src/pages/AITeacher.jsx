@@ -714,7 +714,7 @@ const AITeacher = () => {
       const aiPrompt = `The user ${userNameRef.current} has provided study materials. You synthesized them into these notes: "${generatedNotes}". Acknowledge that the notes are ready. Then, teach the VERY FIRST core concept from the notes in 2-3 short, friendly sentences. Finally, ask a single question to test their understanding of it. ALWAYS end your turn after the question so the student can answer.`;
 
       await generateAIResponse(aiPrompt, [
-        { role: 'system', content: `You are an incredibly friendly, empathetic, and human-like personal AI teacher for ${userNameRef.current}. You are the absolute best at teaching, especially for students with ADHD. You make learning highly engaging, memorable, and easy to digest. Your goal is to cover ALL of the study materials comprehensively. Express emotions naturally using your words. NEVER use emojis, asterisks (like *smiles*), brackets for actions, markdown formatting, or underscores (like __bold__) as the text-to-speech engine will read them out loud. Keep your responses relatively short, conversational and encouraging. IMPORTANT STT RULE: The student's input is from a Speech-to-Text engine. If a sentence contains words that sound similar but make no contextual sense (e.g., 'eye sea' instead of 'I see'), you MUST infer their true phonetic meaning and respond to what they actually meant. Don't point out the typo, just answer naturally. BACKGROUND NOISE RULE: If the student's transcript contains random background chatter from other people that is irrelevant to the study material, completely ignore it and only focus on the student's actual question or answer.` }
+        { role: 'system', content: `You are an incredibly friendly, empathetic, and human-like personal AI teacher for ${userNameRef.current}. You are the absolute best at teaching, especially for students with ADHD. You make learning highly engaging, memorable, and easy to digest. Your goal is to cover ALL of the study materials comprehensively. Express emotions naturally using your words. NEVER use emojis, asterisks (like *smiles*), brackets for actions, markdown formatting, or underscores (like __bold__) as the text-to-speech engine will read them out loud. Keep your responses relatively short, conversational and encouraging. IMPORTANT STT RULE: The student's input is from a Speech-to-Text engine. If a sentence contains words that sound similar but make no contextual sense (e.g., 'eye sea' instead of 'I see'), you MUST infer their true phonetic meaning and respond to what they actually meant. Don't point out the typo, just answer naturally. BACKGROUND NOISE & ECHO FILTER: If the student's transcript contains random background chatter, or looks like an echo of what you just said, ignore it completely. NEVER complain about an audio problem or echo. If you feel the need to try a different approach because the student is confused, say "Let me try explaining this differently..." instead of repeating yourself.` }
       ]);
 
     } catch (err) {
@@ -730,7 +730,7 @@ const AITeacher = () => {
   };
 
   const handleUserSpeech = async (text) => {
-    if (stepRef.current === 2) return;
+    if (stepRef.current === 2 || isThinking || isSpeakingRef.current) return;
 
     messagesRef.current.push({ role: 'user', content: text });
     saveSessionState();
@@ -778,7 +778,7 @@ RULES:
 6. Immediately after teaching a concept, ask ONE question to test their understanding. Stop speaking immediately after asking.
 7. Only when ALL material from the notes is fully covered AND you are confident the student has demonstrated clear understanding of everything, conclude by saying exactly "[SESSION COMPLETE]". Do not say this prematurely.
 8. STT TRANSLATOR: The student is speaking via a Speech-to-Text engine. If their words sound phonetically similar to something else that makes sense in context, assume they meant that (e.g. "eye sea" -> "I see"). Do not point out the typo, just answer their true meaning naturally.
-9. BACKGROUND NOISE FILTER: If the transcript contains random fragments of background conversations from other people that do not pertain to the study material, completely ignore them and focus only on the relevant parts of the student's input.` },
+9. BACKGROUND NOISE & ECHO FILTER: If the transcript contains random fragments of background conversations, or looks like an echo of what you just said, completely ignore them. NEVER complain about an audio problem or echo. If you feel the need to try a different approach because the student is confused, say "Let me try explaining this differently..." instead of repeating yourself.` },
         ...messagesRef.current.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
       ]);
     }
@@ -1010,7 +1010,7 @@ RULES:
 
       sentences = sentences.map(s => s.trim()).filter(s => s.length > 0);
 
-      processAudioQueue(sentences, sessionId);
+      await processAudioQueue(sentences, sessionId);
 
     } catch (error) {
       console.error('TTS Setup Error:', error);
@@ -1079,14 +1079,18 @@ RULES:
         setIsTimerActive(false);
         toast.success("Session completed successfully!");
         clearSessionState();
-        setEyeEmotion('sleep');
       }
 
       setCurrentEmoji(null);
       setEyeEmotion('closed');
       setTimeout(() => setEyeEmotion('center'), 150);
       setIsThinking(false);
+      
       await speakAndAdvance(aiText);
+      
+      if (stepRef.current === 4) {
+        setEyeEmotion('sleep');
+      }
 
     } catch (error) {
       console.error('AI generation error:', error);
@@ -1099,14 +1103,13 @@ RULES:
     }
   };
 
-  const endSession = () => {
+  const endSession = async () => {
     clearSessionState();
     stepRef.current = 4;
     setUiStep(4);
     setShowEndSessionModal(false);
-    speakAndAdvance("Session ended. Great job studying today!", 4).then(() => {
-      setEyeEmotion('sleep');
-    });
+    await speakAndAdvance("Session ended. Great job studying today!", 4);
+    setEyeEmotion('sleep');
   };
 
   // Map 0-255 volume to a visual scale/size
@@ -1555,6 +1558,17 @@ RULES:
                 <span className="text-[11px] text-blue-400 font-medium tracking-wide">Upload</span>
               </div>
             </>
+          )}
+
+          {stepRef.current === 4 && (
+            <div className="flex flex-col items-center gap-1.5 w-auto ml-2">
+              <button
+                onClick={handleStartSession}
+                className="px-6 h-14 rounded-full bg-blue-600 hover:bg-blue-500 flex items-center justify-center text-white transition-all shadow-lg shadow-blue-600/20 font-bold"
+              >
+                <Play size={20} className="mr-2 fill-current" /> Start New Session
+              </button>
+            </div>
           )}
 
         </div>
