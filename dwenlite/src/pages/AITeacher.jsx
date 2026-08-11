@@ -21,7 +21,6 @@ import Loader9 from '../components/loaders/Loader9';
 import Loader10 from '../components/loaders/Loader10';
 import Loader11 from '../components/loaders/Loader11';
 import Loader12 from '../components/loaders/Loader12';
-import Loader13 from '../components/loaders/Loader13';
 import Loader14 from '../components/loaders/Loader14';
 
 const filter = new Filter();
@@ -95,7 +94,6 @@ const AITeacher = () => {
     { el: <Loader10 key="10" />, scale: 0.8 },
     { el: <Loader11 key="11" />, scale: 0.7 },
     { el: <Loader12 key="12" />, scale: 0.5 },
-    { el: <Loader13 key="13" />, scale: 1.5 },
     { el: <Loader14 key="14" />, scale: 0.45 }
   ];
 
