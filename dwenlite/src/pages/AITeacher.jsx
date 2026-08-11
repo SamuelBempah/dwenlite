@@ -9,6 +9,20 @@ import { auth, storage } from '../firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import axios from 'axios';
 import mammoth from 'mammoth';
+import Loader1 from '../components/loaders/Loader1';
+import Loader2 from '../components/loaders/Loader2';
+import Loader3 from '../components/loaders/Loader3';
+import Loader4 from '../components/loaders/Loader4';
+import Loader5 from '../components/loaders/Loader5';
+import Loader6 from '../components/loaders/Loader6';
+import Loader7 from '../components/loaders/Loader7';
+import Loader8 from '../components/loaders/Loader8';
+import Loader9 from '../components/loaders/Loader9';
+import Loader10 from '../components/loaders/Loader10';
+import Loader11 from '../components/loaders/Loader11';
+import Loader12 from '../components/loaders/Loader12';
+import Loader13 from '../components/loaders/Loader13';
+import Loader14 from '../components/loaders/Loader14';
 
 const filter = new Filter();
 
@@ -68,12 +82,21 @@ const AITeacher = () => {
   const [isIdle, setIsIdle] = useState(false);
   const [currentEasterEgg, setCurrentEasterEgg] = useState(null);
 
-  const EASTER_EGGS = [
-    { type: 'video', src: 'https://media.giphy.com/media/3o7TKSjRrfIPjeiVyM/giphy.mp4' },
-    { type: 'video', src: 'https://media.giphy.com/media/Jk4ZT6R0OEUoM/giphy.mp4' },
-    { type: 'video', src: 'https://media.giphy.com/media/xT8qBhrlOaPMybEEzC/giphy.mp4' },
-    { type: 'video', src: 'https://media.giphy.com/media/3oEduV4SOS9mmmIOkw/giphy.mp4' },
-    { type: 'video', src: 'https://media.giphy.com/media/l0HlRnAWXxn0MhKLK/giphy.mp4' }
+  const LOADERS = [
+    { el: <Loader1 key="1" />, scale: 1 },
+    { el: <Loader2 key="2" />, scale: 1 },
+    { el: <Loader3 key="3" />, scale: 1 },
+    { el: <Loader4 key="4" />, scale: 1 },
+    { el: <Loader5 key="5" />, scale: 0.8 },
+    { el: <Loader6 key="6" />, scale: 0.7 },
+    { el: <Loader7 key="7" />, scale: 0.5 },
+    { el: <Loader8 key="8" />, scale: 1 },
+    { el: <Loader9 key="9" />, scale: 1 },
+    { el: <Loader10 key="10" />, scale: 0.8 },
+    { el: <Loader11 key="11" />, scale: 0.7 },
+    { el: <Loader12 key="12" />, scale: 0.5 },
+    { el: <Loader13 key="13" />, scale: 1.5 },
+    { el: <Loader14 key="14" />, scale: 0.45 }
   ];
 
   const EMOTION_EMOJIS = {
@@ -392,11 +415,11 @@ const AITeacher = () => {
     if ((isWaitingToUpload || isPaused) && !isSpeaking) {
       idleTimer = setTimeout(() => {
         setIsIdle(true);
-        setCurrentEasterEgg(EASTER_EGGS[Math.floor(Math.random() * EASTER_EGGS.length)]);
+        setCurrentEasterEgg(LOADERS[Math.floor(Math.random() * LOADERS.length)]);
         
         cycleInterval = setInterval(() => {
-          setCurrentEasterEgg(EASTER_EGGS[Math.floor(Math.random() * EASTER_EGGS.length)]);
-        }, 5000);
+          setCurrentEasterEgg(LOADERS[Math.floor(Math.random() * LOADERS.length)]);
+        }, 10000);
       }, 10000); // 10 seconds
     } else {
       setIsIdle(false);
@@ -1481,40 +1504,24 @@ RULES:
                   className="flex flex-col items-center justify-center w-full h-full relative"
                 >
                   <motion.div
-                    className={`flex items-center justify-center overflow-hidden relative ${currentEmoji ? 'text-4xl select-none bg-transparent' : 'bg-white shadow-[0_0_40px_rgba(255,255,255,0.9)]'}`}
-                    animate={isIdle ? { width: 80, height: 80, borderRadius: '50%', x: 0, y: 0, scale: 1, opacity: 1 } : getEyeAnimation()}
+                    className={`flex items-center justify-center overflow-hidden relative ${currentEmoji || isIdle ? 'select-none bg-transparent' : 'bg-white shadow-[0_0_40px_rgba(255,255,255,0.9)]'} ${currentEmoji ? 'text-4xl' : ''}`}
+                    animate={isIdle ? { width: 200, height: 200, borderRadius: '50%', x: 0, y: 0, scale: 1, opacity: 1 } : getEyeAnimation()}
                     transition={{ duration: 0.3, type: 'spring' }}
                   >
                     {currentEmoji ? (
                       <span className="relative z-10">{currentEmoji}</span>
                     ) : isIdle && currentEasterEgg ? (
-                      <AnimatePresence>
-                        {currentEasterEgg.type === 'video' ? (
-                          <motion.video 
-                            key={currentEasterEgg.src} 
-                            src={currentEasterEgg.src} 
-                            autoPlay 
-                            loop 
-                            muted 
-                            playsInline 
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: 1 }}
-                            className="absolute inset-0 w-full h-full object-cover" 
-                          />
-                        ) : (
-                          <motion.img 
-                            key={currentEasterEgg.src} 
-                            src={currentEasterEgg.src} 
-                            alt="idle easter egg" 
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: 1 }}
-                            className="absolute inset-0 w-full h-full object-cover" 
-                          />
-                        )}
+                      <AnimatePresence mode="wait">
+                        <motion.div
+                          key={currentEasterEgg.el.key}
+                          initial={{ opacity: 0, scale: 0.3 }}
+                          animate={{ opacity: 1, scale: currentEasterEgg.scale }}
+                          exit={{ opacity: 0, scale: 0.3 }}
+                          transition={{ duration: 0.5 }}
+                          className="absolute inset-0 flex items-center justify-center w-full h-full"
+                        >
+                          {currentEasterEgg.el}
+                        </motion.div>
                       </AnimatePresence>
                     ) : null}
                   </motion.div>
