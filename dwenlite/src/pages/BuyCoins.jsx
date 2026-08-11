@@ -241,15 +241,7 @@ function BuyCoins() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white font-sans selection:bg-purple-500 selection:text-white relative overflow-x-hidden flex flex-col md:flex-row">
-      
-      {/* Background Ambience */}
-      <div className="fixed inset-0 z-0 opacity-30 pointer-events-none">
-        <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-purple-900/40 to-transparent" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-indigo-600 rounded-full blur-[120px]" />
-      </div>
-
-      <div className="relative z-10 flex-1 flex flex-col">
+    <>
         
         {/* HEADER */}
         <header className="bg-slate-900/80 backdrop-blur-md sticky top-0 z-30 p-4 border-b border-white/5 flex justify-between items-center">
@@ -440,29 +432,8 @@ function BuyCoins() {
           </div>
 
         </div>
-      </div>
 
-      {/* MOBILE BOTTOM NAV */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900/90 backdrop-blur-xl border-t border-white/10 p-4 z-40 flex justify-around items-center pb-6">
-        <Link to="/dashboard" className="flex flex-col items-center gap-1 text-slate-400 hover:text-purple-400 transition-colors">
-           <LayoutDashboard size={20} />
-           <span className="text-[10px]">Home</span>
-        </Link>
-        <Link to="/community-support" className="flex flex-col items-center gap-1 text-slate-400 hover:text-purple-400 transition-colors">
-           <LifeBuoy size={20} />
-           <span className="text-[10px]">Support</span>
-        </Link>
-        <button className="flex flex-col items-center gap-1 text-purple-400">
-           <Coins size={20} />
-           <span className="text-[10px]">Coins</span>
-        </button>
-        <button onClick={handleLogout} className="flex flex-col items-center gap-1 text-slate-400 hover:text-red-400 transition-colors">
-           <LogOut size={20} />
-           <span className="text-[10px]">Logout</span>
-        </button>
-      </div>
-
-    </div>
+    </>
   );
 }
 

@@ -370,13 +370,7 @@ function ViewFolder() {
   if (!folder) return null;
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white font-sans selection:bg-purple-500 selection:text-white relative overflow-x-hidden">
-      
-      {/* Background Ambience */}
-      <div className="fixed inset-0 z-0 opacity-30 pointer-events-none">
-        <div className="absolute top-0 left-0 w-full h-96 bg-gradient-to-b from-purple-900/40 to-transparent" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-indigo-600 rounded-full blur-[120px]" />
-      </div>
+    <>
 
       {/* --- TUTORIAL OVERLAY --- */}
       <AnimatePresence>
@@ -652,7 +646,7 @@ function ViewFolder() {
         </div>
 
       </div>
-    </div>
+    </>
   );
 }
 

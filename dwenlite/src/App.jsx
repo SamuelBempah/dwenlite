@@ -26,6 +26,8 @@ import Bundles from './pages/Bundles';
 import Reports from './pages/Reports';
 import AITeacher from './pages/AITeacher';
 
+import AppLayout from './components/layout/AppLayout';
+
 const isMaintenanceWindow = () => {
   const now = new Date();
   const day = now.getDay();
@@ -44,13 +46,24 @@ const MaintenanceRoute = ({ component: Component, setShowBanPopup, isAuthenticat
     return <Navigate to="/login" replace state={{ reason: 'account_disabled' }} />;
   }
 
-  const publicRoutes = ['/', '/login', '/signup', '/verify-email', '/reset-password', '/terms', '/maintenance', '/ai-teacher'];
-  if (isAuthenticated && !hasVisitedAI && !publicRoutes.includes(location.pathname)) {
+  const publicRoutes = ['/', '/login', '/signup', '/verify-email', '/reset-password', '/terms', '/maintenance', '/ai-teacher', '/dwenlite-download'];
+  
+  if (!hasVisitedAI && !publicRoutes.includes(location.pathname)) {
     console.log('Redirecting to AI Teacher (mandatory first stop)');
     return <Navigate to="/ai-teacher" replace />;
   }
 
-  return isMaintenanceWindow() ? <Maintenance /> : <Component {...rest} setShowBanPopup={setShowBanPopup} />;
+  if (isMaintenanceWindow()) return <Maintenance />;
+
+  if (publicRoutes.includes(location.pathname)) {
+    return <Component {...rest} setShowBanPopup={setShowBanPopup} />;
+  }
+
+  return (
+    <AppLayout>
+      <Component {...rest} setShowBanPopup={setShowBanPopup} />
+    </AppLayout>
+  );
 };
 
 function BanPopup({ isOpen, onClose }) {

@@ -135,6 +135,7 @@ const AITeacher = () => {
     }
   }, []);
 
+  // Track that the user has visited the AI Teacher, allowing them to access other private routes
   useEffect(() => {
     sessionStorage.setItem('aiTeacherVisited', 'true');
   }, []);

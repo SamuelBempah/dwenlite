@@ -180,7 +180,11 @@ function Signup({ setShowBanPopup }) {
 
   if (checkingStatus || signupLoading || googleLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-purple-50 to-blue-50 flex items-center justify-center px-4">
+      <div className="min-h-[100dvh] bg-[#09090b] flex items-center justify-center px-4 relative overflow-hidden">
+        <div className="absolute inset-0 z-0 opacity-20 pointer-events-none">
+          <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-blue-600 rounded-full blur-[100px]" />
+          <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-purple-600 rounded-full blur-[100px]" />
+        </div>
         {showConfetti && (
           <Confetti
             width={window.innerWidth}
@@ -190,7 +194,7 @@ function Signup({ setShowBanPopup }) {
             gravity={0.1}
           />
         )}
-        <div className="bg-white p-6 sm:p-8 rounded-lg shadow-lg w-full max-w-md text-center">
+        <div className="bg-[#18181b]/90 backdrop-blur-xl border border-white/10 p-6 sm:p-8 rounded-3xl shadow-2xl w-full max-w-md text-center relative z-10">
           <span className="flex items-center justify-center">
             <svg
               className="animate-spin h-5 w-5 mr-2 text-purple-600"
@@ -215,9 +219,13 @@ function Signup({ setShowBanPopup }) {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-purple-50 to-blue-50 flex items-center justify-center px-4">
-      <div className="bg-white p-6 sm:p-8 rounded-lg shadow-lg w-full max-w-md">
-        <h2 className="text-xl sm:text-2xl font-bold text-gray-800 mb-6 text-center">Sign Up</h2>
+    <div className="min-h-[100dvh] bg-[#09090b] flex items-center justify-center px-4 relative overflow-hidden">
+      <div className="absolute inset-0 z-0 opacity-20 pointer-events-none">
+        <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-blue-600 rounded-full blur-[100px]" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-purple-600 rounded-full blur-[100px]" />
+      </div>
+      <div className="bg-[#18181b]/90 backdrop-blur-xl border border-white/10 p-6 sm:p-8 rounded-3xl shadow-2xl w-full max-w-md relative z-10">
+        <h2 className="text-xl sm:text-2xl font-bold text-white mb-6 text-center">Sign Up</h2>
         <form onSubmit={handleSignup}>
           <div className="mb-4">
             <input
@@ -226,7 +234,7 @@ function Signup({ setShowBanPopup }) {
               value={firstName}
               onChange={(e) => setFirstName(e.target.value)}
               placeholder="First Name"
-              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600 text-sm sm:text-base"
+              className="w-full p-4 bg-black/30 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 text-sm sm:text-base text-white placeholder-gray-500 transition-all"
               required
             />
           </div>
@@ -237,7 +245,7 @@ function Signup({ setShowBanPopup }) {
               value={lastName}
               onChange={(e) => setLastName(e.target.value)}
               placeholder="Last Name"
-              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600 text-sm sm:text-base"
+              className="w-full p-4 bg-black/30 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 text-sm sm:text-base text-white placeholder-gray-500 transition-all"
               required
             />
           </div>
@@ -248,7 +256,7 @@ function Signup({ setShowBanPopup }) {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Email"
-              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600 text-sm sm:text-base"
+              className="w-full p-4 bg-black/30 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 text-sm sm:text-base text-white placeholder-gray-500 transition-all"
               required
             />
           </div>
@@ -259,7 +267,7 @@ function Signup({ setShowBanPopup }) {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Password"
-              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600 text-sm sm:text-base"
+              className="w-full p-4 bg-black/30 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 text-sm sm:text-base text-white placeholder-gray-500 transition-all"
               required
             />
           </div>
@@ -270,14 +278,14 @@ function Signup({ setShowBanPopup }) {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="Confirm Password"
-              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600 text-sm sm:text-base"
+              className="w-full p-4 bg-black/30 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 text-sm sm:text-base text-white placeholder-gray-500 transition-all"
               required
             />
           </div>
           <button
             type="submit"
             disabled={signupLoading || googleLoading}
-            className={`w-full bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 transition text-sm sm:text-base ${
+            className={`w-full bg-blue-600 text-white py-4 rounded-xl hover:bg-blue-500 transition-all text-sm sm:text-base font-bold shadow-[0_0_20px_rgba(37,99,235,0.3)] active:scale-[0.98] ${
               signupLoading || googleLoading ? 'opacity-50 cursor-not-allowed' : ''
             }`}
           >
@@ -308,7 +316,7 @@ function Signup({ setShowBanPopup }) {
         <button
           onClick={handleGoogleSignup}
           disabled={signupLoading || googleLoading}
-          className={`w-full mt-4 bg-white border border-gray-300 text-gray-700 py-3 rounded-lg hover:bg-gray-50 transition text-sm sm:text-base flex items-center justify-center ${
+          className={`w-full mt-4 bg-transparent border border-white/20 text-gray-300 py-4 rounded-xl hover:bg-white/5 transition-all text-sm sm:text-base font-semibold flex items-center justify-center active:scale-[0.98] ${
             signupLoading || googleLoading ? 'opacity-50 cursor-not-allowed' : ''
           }`}
         >
@@ -355,19 +363,19 @@ function Signup({ setShowBanPopup }) {
             </>
           )}
         </button>
-        <div className="text-center mt-4 text-gray-500 text-xs sm:text-sm">
+        <div className="text-center mt-6 text-gray-500 text-xs sm:text-sm">
           By signing up you agree to our{' '}
-          <Link to="/terms" className="text-purple-600 hover:underline">
+          <Link to="/terms" className="text-blue-500 hover:text-blue-400 hover:underline transition-colors">
             Terms of Service
           </Link>{' '}
           and{' '}
-          <Link to="/terms" className="text-purple-600 hover:underline">
+          <Link to="/terms" className="text-blue-500 hover:text-blue-400 hover:underline transition-colors">
             Privacy Policy
           </Link>
         </div>
-        <div className="text-center mt-2">
+        <div className="text-center mt-4">
           <span className="text-gray-500 text-sm sm:text-base">Already have an account? </span>
-          <Link to="/login" className="text-purple-600 hover:underline text-sm sm:text-base">
+          <Link to="/login" className="text-blue-500 hover:text-blue-400 hover:underline text-sm sm:text-base transition-colors">
             Log In
           </Link>
         </div>

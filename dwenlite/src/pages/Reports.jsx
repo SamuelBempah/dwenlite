@@ -152,7 +152,7 @@ function Reports() {
   if (!currentUser) return null;
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col p-4 md:p-8">
+    <div className="w-full max-w-7xl mx-auto p-4 md:p-8">
       <style>
         {`
           @keyframes pulseGlow {

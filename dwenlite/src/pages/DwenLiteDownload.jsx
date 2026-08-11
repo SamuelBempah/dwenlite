@@ -91,7 +91,7 @@ function DwenLiteDownload() {
             whileInView={{ opacity: 1 }}
             transition={{ delay: 0.3, duration: 1 }}
           >
-            Your ultimate AI-powered study companion designed to revolutionize learning. Scroll Down To Continue
+            DwenLite your interactive AI teacher designed to revolutionize learning. Scroll Down To Continue
           </motion.p>
         </div>
       </motion.div>

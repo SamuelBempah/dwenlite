@@ -197,126 +197,9 @@ function Dashboard() {
   if (!currentUser) return null;
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white font-sans selection:bg-purple-500 selection:text-white overflow-hidden relative">
-      
-      {/* Dynamic Background */}
-      <div className="fixed inset-0 z-0 opacity-20 pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-purple-600 rounded-full blur-[100px]" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-indigo-600 rounded-full blur-[100px]" />
-      </div>
-
+    <div className="w-full max-w-6xl mx-auto p-4 md:p-8 pb-24 md:pb-8">
       {/* Tutorial Overlay */}
-      <AnimatePresence>
-        {showTutorial && (
-          <motion.div 
-            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
-          >
-            <motion.div 
-              initial={{ scale: 0.9 }} animate={{ scale: 1 }}
-              className="bg-slate-800 border border-slate-700 p-6 rounded-2xl max-w-md w-full shadow-2xl"
-            >
-              <h2 className="text-xl font-bold bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent mb-2">
-                {tutorialSteps[tutorialStep].title}
-              </h2>
-              <p className="text-slate-300 mb-6">{tutorialSteps[tutorialStep].description}</p>
-              <div className="flex justify-between items-center">
-                <div className="flex gap-1">
-                  {tutorialSteps.map((_, i) => (
-                    <div key={i} className={`h-1.5 rounded-full transition-all duration-300 ${i === tutorialStep ? 'w-6 bg-purple-500' : 'w-2 bg-slate-600'}`} />
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => tutorialStep > 0 && setTutorialStep(p => p - 1)}
-                    className={`px-3 py-1.5 rounded-lg text-sm ${tutorialStep === 0 ? 'text-slate-600' : 'text-slate-300 hover:bg-slate-700'}`}
-                  >
-                    Back
-                  </button>
-                  <button 
-                    onClick={() => {
-                      if (tutorialStep < tutorialSteps.length - 1) setTutorialStep(p => p + 1);
-                      else { setShowTutorial(false); localStorage.setItem('tutorialCompleted', 'true'); }
-                    }}
-                    className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm font-medium transition-colors"
-                  >
-                    {tutorialStep === tutorialSteps.length - 1 ? 'Finish' : 'Next'}
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <div className="flex h-screen relative z-10">
-        
-        {/* Desktop Sidebar */}
-        <aside ref={sidebarRef} className="hidden md:flex flex-col w-72 bg-slate-900/50 backdrop-blur-xl border-r border-white/10 p-6 justify-between">
-          <div>
-            <div className="flex items-center gap-3 mb-10">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-500 to-indigo-500 flex items-center justify-center text-lg font-bold shadow-lg shadow-purple-500/30">
-                {currentUser.displayName?.[0] || 'D'}
-              </div>
-              <div>
-                <h3 className="font-semibold text-sm">{currentUser.displayName || 'Student'}</h3>
-                <div className="flex items-center gap-1 text-xs text-yellow-400">
-                  <Star size={12} fill="currentColor" />
-                  <span>{ratingStats.average} Rating</span>
-                </div>
-              </div>
-            </div>
-
-            <nav className="space-y-2">
-              <NavItem icon={<LayoutDashboard size={20} />} label="Dashboard" active />
-              <NavItem icon={<GraduationCap size={20} />} label="Dwenlite Teacher" to="/ai-teacher" />
-              <NavItem icon={<HelpCircle size={20} />} label="Support" to="/community-support" />
-              <div onClick={() => navigate('/buy-coins')} className="cursor-pointer group">
-                <NavItem icon={<Coins size={20} className="text-yellow-400 group-hover:text-yellow-300" />} label="Buy G_COINS" />
-              </div>
-            </nav>
-          </div>
-
-          <div className="space-y-3">
-             {/* G Coins Card */}
-            <div className="bg-slate-800/50 p-4 rounded-xl border border-white/5 relative overflow-hidden group">
-              <div className="absolute inset-0 bg-gradient-to-r from-yellow-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-xs text-slate-400 uppercase font-bold tracking-wider">Balance</span>
-                <Coins className={`w-4 h-4 text-yellow-400 ${gCoinsAnimating ? 'animate-bounce' : ''}`} />
-              </div>
-              <div className="text-2xl font-bold text-white font-mono">{gCoins} <span className="text-sm text-slate-500">GC</span></div>
-            </div>
-
-            <button 
-              onClick={handleLogout} 
-              disabled={logoutLoading}
-              className="w-full flex items-center justify-center gap-2 p-3 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all text-sm font-medium"
-            >
-              {logoutLoading ? <div className="w-4 h-4 border-2 border-red-400 border-t-transparent rounded-full animate-spin"/> : <LogOut size={16} />}
-              Sign Out
-            </button>
-          </div>
-        </aside>
-
-        {/* Main Content */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8">
-          
-          {/* Mobile Header */}
-          <header className="md:hidden flex justify-between items-center mb-6">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-indigo-500 flex items-center justify-center font-bold">
-                {currentUser.displayName?.[0]}
-              </div>
-              <span className="font-semibold">Dashboard</span>
-            </div>
-            <div className="flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-full border border-white/10">
-              <Coins size={14} className="text-yellow-400" />
-              <span className="text-sm font-bold">{gCoins}</span>
-            </div>
-          </header>
-
-          <div className="max-w-6xl mx-auto space-y-8">
+      <div className="space-y-8">
 
             {/* --- NEW EXAM PREPARATION ANNOUNCEMENT --- */}
             <motion.div 
@@ -452,55 +335,11 @@ function Dashboard() {
               )}
             </section>
           </div>
-        </main>
-
-        {/* Mobile Bottom Navigation */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900/90 backdrop-blur-xl border-t border-white/5 px-6 py-4 flex justify-between items-center z-50">
-          <Link to="/dashboard" className="text-purple-400 flex flex-col items-center gap-1">
-            <LayoutDashboard size={24} />
-            <span className="text-[10px]">Home</span>
-          </Link>
-          <div onClick={() => navigate('/buy-coins')} className="text-slate-400 flex flex-col items-center gap-1">
-            <Coins size={24} />
-            <span className="text-[10px]">Store</span>
-          </div>
-          <Link to="/ai-teacher" className="text-slate-400 flex flex-col items-center gap-1">
-            <GraduationCap size={24} />
-            <span className="text-[10px]">Dwenlite Teacher</span>
-          </Link>
-          <Link to="/community-support" className="text-slate-400 flex flex-col items-center gap-1">
-            <HelpCircle size={24} />
-            <span className="text-[10px]">Help</span>
-          </Link>
-          <button onClick={handleLogout} className="text-red-400 flex flex-col items-center gap-1">
-            <LogOut size={24} />
-            <span className="text-[10px]">Exit</span>
-          </button>
-        </nav>
-
-      </div>
     </div>
   );
 }
 
 // --- SUB COMPONENTS ---
-
-const NavItem = ({ icon, label, to, active }) => {
-  const navigate = useNavigate();
-  return (
-    <div 
-      onClick={() => to && navigate(to)}
-      className={`flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer transition-all ${
-        active 
-          ? 'bg-purple-600/20 text-purple-300 border border-purple-500/20' 
-          : 'text-slate-400 hover:bg-white/5 hover:text-white'
-      }`}
-    >
-      {icon}
-      <span className="font-medium text-sm">{label}</span>
-    </div>
-  );
-};
 
 const ActionCard = ({ icon, label, sub, color, onClick, loading }) => (
   <motion.button

@@ -37,10 +37,14 @@ function ResetPassword() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-purple-50 to-blue-50 flex items-center justify-center">
-      <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
-        <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">Reset Password</h2>
-        <p className="text-gray-500 mb-6 text-center">
+    <div className="min-h-[100dvh] bg-[#09090b] flex items-center justify-center px-4 relative overflow-hidden">
+      <div className="absolute inset-0 z-0 opacity-20 pointer-events-none">
+        <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-blue-600 rounded-full blur-[100px]" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-purple-600 rounded-full blur-[100px]" />
+      </div>
+      <div className="bg-[#18181b]/90 backdrop-blur-xl border border-white/10 p-6 sm:p-8 rounded-3xl shadow-2xl w-full max-w-md relative z-10">
+        <h2 className="text-xl sm:text-2xl font-bold text-white mb-6 text-center">Reset Password</h2>
+        <p className="text-gray-400 mb-6 text-center text-sm sm:text-base">
           Enter your email address to receive a password reset link.
         </p>
         <form onSubmit={handleResetPassword}>
@@ -51,14 +55,14 @@ function ResetPassword() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="Email"
-              className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-600"
+              className="w-full p-4 bg-black/30 border border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-600 text-sm sm:text-base text-white placeholder-gray-500 transition-all"
               required
             />
           </div>
           <button
             type="submit"
             disabled={loading}
-            className={`w-full bg-purple-600 text-white py-3 rounded-lg hover:bg-purple-700 transition ${
+            className={`w-full bg-blue-600 text-white py-4 rounded-xl hover:bg-blue-500 transition-all text-sm sm:text-base font-bold shadow-[0_0_20px_rgba(37,99,235,0.3)] active:scale-[0.98] ${
               loading ? 'opacity-50 cursor-not-allowed' : ''
             }`}
           >
@@ -86,8 +90,8 @@ function ResetPassword() {
             )}
           </button>
         </form>
-        <div className="text-center mt-4">
-          <Link to="/login" className="text-purple-600 hover:underline">
+        <div className="text-center mt-6">
+          <Link to="/login" className="text-blue-500 hover:text-blue-400 hover:underline text-sm sm:text-base transition-colors">
             Back to Sign In
           </Link>
         </div>

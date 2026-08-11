@@ -290,7 +290,7 @@ function Support() {
             throw new Error('DeepSeek API key not found.');
           }
 
-          const prompt = `You are a support assistant for Dwenlite, an AI study companion that helps users create folders to organize study materials, upload documents (PDF, PPTX, TXT, DOCX), audio, and videos, and generate notes, quizzes, and flashcards from them. Provide a concise, helpful response to the following user query: "${input}". Keep the response under 100 words and relevant to Dwenlite's features. If the user asks for a human agent, instruct them to type "agent". End your response with: "Is that all?"`;
+          const prompt = `You are a support assistant for Dwenlite, DwenLite your interactive AI teacher that helps users create folders to organize study materials, upload documents (PDF, PPTX, TXT, DOCX), audio, and videos, and generate notes, quizzes, and flashcards from them. Provide a concise, helpful response to the following user query: "${input}". Keep the response under 100 words and relevant to Dwenlite's features. If the user asks for a human agent, instruct them to type "agent". End your response with: "Is that all?"`;
 
           const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
             method: 'POST',
@@ -458,35 +458,8 @@ function Support() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col">
-      {/* Sidebar */}
-      <div className="w-full bg-gray-800 p-4 sm:p-6 flex flex-col justify-between">
-        <div>
-          <div className="flex items-center mb-6 sm:mb-8">
-            <div className="w-8 h-8 sm:w-10 sm:h-10 bg-purple-600 rounded-full flex items-center justify-center text-lg sm:text-xl">
-              {currentUser.displayName?.charAt(0) || 'U'}
-            </div>
-            <span className="ml-3 text-base sm:text-lg font-semibold">{currentUser.displayName || 'User'}</span>
-          </div>
-          <nav>
-            <Link to="/dashboard" className="flex items-center mb-4 text-purple-400 text-sm sm:text-base">
-              <span className="mr-2">🏠</span> Dashboard
-            </Link>
-            <Link to="/support" className="flex items-center mb-4 text-white bg-gray-700 p-2 rounded-lg text-sm sm:text-base">
-              <span className="mr-2">💬</span> Support
-            </Link>
-          </nav>
-        </div>
-        <button
-          onClick={() => auth.signOut().then(() => navigate('/login'))}
-          className="bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 text-sm sm:text-base"
-        >
-          Logout
-        </button>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex-1 p-4 sm:p-8">
+    <>
+      <div className="max-w-4xl mx-auto p-4 md:p-8 pb-20 w-full">
         <h1 className="text-2xl sm:text-3xl font-bold mb-6 sm:mb-8">Support</h1>
         <div className="bg-gray-800 p-4 sm:p-6 rounded-lg">
           <h2 className="text-lg sm:text-xl font-semibold mb-4">Live Chat Support</h2>
@@ -495,7 +468,6 @@ function Support() {
           </p>
         </div>
       </div>
-
       {/* Chat Button */}
       <button
         onClick={() => {
@@ -630,7 +602,7 @@ function Support() {
       )}
 
       <audio ref={audioRef} preload="auto" src="/ping.mp3" />
-    </div>
+    </>
   );
 }
 

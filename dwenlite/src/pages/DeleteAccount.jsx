@@ -93,49 +93,7 @@ function DeleteAccount() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col md:flex-row">
-      {/* Sidebar */}
-      <div className="w-full md:w-64 bg-gray-800 p-4 md:p-6 flex flex-col justify-between">
-        <div>
-          <div className="flex items-center mb-6 md:mb-8">
-            <div className="w-8 h-8 md:w-10 md:h-10 bg-purple-600 rounded-full flex items-center justify-center text-lg md:text-xl">
-              U
-            </div>
-            <span className="ml-2 md:ml-3 text-base md:text-lg font-semibold">
-              Guest
-            </span>
-          </div>
-          <nav>
-            <Link
-              to="/dashboard"
-              className="flex items-center mb-3 md:mb-4 text-purple-400 text-sm md:text-base"
-            >
-              <span className="mr-2">🏠</span> Dashboard
-            </Link>
-            <Link
-              to="/support"
-              className="flex items-center mb-3 md:mb-4 text-purple-400 text-sm md:text-base"
-            >
-              <span className="mr-2">💬</span> Support
-            </Link>
-            <Link
-              to="/delete-account"
-              className="flex items-center mb-3 md:mb-4 text-red-400 text-sm md:text-base"
-            >
-              <span className="mr-2">🗑️</span> Delete Account
-            </Link>
-          </nav>
-        </div>
-        <Link
-          to="/login"
-          className="text-gray-400 hover:text-white text-sm md:text-base"
-        >
-          Login
-        </Link>
-      </div>
-
-      {/* Main Content */}
-      <div className="flex-1 p-4 md:p-8">
+    <div className="w-full max-w-4xl mx-auto p-4 md:p-8">
         <h1 className="text-2xl md:text-3xl font-bold mb-6 md:mb-8">Delete Your Account</h1>
         <div className="bg-gray-800 p-4 md:p-6 rounded-lg">
           <h2 className="text-lg md:text-xl font-semibold mb-4">Account Deletion</h2>
@@ -255,7 +213,6 @@ function DeleteAccount() {
             After submitting, your request will be processed within 7 business days. You will receive a confirmation email once your account has been deleted.
           </p>
         </div>
-      </div>
     </div>
   );
 }

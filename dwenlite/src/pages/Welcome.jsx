@@ -1,112 +1,148 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import welcomeVideo from '../videos/welcome.mp4'; // Adjust the path if needed
+import AITeacherBackground from '../components/AITeacherBackground';
+import { Mic, Play, FileText, Video, LayoutDashboard } from 'lucide-react';
+import { motion } from 'framer-motion';
+import logo from '../assets/react.png';
+import { auth } from '../firebase';
 
 function Welcome() {
   const navigate = useNavigate();
   const [startLoading, setStartLoading] = useState(false);
   const [signInLoading, setSignInLoading] = useState(false);
+  const [isExiting, setIsExiting] = useState(false);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged(user => {
+      setIsAuthenticated(!!user);
+      setIsAuthLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const triggerExitAnimation = (path) => {
+    setIsExiting(true);
+    setTimeout(() => {
+      navigate(path);
+    }, 3200);
+  };
 
   const handleStartClick = (e) => {
     e.preventDefault();
+    if (isExiting) return;
     setStartLoading(true);
-    setTimeout(() => {
-      setStartLoading(false);
-      navigate('/signup');
-    }, 3000); // 3-second delay
+    triggerExitAnimation('/signup');
   };
 
   const handleSignInClick = (e) => {
     e.preventDefault();
+    if (isExiting) return;
     setSignInLoading(true);
-    setTimeout(() => {
-      setSignInLoading(false);
-      navigate('/login');
-    }, 3000); // 3-second delay
+    triggerExitAnimation('/login');
+  };
+
+  const handleContinueClick = (e) => {
+    e.preventDefault();
+    if (isExiting) return;
+    triggerExitAnimation('/ai-teacher');
   };
 
   return (
-    <div className="relative min-h-screen flex flex-col">
-      {/* Background Video */}
-      <video
-        autoPlay
-        muted
-        loop
-        playsInline
-        className="absolute top-0 left-0 w-full h-full object-cover z-0"
+    <div className="relative min-h-[100dvh] flex flex-col bg-[#09090b] overflow-hidden text-white font-sans">
+      
+      <AITeacherBackground exitAnimation={isExiting} />
+
+      <motion.div 
+        className="absolute inset-0 flex flex-col pointer-events-none"
+        animate={{ opacity: isExiting ? 0 : 1 }}
+        transition={{ duration: 0.5 }}
       >
-        <source src={welcomeVideo} type="video/mp4" />
-        Your browser does not support the video tag.
-      </video>
+        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/10 to-[#09090b]" />
 
-      {/* Overlay to improve text readability */}
-      <div className="absolute top-0 left-0 w-full h-full bg-black/60 z-10"></div>
+        <div className="relative z-10 flex flex-col items-center pt-16 px-6 pointer-events-auto">
+          <motion.div 
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, ease: "easeOut" }}
+            className="flex flex-col items-center text-center"
+          >
+            <div className="w-16 h-16 bg-gradient-to-br from-blue-500/20 to-purple-600/20 rounded-2xl flex items-center justify-center mb-4 shadow-[0_0_40px_rgba(59,130,246,0.3)] border border-white/10 p-2">
+              <img src={logo} alt="DwenLite Logo" className="w-full h-full object-contain drop-shadow-[0_0_15px_rgba(96,165,250,0.8)]" />
+            </div>
+            <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight bg-gradient-to-r from-blue-100 to-blue-400 bg-clip-text text-transparent mb-3 drop-shadow-sm">
+              DwenLite Teacher
+            </h1>
+            <p className="text-lg md:text-xl text-gray-400 max-w-md font-medium leading-relaxed">
+              Your interactive AI teacher. Let's learn together through engaging, real-time conversations.
+            </p>
+          </motion.div>
+        </div>
 
-      {/* Main Content */}
-      <div className="relative container mx-auto px-4 sm:px-6 py-12 sm:py-16 text-center flex-grow z-20">
-        <h1 className="text-4xl sm:text-5xl font-extrabold text-white mb-4 drop-shadow-[0_0_10px_rgba(147,51,234,0.5)]">
-          DwenLite{' '}
-          <span className="text-purple-400 bg-purple-950/50 px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm align-middle">
-            AI
-          </span>
-        </h1>
-        <p className="text-lg sm:text-xl text-gray-300 mb-8 max-w-2xl mx-auto">
-          Transform your study materials into notes, quizzes, and flashcards with AI. Join us to shape the future of learning!
-        </p>
-        <div className="flex flex-col sm:flex-row justify-center space-y-4 sm:space-y-0 sm:space-x-4 mb-12">
-          <Link
-            to="/signup"
-            onClick={handleStartClick}
-            className={`bg-purple-600 text-white px-6 py-3 sm:px-8 sm:py-3 rounded-full transition-all hover:bg-purple-500 text-base sm:text-lg ${startLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            {startLoading ? (
-              <span className="flex items-center justify-center">
-                <svg className="animate-spin h-5 w-5 mr-2 text-white" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                </svg>
-                Loading...
-              </span>
-            ) : (
-              'Start for Free'
-            )}
-          </Link>
-          <Link
-            to="/login"
-            onClick={handleSignInClick}
-            className={`bg-cyan-500 text-white px-6 py-3 sm:px-8 sm:py-3 rounded-full transition-all hover:bg-cyan-400 text-base sm:text-lg ${signInLoading ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            {signInLoading ? (
-              <span className="flex items-center justify-center">
-                <svg className="animate-spin h-5 w-5 mr-2 text-white" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                </svg>
-                Loading...
-              </span>
-            ) : (
-              'Sign In'
-            )}
-          </Link>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 max-w-3xl mx-auto">
-          <div className="bg-indigo-800/50 p-4 sm:p-6 rounded-lg shadow-lg border border-purple-500/30">
-            <h3 className="text-base sm:text-lg font-semibold text-white mb-2">Upload a Document</h3>
-            <p className="text-gray-400 text-sm sm:text-base">.pdf, .docx, pptx, .txt</p>
+        <div className="flex-grow" />
+
+        <motion.div 
+          initial={{ y: "100%" }}
+          animate={{ y: 0 }}
+          transition={{ type: "spring", damping: 25, stiffness: 200, delay: 0.2 }}
+          className="relative z-20 w-full mt-auto pointer-events-auto"
+        >
+          <div className="bg-[#18181b]/90 backdrop-blur-xl border-t border-white/10 rounded-t-[2.5rem] p-6 sm:p-8 pb-8 sm:pb-10 shadow-[0_-20px_50px_rgba(0,0,0,0.5)] max-w-3xl mx-auto">
+            
+            <div className="w-12 h-1.5 bg-gray-700 rounded-full mx-auto mb-6" />
+
+            <div className="flex flex-col gap-3 min-h-[144px] justify-center">
+              {isAuthLoading ? (
+                <div className="flex justify-center items-center py-6">
+                  <div className="w-8 h-8 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin" />
+                </div>
+              ) : isAuthenticated ? (
+                <Link
+                  to="/ai-teacher"
+                  onClick={handleContinueClick}
+                  className={`relative overflow-hidden w-full bg-blue-600 text-white py-4 rounded-2xl font-bold text-lg flex items-center justify-center transition-all shadow-[0_0_30px_rgba(37,99,235,0.3)] active:scale-[0.98] ${isExiting ? 'opacity-70 pointer-events-none' : 'hover:bg-blue-500'}`}
+                >
+                  <span className="flex items-center gap-2">
+                    <Play size={20} className="fill-current" /> Continue
+                  </span>
+                </Link>
+              ) : (
+                <>
+                  <Link
+                    to="/signup"
+                    onClick={handleStartClick}
+                    className={`relative overflow-hidden w-full bg-blue-600 text-white py-4 rounded-2xl font-bold text-lg flex items-center justify-center transition-all shadow-[0_0_30px_rgba(37,99,235,0.3)] active:scale-[0.98] ${(startLoading || isExiting) ? 'opacity-70 pointer-events-none' : 'hover:bg-blue-500'}`}
+                  >
+                    {startLoading ? (
+                      <span className="flex items-center gap-2">
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Loading...
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <Play size={20} className="fill-current" /> Start Studying Free
+                      </span>
+                    )}
+                  </Link>
+                  
+                  <Link
+                    to="/login"
+                    onClick={handleSignInClick}
+                    className={`w-full bg-transparent text-gray-300 py-4 rounded-2xl font-semibold text-lg flex items-center justify-center transition-all border border-gray-700 active:scale-[0.98] ${(signInLoading || isExiting) ? 'opacity-70 pointer-events-none' : 'hover:bg-gray-800 hover:text-white'}`}
+                  >
+                    {signInLoading ? 'Please wait...' : 'I already have an account'}
+                  </Link>
+                </>
+              )}
+            </div>
+
+            <p className="text-center text-xs text-gray-500 font-medium mt-8">
+              Developed & Published By <a href="https://sbmindtechnologies.com" className="text-gray-400 hover:text-blue-400 transition-colors">SBMind Technologies</a> • © 2025
+            </p>
           </div>
-          <div className="bg-indigo-800/50 p-4 sm:p-6 rounded-lg shadow-lg border border-purple-500/30">
-            <h3 className="text-base sm:text-lg font-semibold text-white mb-2">Upload A Video</h3>
-            <p className="text-gray-400 text-sm sm:text-base">.mp4, .mov, .avi, .mkv, .webm</p>
-          </div>
-          <div className="bg-indigo-800/50 p-4 sm:p-6 rounded-lg shadow-lg border border-purple-500/30">
-            <h3 className="text-base sm:text-lg font-semibold text-white mb-2">Upload An Audio</h3>
-            <p className="text-gray-400 text-sm sm:text-base">.mp3, .wav, .m4a, .ogg, .flac</p>
-          </div>
-        </div>
-      </div>
-      <footer className="relative text-center py-4 text-gray-400 text-sm sm:text-base z-20">
-        <p>Developed And Published By <Link to="https://sbmindtechnologies.com" className='hover:text-purple-400 transition-colors'>SBMind Technologies</Link> • DwenLite © 2025</p>
-      </footer>
+        </motion.div>
+      </motion.div>
     </div>
   );
 }

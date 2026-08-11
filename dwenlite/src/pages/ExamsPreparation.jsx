@@ -892,8 +892,7 @@ function ExamsPreparation() {
   );
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white font-sans selection:bg-purple-500 selection:text-white overflow-hidden relative">
-      
+    <>
       {/* Immersive Loading Overlay for Exam Generation */}
       <AnimatePresence>
         {examLoading && (
@@ -919,61 +918,7 @@ function ExamsPreparation() {
         <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-indigo-600 rounded-full blur-[120px]" />
       </div>
 
-      <div className="flex h-screen relative z-10">
-        
-        {/* SIDEBAR (Desktop) */}
-        <aside className="hidden md:flex flex-col w-72 bg-slate-900/50 backdrop-blur-xl border-r border-white/10 p-6 justify-between transition-all">
-          <div>
-            <div 
-              className="flex items-center gap-3 mb-10 cursor-pointer group" 
-              onClick={() => navigate('/dashboard')}
-            >
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-500 to-indigo-500 flex items-center justify-center font-bold shadow-lg shadow-purple-500/20 group-hover:shadow-purple-500/40 transition-shadow">
-                <LayoutDashboard size={20} />
-              </div>
-              <div>
-                <h3 className="font-semibold text-sm group-hover:text-purple-300 transition-colors">Dashboard</h3>
-                <p className="text-xs text-slate-500">Return Home</p>
-              </div>
-            </div>
-
-            <nav className="space-y-2">
-              <div className="px-4 py-2 text-xs font-bold text-slate-500 uppercase tracking-wider">Active Module</div>
-              <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-purple-600/20 text-purple-300 border border-purple-500/20">
-                <BrainCircuit size={20} />
-                <span className="font-medium text-sm">Exam Prep AI</span>
-              </div>
-              
-              <div className="mt-6 px-4 py-2 text-xs font-bold text-slate-500 uppercase tracking-wider">Shortcuts</div>
-              <Link to="/dwen-connect" className="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-white/5 hover:text-white transition-all">
-                <GraduationCap size={20} />
-                <span className="font-medium text-sm">DwenConnect</span>
-              </Link>
-            </nav>
-          </div>
-
-          <div className="space-y-3">
-             <div className="bg-slate-800/50 p-4 rounded-xl border border-white/5">
-                <div className="flex items-center gap-2 text-xs text-slate-400 mb-2">
-                  <Clock size={12} />
-                  <span>Session Time</span>
-                </div>
-                <div className="text-lg font-mono font-bold text-white">
-                  {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </div>
-             </div>
-             
-             <button 
-               onClick={() => navigate('/dashboard')} 
-               className="w-full flex items-center justify-center gap-2 p-3 rounded-xl border border-white/10 hover:bg-white/5 transition-all text-sm text-slate-400"
-             >
-               <ArrowLeft size={16} /> Back to Dashboard
-             </button>
-          </div>
-        </aside>
-
-        {/* MAIN CONTENT AREA */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8 relative scroll-smooth">
+      <div className="w-full max-w-7xl mx-auto p-4 md:p-8 relative">
           
           {/* Mobile Header */}
           <header className="md:hidden flex justify-between items-center mb-6 sticky top-0 bg-slate-900/80 backdrop-blur-md z-30 py-4 px-2 -mx-2">
@@ -1667,30 +1612,8 @@ function ExamsPreparation() {
 
             </AnimatePresence>
           </div>
-        </main>
-
-        {/* --- MOBILE NAVIGATION --- */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900/90 backdrop-blur-xl border-t border-white/5 px-6 py-4 flex justify-between items-center z-50 pb-safe">
-          <Link to="/dashboard" className="text-slate-400 flex flex-col items-center gap-1">
-            <LayoutDashboard size={24} />
-            <span className="text-[10px] font-medium">Home</span>
-          </Link>
-          <div className="text-purple-400 flex flex-col items-center gap-1">
-            <BrainCircuit size={24} className="drop-shadow-[0_0_10px_rgba(168,85,247,0.5)]" />
-            <span className="text-[10px] font-medium">Exam</span>
-          </div>
-          <Link to="/community-support" className="text-slate-400 flex flex-col items-center gap-1">
-            <HelpCircle size={24} />
-            <span className="text-[10px] font-medium">Help</span>
-          </Link>
-          <button onClick={() => auth.signOut()} className="text-red-400 flex flex-col items-center gap-1">
-            <LogOut size={24} />
-            <span className="text-[10px] font-medium">Exit</span>
-          </button>
-        </nav>
-
-      </div>
-    </div>
+        </div>
+    </>
   );
 }
 
