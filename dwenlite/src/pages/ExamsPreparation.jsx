@@ -5,6 +5,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { addDoc, collection } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
+import mammoth from 'mammoth';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   LayoutDashboard, HelpCircle, LogOut, 
@@ -164,6 +165,16 @@ function ExamsPreparation() {
     }
   };
 
+  const extractDocxText = async (file) => {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await mammoth.extractRawText({ arrayBuffer });
+      return result.value || 'No text found in DOCX.';
+    } catch (err) {
+      throw new Error('DOCX extraction failed: ' + err.message);
+    }
+  };
+
   const transcribeMedia = async (url, type) => {
     try {
       const apiKey = import.meta.env.VITE_ASSEMBLYAI_API_KEY;
@@ -237,7 +248,8 @@ function ExamsPreparation() {
           const isAudio = fileType.startsWith('audio/') || ['mp3', 'wav', 'm4a', 'ogg', 'flac'].includes(fileExtension);
           const isVideo = fileType.startsWith('video/') || ['mp4', 'mov', 'avi', 'mkv', 'webm'].includes(fileExtension);
           const isPptx = fileType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' || fileType === 'application/vnd.ms-powerpoint' || ['ppt', 'pptx'].includes(fileExtension);
-          const isText = fileType === 'text/plain' || fileType === 'application/pdf' || ['txt', 'pdf'].includes(fileExtension) || isPptx;
+          const isDocx = fileType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || fileExtension === 'docx';
+          const isText = fileType === 'text/plain' || fileType === 'application/pdf' || ['txt', 'pdf'].includes(fileExtension) || isPptx || isDocx;
 
           if (!isAudio && !isVideo && !isText) {
             throw new Error(`Skipped ${selectedFile.name}: Unsupported file type.`);
@@ -259,6 +271,8 @@ function ExamsPreparation() {
               extractedText = await extractPdfText(selectedFile);
             } else if (isPptx) {
               extractedText = await extractPptxText(selectedFile);
+            } else if (isDocx) {
+              extractedText = await extractDocxText(selectedFile);
             }
           }
 
@@ -1047,7 +1061,7 @@ function ExamsPreparation() {
                         type="file" 
                         onChange={handleFileUpload}
                         multiple
-                        accept="text/plain,application/pdf,audio/*,video/*"
+                        accept=".pdf,.txt,.ppt,.pptx,.docx,.mp3,.wav,.m4a,.mp4,.mov,.avi"
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
                         disabled={uploadLoading}
                       />
@@ -1066,7 +1080,7 @@ function ExamsPreparation() {
                       <p className="text-slate-400 text-sm max-w-md mx-auto">
                         Upload up to 50 files at once.
                         <br/>
-                        Compatible with <span className="text-slate-300">PDF, Text</span>, <span className="text-slate-300">Audio (MP3)</span>, and <span className="text-slate-300">Video (MP4)</span>.
+                        Compatible with <span className="text-slate-300">PDF, TXT, DOCX, PPTX</span>, <span className="text-slate-300">Audio</span>, and <span className="text-slate-300">Video</span>.
                         <br/><span className="text-xs opacity-70 mt-2 block">Max file size: 50MB</span>
                       </p>
                     </div>
