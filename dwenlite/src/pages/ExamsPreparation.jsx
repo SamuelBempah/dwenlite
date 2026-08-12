@@ -14,7 +14,8 @@ import {
   Sparkles, BrainCircuit, GraduationCap, ChevronRight,
   Clock, Check, RefreshCw, AlertCircle, SpellCheck,
   Loader2, Cpu, Terminal, 
-  ListChecks, AlignLeft, Type, Percent
+  ListChecks, AlignLeft, Type, Percent,
+  Timer, Activity
 } from 'lucide-react';
 
 function ExamsPreparation() {
@@ -50,6 +51,11 @@ function ExamsPreparation() {
   const [markingStatus, setMarkingStatus] = useState("Initializing grading engine...");
   const [submitLoading, setSubmitLoading] = useState(false);
 
+  // Timer State
+  const [timeLeft, setTimeLeft] = useState(0);
+  const [isTimerActive, setIsTimerActive] = useState(false);
+  const [showStopWorkOverlay, setShowStopWorkOverlay] = useState(false);
+
   // Chat & Report State
   const [chatInput, setChatInput] = useState('');
   const [chatHistory, setChatHistory] = useState([]);
@@ -82,6 +88,29 @@ function ExamsPreparation() {
     }
   }, [chatHistory, showReportForm]);
 
+  // Timer Logic
+  useEffect(() => {
+    let interval = null;
+    if (isTimerActive && timeLeft > 0) {
+      interval = setInterval(() => {
+        setTimeLeft((prev) => prev - 1);
+      }, 1000);
+    } else if (isTimerActive && timeLeft === 0) {
+      setIsTimerActive(false);
+      setShowStopWorkOverlay(true);
+      setTimeout(() => {
+        handleFillSubmit();
+        setShowStopWorkOverlay(false);
+      }, 3000); // Wait 3 seconds then auto-submit
+    }
+    return () => clearInterval(interval);
+  }, [isTimerActive, timeLeft]);
+
+  const formatTime = (seconds) => {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
 
   // --- CORE LOGIC HANDLERS ---
 
@@ -549,6 +578,7 @@ function ExamsPreparation() {
 
   // --- NEW: LECTURER GRADING LOGIC ---
   const handleFillSubmit = async () => {
+    setIsTimerActive(false);
     setExamStage('marking');
     setSubmitLoading(true);
     setMarkingProgress({ mcq: 0, fillIn: 0 });
@@ -737,6 +767,8 @@ function ExamsPreparation() {
   };
 
   const resetExam = () => {
+    setIsTimerActive(false);
+    setTimeLeft(0);
     setExamStage('upload');
     setScores({ mcq: 0, fillIn: 0, total: 0 });
     setCurrentMcqIndex(0);
@@ -792,95 +824,78 @@ function ExamsPreparation() {
   };
 
   const ImmersiveLoading = ({ title, status, logs, progress }) => (
-    <div className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-xl flex flex-col items-center justify-center text-center p-6 overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-3xl flex flex-col items-center justify-center text-center p-6 overflow-hidden">
       
-      {/* Background Grid */}
-      <div className="absolute inset-0 z-0 opacity-10" style={{ 
-          backgroundImage: 'linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px)', 
-          backgroundSize: '30px 30px' 
-      }}></div>
+      {/* Soft Ambient Background Orbs */}
+      <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+        <motion.div 
+          animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.3, 0.2] }}
+          transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+          className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-600/30 rounded-full blur-[100px]"
+        />
+        <motion.div 
+          animate={{ scale: [1, 1.3, 1], opacity: [0.1, 0.2, 0.1] }}
+          transition={{ duration: 10, repeat: Infinity, ease: "easeInOut", delay: 2 }}
+          className="absolute bottom-1/4 right-1/4 w-[30rem] h-[30rem] bg-indigo-600/30 rounded-full blur-[120px]"
+        />
+      </div>
 
-      <div className="relative z-10 w-full max-w-xl">
-        <div className="relative w-72 h-72 mx-auto mb-10">
-          {/* Rotating Rings */}
-          <motion.div 
-            animate={{ rotate: 360 }}
-            transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
-            className="absolute inset-0 rounded-full border border-purple-500/10 border-t-purple-500 border-r-purple-500/50"
-          />
-          <motion.div 
-            animate={{ rotate: -360 }}
-            transition={{ duration: 5, repeat: Infinity, ease: "linear" }}
-            className="absolute inset-6 rounded-full border border-indigo-500/10 border-b-indigo-500 border-l-indigo-500/50"
-          />
-          {/* Center Info */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <Terminal size={48} className="text-purple-400 mb-4 animate-pulse" />
-            <div className="text-4xl font-bold font-mono text-white tracking-tighter">
-              {Math.round(progress)}<span className="text-sm text-slate-500">%</span>
-            </div>
-          </div>
+      <div className="relative z-10 w-full max-w-lg">
+        {/* Organic Pulsing Center */}
+        <div className="relative w-64 h-64 mx-auto mb-12 flex justify-center items-center">
+           <motion.div
+             animate={{ scale: [1, 1.05, 1], rotate: 360 }}
+             transition={{ scale: { duration: 2, repeat: Infinity, ease: "easeInOut" }, rotate: { duration: 20, repeat: Infinity, ease: "linear" } }}
+             className="absolute inset-0 rounded-full bg-gradient-to-br from-purple-500/20 to-indigo-500/20 blur-xl"
+           />
+           <motion.div
+             animate={{ scale: [0.95, 1.05, 0.95] }}
+             transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+             className="relative w-40 h-40 bg-white/5 backdrop-blur-xl border border-white/20 rounded-full shadow-[0_0_50px_rgba(147,51,234,0.3)] flex flex-col items-center justify-center overflow-hidden"
+           >
+             <div className="absolute inset-0 bg-gradient-to-t from-purple-500/10 to-transparent"></div>
+             <Sparkles size={36} className="text-purple-300 mb-2 animate-pulse" />
+             <div className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-200 to-white tracking-tighter">
+               {Math.round(progress)}<span className="text-lg text-purple-300/70">%</span>
+             </div>
+           </motion.div>
         </div>
 
         <motion.h2 
           initial={{ opacity: 0, y: 10 }} 
           animate={{ opacity: 1, y: 0 }}
-          className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-purple-400 via-white to-indigo-400 bg-clip-text text-transparent mb-2"
+          className="text-3xl md:text-5xl font-extrabold bg-gradient-to-r from-purple-300 via-white to-indigo-300 bg-clip-text text-transparent mb-4 tracking-tight"
         >
           {title}
         </motion.h2>
 
-        {/* Main Status Text - Uses 'wait' mode for smooth crossfading */}
-        <div className="h-8 overflow-hidden relative w-full mb-6">
+        {/* Status Text Crossfade */}
+        <div className="h-10 overflow-hidden relative w-full mb-8">
           <AnimatePresence mode="wait">
             <motion.p
               key={status}
-              initial={{ opacity: 0, y: 10 }}
+              initial={{ opacity: 0, y: 15 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.3 }}
-              className="text-lg text-white font-medium absolute inset-x-0"
+              exit={{ opacity: 0, y: -15 }}
+              transition={{ duration: 0.4, ease: "easeOut" }}
+              className="text-xl text-purple-200/90 font-medium absolute inset-x-0"
             >
               {status}
             </motion.p>
           </AnimatePresence>
         </div>
 
-        {/* Smooth Linear Progress Bar (No Layout Thrashing) */}
-        <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden border border-white/5 relative mb-8">
+        {/* Sleek Progress Bar */}
+        <div className="w-full bg-slate-800/50 backdrop-blur-sm rounded-full h-2.5 overflow-hidden border border-white/10 relative shadow-inner">
           <motion.div 
-            className="h-full bg-gradient-to-r from-purple-600 to-indigo-600 relative"
+            className="h-full bg-gradient-to-r from-purple-500 via-indigo-400 to-purple-500 bg-[length:200%_100%] relative"
             initial={false}
-            animate={{ width: `${progress}%` }}
-            transition={{ ease: "linear", duration: 0.2 }} // Fast, linear update preventing blink
+            animate={{ width: `${progress}%`, backgroundPosition: ['0% 0%', '100% 0%'] }}
+            transition={{ width: { ease: "linear", duration: 0.2 }, backgroundPosition: { duration: 2, repeat: Infinity, ease: "linear" } }}
           >
-            <div className="absolute inset-0 bg-white/30 animate-[shimmer_2s_infinite]" />
+            <div className="absolute inset-0 bg-white/20" />
           </motion.div>
         </div>
-
-        {/* "Matrix" Log Stream - Subtle & Techy */}
-        <div className="h-32 w-full bg-black/40 rounded-xl border border-white/5 p-4 overflow-hidden relative font-mono text-xs text-left shadow-inner">
-          <div className="absolute top-0 left-0 right-0 h-4 bg-gradient-to-b from-black/40 to-transparent z-10 pointer-events-none"></div>
-          <div className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-black/40 to-transparent z-10 pointer-events-none"></div>
-          
-          <div className="flex flex-col-reverse justify-end h-full gap-1.5">
-             <AnimatePresence initial={false}>
-               {logs.map((log, index) => (
-                 <motion.div
-                   key={index}
-                   initial={{ opacity: 0, x: -10, height: 0 }}
-                   animate={{ opacity: 1 - (index * 0.15), x: 0, height: 'auto' }} // Fade out older logs
-                   exit={{ opacity: 0 }}
-                   className="text-slate-300 whitespace-nowrap overflow-hidden text-ellipsis"
-                 >
-                   <span className="text-purple-500 mr-2 opacity-70">[{new Date().toLocaleTimeString().split(' ')[0]}]</span>
-                   {log}
-                 </motion.div>
-               ))}
-             </AnimatePresence>
-          </div>
-        </div>
-
       </div>
     </div>
   );
@@ -918,18 +933,62 @@ function ExamsPreparation() {
         <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-indigo-600 rounded-full blur-[120px]" />
       </div>
 
-      <div className="w-full max-w-7xl mx-auto p-4 md:p-8 relative">
+      {/* Stop Work Overlay */}
+      <AnimatePresence>
+        {showStopWorkOverlay && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] bg-red-600/90 backdrop-blur-md flex flex-col items-center justify-center"
+          >
+            <motion.div
+              animate={{ scale: [1, 1.1, 1] }}
+              transition={{ duration: 0.5, repeat: Infinity }}
+            >
+              <AlertTriangle size={100} className="text-white mb-6" />
+            </motion.div>
+            <h1 className="text-6xl md:text-8xl font-black text-white tracking-tighter text-center">TIME UP!</h1>
+            <h2 className="text-3xl md:text-5xl font-bold text-red-200 mt-4 tracking-tight">STOP WORK</h2>
+            <p className="text-lg text-white/80 mt-8 font-medium bg-black/20 px-6 py-2 rounded-full shadow-lg shadow-black/20">Auto-submitting your exam...</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="w-full max-w-7xl mx-auto p-4 md:p-8 relative z-20">
           
-          {/* Mobile Header */}
-          <header className="md:hidden flex justify-between items-center mb-6 sticky top-0 bg-slate-900/80 backdrop-blur-md z-30 py-4 px-2 -mx-2">
-             <button onClick={() => navigate('/dashboard')} className="p-2 bg-slate-800 rounded-full border border-white/10 active:scale-95 transition-transform">
-                <ArrowLeft size={18} />
-             </button>
-             <div className="flex items-center gap-2">
-               <BrainCircuit size={18} className="text-purple-400" />
-               <span className="font-semibold">Exam Prep AI</span>
+          {/* Global Header & Sticky Timer */}
+          <header className="sticky top-0 z-40 bg-slate-900/90 backdrop-blur-xl border-b border-white/5 py-4 px-4 -mx-4 md:-mx-8 mb-6 flex justify-between items-center shadow-lg">
+             <div className="flex items-center gap-3">
+               <button onClick={() => navigate('/dashboard')} className="p-2 bg-slate-800 rounded-full border border-white/10 hover:bg-slate-700 transition-colors">
+                  <ArrowLeft size={18} />
+               </button>
+               <div className="hidden md:flex items-center gap-2">
+                 <BrainCircuit size={20} className="text-purple-400" />
+                 <span className="font-bold text-lg text-white tracking-wide">Exam Prep AI</span>
+               </div>
              </div>
-             <div className="w-8" /> 
+             
+             {/* Dynamic Timer Display */}
+             <AnimatePresence>
+               {(examStage === 'mcq' || examStage === 'fill-in') && isTimerActive && (
+                 <motion.div 
+                   initial={{ opacity: 0, y: -20 }}
+                   animate={{ opacity: 1, y: 0 }}
+                   exit={{ opacity: 0, y: -20 }}
+                   className={`flex items-center gap-2 px-4 py-2 rounded-full border shadow-lg transition-colors ${
+                     timeLeft <= 120 
+                       ? 'bg-red-500/20 border-red-500/50 text-red-400 animate-pulse' 
+                       : 'bg-slate-800/80 border-white/10 text-slate-200'
+                   }`}
+                 >
+                   <Timer size={18} className={timeLeft <= 120 ? 'animate-bounce' : ''} />
+                   <span className="font-mono font-bold text-lg">{formatTime(timeLeft)}</span>
+                 </motion.div>
+               )}
+             </AnimatePresence>
+             
+             <div className="w-10 md:w-32" /> 
           </header>
 
           <div className="max-w-4xl mx-auto space-y-6">
@@ -1111,7 +1170,12 @@ function ExamsPreparation() {
                   </div>
                   
                   <button 
-                    onClick={() => setExamStage('mcq')} 
+                    onClick={() => {
+                      setExamStage('mcq');
+                      const totalTime = (mcqQuestions.length * 60) + (fillInQuestions.length * 180);
+                      setTimeLeft(totalTime);
+                      setIsTimerActive(true);
+                    }} 
                     className="w-full bg-purple-600 hover:bg-purple-500 text-white p-4 rounded-xl font-bold text-lg shadow-lg flex items-center justify-center gap-2 hover:-translate-y-1 transition-all"
                   >
                     I'm Ready - Start Quiz <ChevronRight />
@@ -1284,7 +1348,7 @@ function ExamsPreparation() {
                 </motion.div>
               )}
 
-              {/* --- STAGE 5: MARKING (REAL-TIME STATUS) --- */}
+              {/* --- STAGE 5: MARKING (ANXIOUS/SUSPENSEFUL UI) --- */}
               {examStage === 'marking' && (
                 <motion.div 
                   key="marking"
@@ -1292,77 +1356,99 @@ function ExamsPreparation() {
                   initial="initial"
                   animate="animate"
                   exit="exit"
-                  className="flex flex-col items-center justify-center py-20 text-center"
+                  className="flex flex-col items-center justify-center py-16 md:py-24 text-center relative"
                 >
-                  <div className="relative w-40 h-40 mb-10">
-                    <div className="absolute inset-0 border-8 border-slate-800 rounded-full" />
-                    <svg className="absolute inset-0 w-full h-full -rotate-90">
-                      <circle 
-                        cx="80" cy="80" r="72" 
-                        fill="none" 
-                        stroke="url(#gradient)" 
-                        strokeWidth="8"
-                        strokeDasharray="452"
-                        strokeDashoffset={452 - (452 * ((markingProgress.mcq + markingProgress.fillIn) / 200))}
-                        className="transition-all duration-300 ease-out"
-                      />
-                      <defs>
-                        <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                          <stop offset="0%" stopColor="#9333ea" />
-                          <stop offset="100%" stopColor="#4f46e5" />
-                        </linearGradient>
-                      </defs>
-                    </svg>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <Cpu size={32} className="text-purple-400 animate-pulse mb-2" />
-                      <span className="text-xl font-bold text-white">{Math.round((markingProgress.mcq + markingProgress.fillIn) / 2)}%</span>
+                  {/* Subtle Red/Orange glow for suspense */}
+                  <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none flex justify-center items-center opacity-20">
+                    <motion.div 
+                      animate={{ scale: [1, 1.2, 1], opacity: [0.5, 0.8, 0.5] }}
+                      transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                      className="w-96 h-96 bg-red-600 rounded-full blur-[120px]"
+                    />
+                  </div>
+
+                  <div className="relative z-10 w-48 h-48 mb-8 flex items-center justify-center">
+                    {/* Radar / Scanning rings */}
+                    <motion.div 
+                      className="absolute inset-0 rounded-full border border-red-500/30"
+                      animate={{ scale: [1, 1.5], opacity: [1, 0] }}
+                      transition={{ duration: 2, repeat: Infinity, ease: "easeOut" }}
+                    />
+                    <motion.div 
+                      className="absolute inset-0 rounded-full border border-red-500/30"
+                      animate={{ scale: [1, 1.5], opacity: [1, 0] }}
+                      transition={{ duration: 2, repeat: Infinity, ease: "easeOut", delay: 1 }}
+                    />
+                    
+                    {/* Document Icon with Scanner Line */}
+                    <div className="relative bg-slate-900 border-2 border-red-500/50 rounded-2xl p-6 shadow-[0_0_30px_rgba(239,68,68,0.3)] overflow-hidden">
+                       <FileText size={64} className="text-red-400" />
+                       <motion.div 
+                         className="absolute top-0 left-0 w-full h-1 bg-red-500 shadow-[0_0_15px_#ef4444]"
+                         animate={{ top: ['0%', '100%', '0%'] }}
+                         transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                       />
                     </div>
                   </div>
 
-                  <h2 className="text-2xl font-bold mb-2 animate-pulse">AI Grading in Progress</h2>
+                  <div className="relative z-10 flex items-center gap-3 mb-4">
+                    <Activity size={28} className="text-red-500 animate-pulse" />
+                    <h2 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-red-400 to-orange-400 tracking-tight">
+                      Analyzing Answers...
+                    </h2>
+                  </div>
                   
                   {/* Real-time Status Log */}
-                  <div className="h-8 mb-6 overflow-hidden w-full max-w-md">
+                  <div className="h-8 mb-8 overflow-hidden w-full max-w-md z-10">
                      <AnimatePresence mode="wait">
                        <motion.p
                          key={markingStatus}
                          initial={{ opacity: 0, y: 10 }}
                          animate={{ opacity: 1, y: 0 }}
                          exit={{ opacity: 0, y: -10 }}
-                         transition={{ duration: 0.3 }}
-                         className="text-slate-400 font-mono text-sm"
+                         transition={{ duration: 0.2 }}
+                         className="text-red-200 font-mono text-sm font-medium"
                        >
-                         <span className="text-purple-500 mr-2">{'>'}</span>
+                         <span className="text-red-500 mr-2 font-bold">{'>'}</span>
                          {markingStatus}
                        </motion.p>
                      </AnimatePresence>
                   </div>
                   
-                  <div className="w-full max-w-md space-y-4 bg-slate-800/50 p-6 rounded-2xl border border-white/5">
+                  {/* Suspenseful Progress Bars */}
+                  <div className="w-full max-w-md space-y-5 bg-slate-900/80 backdrop-blur-md p-6 rounded-2xl border border-red-500/20 shadow-xl z-10">
                      <div className="space-y-2">
-                       <div className="flex justify-between text-xs uppercase text-slate-400 font-bold tracking-wider">
-                         <span>Checking MCQ</span>
-                         <span className={markingProgress.mcq === 100 ? "text-green-400" : "text-white"}>{Math.round(markingProgress.mcq)}%</span>
+                       <div className="flex justify-between text-xs uppercase text-slate-300 font-bold tracking-widest">
+                         <span>MCQ Evaluation</span>
+                         <motion.span 
+                           className={markingProgress.mcq === 100 ? "text-green-400" : "text-red-400"}
+                         >
+                           {Math.round(markingProgress.mcq)}%
+                         </motion.span>
                        </div>
-                       <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                       <div className="h-2 bg-slate-800 rounded-full overflow-hidden border border-white/5">
                          <motion.div 
-                           className="h-full bg-blue-500" 
+                           className="h-full bg-gradient-to-r from-red-600 to-orange-500" 
                            animate={{ width: `${markingProgress.mcq}%` }} 
-                           transition={{ ease: "linear", duration: 0.3 }}
+                           transition={{ ease: "easeOut", duration: 0.5 }}
                          />
                        </div>
                      </div>
                      
                      <div className="space-y-2">
-                       <div className="flex justify-between text-xs uppercase text-slate-400 font-bold tracking-wider">
-                         <span>Semantic Analysis (Written)</span>
-                         <span className={markingProgress.fillIn === 100 ? "text-green-400" : "text-white"}>{Math.round(markingProgress.fillIn)}%</span>
+                       <div className="flex justify-between text-xs uppercase text-slate-300 font-bold tracking-widest">
+                         <span>Semantic Grading</span>
+                         <motion.span 
+                           className={markingProgress.fillIn === 100 ? "text-green-400" : "text-red-400"}
+                         >
+                           {Math.round(markingProgress.fillIn)}%
+                         </motion.span>
                        </div>
-                       <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                       <div className="h-2 bg-slate-800 rounded-full overflow-hidden border border-white/5">
                          <motion.div 
-                            className="h-full bg-purple-500" 
+                            className="h-full bg-gradient-to-r from-orange-500 to-yellow-500" 
                             animate={{ width: `${markingProgress.fillIn}%` }} 
-                            transition={{ ease: "linear", duration: 0.3 }}
+                            transition={{ ease: "easeOut", duration: 0.5 }}
                          />
                        </div>
                      </div>
