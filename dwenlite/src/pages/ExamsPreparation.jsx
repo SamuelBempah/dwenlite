@@ -7,98 +7,15 @@ import toast from 'react-hot-toast';
 import axios from 'axios';
 import mammoth from 'mammoth';
 import { motion, AnimatePresence } from 'framer-motion';
-import ExamBackground from '../components/ExamBackground';
-import Loader1 from '../components/loaders/Loader1';
-import Loader2 from '../components/loaders/Loader2';
-import Loader3 from '../components/loaders/Loader3';
-import Loader4 from '../components/loaders/Loader4';
-import Loader5 from '../components/loaders/Loader5';
-import Loader6 from '../components/loaders/Loader6';
-import Loader7 from '../components/loaders/Loader7';
-import Loader8 from '../components/loaders/Loader8';
-import Loader9 from '../components/loaders/Loader9';
-import Loader10 from '../components/loaders/Loader10';
-import Loader11 from '../components/loaders/Loader11';
-import Loader12 from '../components/loaders/Loader12';
-import Loader14 from '../components/loaders/Loader14';
 import { 
   LayoutDashboard, HelpCircle, LogOut, 
   ArrowLeft, Upload, FileText, Mic, Video, 
   CheckCircle, XCircle, Send, AlertTriangle,
   Sparkles, BrainCircuit, GraduationCap, ChevronRight,
   Clock, Check, RefreshCw, AlertCircle, SpellCheck,
-  Loader2 as LucideLoader2, Cpu, Terminal, 
-  ListChecks, AlignLeft, Type, Percent,
-  Timer, Activity
+  Loader2, Cpu, Terminal, 
+  ListChecks, AlignLeft, Type, Percent
 } from 'lucide-react';
-
-const LOADERS = [
-  Loader14, Loader1, Loader2, Loader3, Loader4, Loader5, Loader6, Loader7, Loader8, Loader9, Loader10, Loader11, Loader12
-];
-
-const ImmersiveLoading = ({ title, status, logs, progress }) => {
-  const [loaderIndex, setLoaderIndex] = useState(0);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setLoaderIndex(prev => (prev + 1) % LOADERS.length);
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const CurrentLoader = LOADERS[loaderIndex] || Loader14;
-
-  return (
-    <div className="fixed inset-0 z-[100] bg-[#09090b]/80 backdrop-blur-xl flex flex-col items-center justify-center text-center p-6 transition-all duration-300">
-      <div className="relative z-10 w-full max-w-md flex flex-col items-center p-8 rounded-3xl">
-        <div className="mb-8 scale-75 md:scale-100 flex items-center justify-center h-32 w-32 relative">
-           <AnimatePresence mode="wait">
-             <motion.div 
-               key={loaderIndex}
-               initial={{ opacity: 0, scale: 0.95 }}
-               animate={{ opacity: 1, scale: 1 }}
-               exit={{ opacity: 0, scale: 1.05 }}
-               transition={{ duration: 0.4, ease: "easeInOut" }}
-               className="absolute inset-0 flex items-center justify-center"
-               style={{ willChange: 'transform, opacity' }}
-             >
-               <CurrentLoader />
-             </motion.div>
-           </AnimatePresence>
-        </div>
-
-        <h2 className="text-2xl md:text-3xl font-extrabold text-white mb-2 tracking-tight bg-gradient-to-r from-blue-100 to-blue-400 bg-clip-text text-transparent">
-          {title}
-        </h2>
-
-        <div className="h-8 overflow-hidden relative w-full mb-6">
-          <AnimatePresence mode="wait">
-            <motion.p
-              key={status}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.3 }}
-              className="text-gray-400 font-medium absolute inset-x-0"
-            >
-              {status}
-            </motion.p>
-          </AnimatePresence>
-        </div>
-
-        <div className="w-full bg-black/40 rounded-full h-2.5 overflow-hidden relative mb-4 border border-white/10">
-          <motion.div 
-            className="h-full bg-gradient-to-r from-blue-500 to-purple-500 shadow-[0_0_10px_rgba(59,130,246,0.8)] relative"
-            initial={false}
-            animate={{ width: `${progress}%` }}
-            transition={{ ease: "linear", duration: 0.2 }}
-          />
-        </div>
-        <div className="text-sm font-bold text-white mb-2">{Math.round(progress)}%</div>
-      </div>
-    </div>
-  );
-};
 
 function ExamsPreparation() {
   const navigate = useNavigate();
@@ -116,7 +33,6 @@ function ExamsPreparation() {
   const [files, setFiles] = useState([]);
   const [uploadedNotes, setUploadedNotes] = useState([]);
   const [uploadLoading, setUploadLoading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
   const [examStage, setExamStage] = useState('upload'); // 'upload', 'review', 'mcq', 'fill-in', 'marking', 'results'
   const [reviewContent, setReviewContent] = useState('');
   
@@ -133,11 +49,6 @@ function ExamsPreparation() {
   const [markingProgress, setMarkingProgress] = useState({ mcq: 0, fillIn: 0 }); 
   const [markingStatus, setMarkingStatus] = useState("Initializing grading engine...");
   const [submitLoading, setSubmitLoading] = useState(false);
-
-  // Timer State
-  const [timeLeft, setTimeLeft] = useState(0);
-  const [isTimerActive, setIsTimerActive] = useState(false);
-  const [showStopWorkOverlay, setShowStopWorkOverlay] = useState(false);
 
   // Chat & Report State
   const [chatInput, setChatInput] = useState('');
@@ -171,29 +82,6 @@ function ExamsPreparation() {
     }
   }, [chatHistory, showReportForm]);
 
-  // Timer Logic
-  useEffect(() => {
-    let interval = null;
-    if (isTimerActive && timeLeft > 0) {
-      interval = setInterval(() => {
-        setTimeLeft((prev) => prev - 1);
-      }, 1000);
-    } else if (isTimerActive && timeLeft === 0) {
-      setIsTimerActive(false);
-      setShowStopWorkOverlay(true);
-      setTimeout(() => {
-        handleFillSubmit();
-        setShowStopWorkOverlay(false);
-      }, 3000); // Wait 3 seconds then auto-submit
-    }
-    return () => clearInterval(interval);
-  }, [isTimerActive, timeLeft]);
-
-  const formatTime = (seconds) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  };
 
   // --- CORE LOGIC HANDLERS ---
 
@@ -351,9 +239,6 @@ function ExamsPreparation() {
     }
 
     setUploadLoading(true);
-    setUploadProgress(0);
-    let completedFiles = 0;
-    const totalFiles = selectedFiles.length;
 
     try {
       const newNotesPromises = selectedFiles.map(async (selectedFile) => {
@@ -391,7 +276,7 @@ function ExamsPreparation() {
             }
           }
 
-          const noteResult = {
+          return {
             url: downloadURL,
             isAudio,
             isVideo,
@@ -400,14 +285,9 @@ function ExamsPreparation() {
             createdAt: new Date().toISOString(),
             fileName: selectedFile.name,
           };
-          completedFiles++;
-          setUploadProgress(Math.round((completedFiles / totalFiles) * 100));
-          return noteResult;
         } catch (fileErr) {
           console.error(`Error processing file ${selectedFile.name}:`, fileErr);
           toast.error(`Failed to process ${selectedFile.name}`);
-          completedFiles++;
-          setUploadProgress(Math.round((completedFiles / totalFiles) * 100));
           return null;
         }
       });
@@ -669,7 +549,6 @@ function ExamsPreparation() {
 
   // --- NEW: LECTURER GRADING LOGIC ---
   const handleFillSubmit = async () => {
-    setIsTimerActive(false);
     setExamStage('marking');
     setSubmitLoading(true);
     setMarkingProgress({ mcq: 0, fillIn: 0 });
@@ -858,8 +737,6 @@ function ExamsPreparation() {
   };
 
   const resetExam = () => {
-    setIsTimerActive(false);
-    setTimeLeft(0);
     setExamStage('upload');
     setScores({ mcq: 0, fillIn: 0, total: 0 });
     setCurrentMcqIndex(0);
@@ -914,6 +791,99 @@ function ExamsPreparation() {
     }
   };
 
+  const ImmersiveLoading = ({ title, status, logs, progress }) => (
+    <div className="fixed inset-0 z-50 bg-slate-900/95 backdrop-blur-xl flex flex-col items-center justify-center text-center p-6 overflow-hidden">
+      
+      {/* Background Grid */}
+      <div className="absolute inset-0 z-0 opacity-10" style={{ 
+          backgroundImage: 'linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px)', 
+          backgroundSize: '30px 30px' 
+      }}></div>
+
+      <div className="relative z-10 w-full max-w-xl">
+        <div className="relative w-72 h-72 mx-auto mb-10">
+          {/* Rotating Rings */}
+          <motion.div 
+            animate={{ rotate: 360 }}
+            transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
+            className="absolute inset-0 rounded-full border border-purple-500/10 border-t-purple-500 border-r-purple-500/50"
+          />
+          <motion.div 
+            animate={{ rotate: -360 }}
+            transition={{ duration: 5, repeat: Infinity, ease: "linear" }}
+            className="absolute inset-6 rounded-full border border-indigo-500/10 border-b-indigo-500 border-l-indigo-500/50"
+          />
+          {/* Center Info */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <Terminal size={48} className="text-purple-400 mb-4 animate-pulse" />
+            <div className="text-4xl font-bold font-mono text-white tracking-tighter">
+              {Math.round(progress)}<span className="text-sm text-slate-500">%</span>
+            </div>
+          </div>
+        </div>
+
+        <motion.h2 
+          initial={{ opacity: 0, y: 10 }} 
+          animate={{ opacity: 1, y: 0 }}
+          className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-purple-400 via-white to-indigo-400 bg-clip-text text-transparent mb-2"
+        >
+          {title}
+        </motion.h2>
+
+        {/* Main Status Text - Uses 'wait' mode for smooth crossfading */}
+        <div className="h-8 overflow-hidden relative w-full mb-6">
+          <AnimatePresence mode="wait">
+            <motion.p
+              key={status}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.3 }}
+              className="text-lg text-white font-medium absolute inset-x-0"
+            >
+              {status}
+            </motion.p>
+          </AnimatePresence>
+        </div>
+
+        {/* Smooth Linear Progress Bar (No Layout Thrashing) */}
+        <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden border border-white/5 relative mb-8">
+          <motion.div 
+            className="h-full bg-gradient-to-r from-purple-600 to-indigo-600 relative"
+            initial={false}
+            animate={{ width: `${progress}%` }}
+            transition={{ ease: "linear", duration: 0.2 }} // Fast, linear update preventing blink
+          >
+            <div className="absolute inset-0 bg-white/30 animate-[shimmer_2s_infinite]" />
+          </motion.div>
+        </div>
+
+        {/* "Matrix" Log Stream - Subtle & Techy */}
+        <div className="h-32 w-full bg-black/40 rounded-xl border border-white/5 p-4 overflow-hidden relative font-mono text-xs text-left shadow-inner">
+          <div className="absolute top-0 left-0 right-0 h-4 bg-gradient-to-b from-black/40 to-transparent z-10 pointer-events-none"></div>
+          <div className="absolute bottom-0 left-0 right-0 h-4 bg-gradient-to-t from-black/40 to-transparent z-10 pointer-events-none"></div>
+          
+          <div className="flex flex-col-reverse justify-end h-full gap-1.5">
+             <AnimatePresence initial={false}>
+               {logs.map((log, index) => (
+                 <motion.div
+                   key={index}
+                   initial={{ opacity: 0, x: -10, height: 0 }}
+                   animate={{ opacity: 1 - (index * 0.15), x: 0, height: 'auto' }} // Fade out older logs
+                   exit={{ opacity: 0 }}
+                   className="text-slate-300 whitespace-nowrap overflow-hidden text-ellipsis"
+                 >
+                   <span className="text-purple-500 mr-2 opacity-70">[{new Date().toLocaleTimeString().split(' ')[0]}]</span>
+                   {log}
+                 </motion.div>
+               ))}
+             </AnimatePresence>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
 
   if (loading) return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center">
@@ -922,8 +892,7 @@ function ExamsPreparation() {
   );
 
   return (
-    <div className="relative min-h-[100dvh] flex flex-col bg-[#09090b] overflow-hidden text-white font-sans">
-      
+    <>
       {/* Immersive Loading Overlay for Exam Generation */}
       <AnimatePresence>
         {examLoading && (
@@ -931,7 +900,7 @@ function ExamsPreparation() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100]"
+            className="fixed inset-0 z-[60]"
           >
             <ImmersiveLoading 
               title="Generating Exam" 
@@ -943,424 +912,708 @@ function ExamsPreparation() {
         )}
       </AnimatePresence>
 
-      {/* Stop Work Overlay */}
-      <AnimatePresence>
-        {showStopWorkOverlay && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[110] bg-red-600/95 backdrop-blur-md flex flex-col items-center justify-center"
-          >
-            <motion.div
-              animate={{ scale: [1, 1.1, 1] }}
-              transition={{ duration: 0.5, repeat: Infinity }}
-            >
-              <AlertTriangle size={100} className="text-white mb-6" />
-            </motion.div>
-            <h1 className="text-6xl md:text-8xl font-black text-white tracking-tighter text-center">TIME UP!</h1>
-            <h2 className="text-3xl md:text-5xl font-bold text-red-200 mt-4 tracking-tight">STOP WORK</h2>
-            <p className="text-lg text-white/80 mt-8 font-medium bg-black/20 px-6 py-2 rounded-full shadow-lg shadow-black/20">Auto-submitting your exam...</p>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Background Ambience */}
+      <div className="fixed inset-0 z-0 opacity-20 pointer-events-none">
+        <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-purple-600 rounded-full blur-[120px]" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-indigo-600 rounded-full blur-[120px]" />
+      </div>
 
-      <ExamBackground exitAnimation={false} />
-
-      <div className="absolute inset-0 flex flex-col pointer-events-none">
-        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/10 to-[#09090b]" />
-
-        {/* Floating Top Navigation */}
-        <div className="relative z-50 flex justify-between items-center w-full p-6 pointer-events-auto">
-          <button onClick={() => navigate('/dashboard')} className="p-3 bg-white/5 backdrop-blur-md border border-white/10 hover:bg-white/10 rounded-full transition-colors text-white shadow-[0_0_20px_rgba(0,0,0,0.3)]">
-             <ArrowLeft size={20} />
-          </button>
+      <div className="w-full max-w-7xl mx-auto p-4 md:p-8 relative">
           
-          <AnimatePresence>
-            {(examStage === 'mcq' || examStage === 'fill-in') && isTimerActive && (
-              <motion.div 
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -20 }}
-                className={`flex items-center gap-2 px-4 py-2 rounded-full border transition-colors shadow-[0_0_20px_rgba(0,0,0,0.3)] ${
-                  timeLeft <= 120 
-                    ? 'bg-red-500/20 text-red-400 border-red-500/50 animate-pulse' 
-                    : 'bg-[#18181b]/80 backdrop-blur-md border-white/10 text-white'
-                }`}
-              >
-                <Timer size={18} className={timeLeft <= 120 ? 'animate-bounce' : ''} />
-                <span className="font-mono font-bold text-lg">{formatTime(timeLeft)}</span>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+          {/* Mobile Header */}
+          <header className="md:hidden flex justify-between items-center mb-6 sticky top-0 bg-slate-900/80 backdrop-blur-md z-30 py-4 px-2 -mx-2">
+             <button onClick={() => navigate('/dashboard')} className="p-2 bg-slate-800 rounded-full border border-white/10 active:scale-95 transition-transform">
+                <ArrowLeft size={18} />
+             </button>
+             <div className="flex items-center gap-2">
+               <BrainCircuit size={18} className="text-purple-400" />
+               <span className="font-semibold">Exam Prep AI</span>
+             </div>
+             <div className="w-8" /> 
+          </header>
 
-        <div className="flex-grow" />
-
-        {/* Premium Bottom Sheet */}
-        <motion.div 
-          initial={{ y: "100%" }}
-          animate={{ y: 0 }}
-          transition={{ type: "spring", damping: 25, stiffness: 200 }}
-          className="relative z-40 w-full mt-auto pointer-events-auto"
-        >
-          <div className="bg-[#18181b]/90 backdrop-blur-xl border-t border-white/10 rounded-t-[2.5rem] p-6 sm:p-8 pb-8 sm:pb-10 shadow-[0_-20px_50px_rgba(0,0,0,0.5)] max-w-4xl mx-auto w-full max-h-[85vh] overflow-y-auto custom-scrollbar flex flex-col">
+          <div className="max-w-4xl mx-auto space-y-6">
             
-            <div className="w-12 h-1.5 bg-gray-700 rounded-full mx-auto mb-8 shrink-0" />
-
-            <div className="w-full flex-grow flex flex-col">
-              
-              {/* Context Header */}
-              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
-                <div>
-                  <motion.h1 
-                    key={`title-${examStage}`}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="text-2xl md:text-3xl font-extrabold bg-gradient-to-r from-blue-100 to-blue-400 bg-clip-text text-transparent tracking-tight"
-                  >
-                    {examStage === 'upload' && 'Upload Study Material'}
-                    {examStage === 'review' && 'Generated Notes'}
-                    {examStage === 'mcq' && 'Multiple Choice Assessment'}
-                    {examStage === 'fill-in' && 'Written Assessment'}
-                    {examStage === 'marking' && 'Grading Analysis'}
-                    {examStage === 'results' && 'Exam Results'}
-                  </motion.h1>
-                  <motion.p 
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 0.1 }}
-                    className="text-gray-400 text-sm md:text-base mt-2 font-medium"
-                  >
-                    {examStage === 'upload' && 'Upload lectures, PDFs, or videos. Our AI teacher will create a personalized exam.'}
-                    {examStage === 'review' && 'Review these concepts carefully before the timer starts.'}
-                    {examStage === 'mcq' && 'Select the best answer for each question.'}
-                    {examStage === 'fill-in' && 'Complete the mixed written questions below.'}
-                    {examStage === 'marking' && 'Evaluating your answers against the core material.'}
-                    {examStage === 'results' && 'Review your performance and chat with your AI Teacher.'}
-                  </motion.p>
-                </div>
-                {examStage !== 'upload' && examStage !== 'marking' && (
-                  <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border border-blue-500/20 rounded-full shrink-0">
-                    <BrainCircuit size={14} className="text-blue-400" />
-                    <span className="text-xs font-mono text-blue-300 font-semibold uppercase tracking-wider">AI Active</span>
-                  </div>
-                )}
+            {/* Context Header */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-2">
+              <div>
+                <motion.h1 
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="text-2xl md:text-3xl font-bold bg-gradient-to-r from-white via-purple-100 to-purple-200 bg-clip-text text-transparent"
+                >
+                  {examStage === 'upload' && 'Setup Your Exam'}
+                  {examStage === 'review' && 'AI Generated Review'}
+                  {examStage === 'mcq' && 'Multiple Choice Assessment'}
+                  {examStage === 'fill-in' && 'Written Assessment'}
+                  {examStage === 'marking' && 'Grading Analysis'}
+                  {examStage === 'results' && 'Performance Analysis'}
+                </motion.h1>
+                <motion.p 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.1 }}
+                  className="text-slate-400 text-sm mt-1"
+                >
+                  {examStage === 'upload' && 'Upload lectures or notes. Our AI will handle the rest.'}
+                  {examStage === 'review' && 'Study these notes carefully before starting the quiz.'}
+                  {examStage === 'mcq' && 'Select the best answer for each question.'}
+                  {examStage === 'fill-in' && 'Complete the mixed written questions below.'}
+                  {examStage === 'marking' && 'Evaluating your answers against the source material.'}
+                  {examStage === 'results' && 'Review your mistakes and ask DwenLite for clarification.'}
+                </motion.p>
               </div>
+              
+              {examStage !== 'upload' && examStage !== 'marking' && (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-500/10 border border-purple-500/20 rounded-full">
+                  <Sparkles size={14} className="text-purple-400" />
+                  <span className="text-xs font-mono text-purple-300">DwenLite AI Active</span>
+                </div>
+              )}
+            </div>
 
-              {/* STAGE: UPLOAD */}
-              <AnimatePresence mode="wait">
-                {examStage === 'upload' && (
-                  <motion.div key="upload" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="space-y-6">
-                    <div className="relative group cursor-pointer">
-                      <div className="absolute inset-0 bg-gradient-to-r from-blue-600/20 to-purple-600/20 rounded-3xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-                      <div className="relative bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-10 text-center border-dashed group-hover:border-blue-500/50 transition-all overflow-hidden shadow-lg">
-                        <input 
-                          type="file" 
-                          onChange={handleFileUpload}
-                          multiple
-                          accept=".pdf,.txt,.ppt,.pptx,.docx,.mp3,.wav,.m4a,.mp4,.mov,.avi"
-                          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
-                          disabled={uploadLoading}
-                        />
-                        <div className="w-24 h-24 mx-auto mb-6 relative group-hover:scale-110 transition-transform duration-300">
-                          {uploadLoading ? (
-                            <>
-                              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-                                <circle cx="50" cy="50" r="45" fill="none" stroke="currentColor" strokeWidth="6" className="text-blue-500/20" />
-                                <motion.circle 
-                                  cx="50" cy="50" r="45" 
-                                  fill="none" 
-                                  stroke="currentColor" 
-                                  strokeWidth="6" 
-                                  className="text-blue-400"
-                                  strokeDasharray={2 * 3.14159 * 45}
-                                  strokeDashoffset={2 * 3.14159 * 45 * (1 - uploadProgress / 100)}
-                                  initial={{ strokeDashoffset: 2 * 3.14159 * 45 }}
-                                  animate={{ strokeDashoffset: 2 * 3.14159 * 45 * (1 - uploadProgress / 100) }}
-                                  transition={{ ease: "easeOut", duration: 0.3 }}
-                                  strokeLinecap="round"
-                                />
-                              </svg>
-                              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                <span className="text-lg font-bold text-white tracking-tighter">{uploadProgress}%</span>
-                              </div>
-                            </>
-                          ) : (
-                            <div className="w-full h-full bg-blue-500/10 rounded-full flex items-center justify-center border border-blue-500/20 group-hover:bg-blue-500/20 transition-colors shadow-inner">
-                              <Upload size={40} className="text-blue-400 group-hover:text-blue-300" />
-                            </div>
-                          )}
-                        </div>
-                        <h3 className="text-xl font-bold text-white mb-2 tracking-tight">
-                          {uploadLoading ? 'Processing Files...' : 'Drop files here or click to browse'}
-                        </h3>
-                        <p className="text-gray-400 text-sm max-w-sm mx-auto leading-relaxed">
-                          Supports PDF, DOCX, PPTX, Audio, and Video files. Max 50 files.
-                        </p>
-                      </div>
-                    </div>
+            {/* PROGRESS STEPPER (Visual Only) */}
+            {examStage !== 'upload' && examStage !== 'results' && (
+              <div className="flex items-center justify-center gap-2 mb-8">
+                {['review', 'mcq', 'fill-in', 'marking'].map((step, i) => (
+                  <div key={step} className={`h-1.5 rounded-full transition-all duration-500 ${
+                    ['review', 'mcq', 'fill-in', 'marking'].indexOf(examStage) >= i 
+                      ? 'w-12 bg-purple-500' 
+                      : 'w-4 bg-slate-700'
+                  }`} />
+                ))}
+              </div>
+            )}
 
-                    {uploadedNotes.length > 0 && (
-                      <motion.div variants={staggerContainer} initial="hidden" animate="show" className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-5 shadow-lg">
-                        <h4 className="text-sm font-semibold text-gray-300 mb-4 px-2 flex items-center gap-2 justify-between">
-                          <span className="flex items-center gap-2"><CheckCircle size={16} className="text-green-500" /> Files Ready</span>
-                          <span className="text-xs text-gray-500 bg-white/5 px-2 py-1 rounded-full">{uploadedNotes.length} / 50</span>
-                        </h4>
-                        <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
-                          {uploadedNotes.map((note, idx) => (
-                             <motion.div key={idx} layout variants={listItem} className="flex items-center gap-4 bg-black/40 p-3.5 rounded-xl border border-white/5 hover:bg-white/5 transition-colors">
-                               <div className={`p-2 rounded-lg ${note.isAudio ? 'bg-orange-500/10 text-orange-400' : note.isVideo ? 'bg-red-500/10 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
-                                 {note.isAudio ? <Mic size={18} /> : note.isVideo ? <Video size={18} /> : <FileText size={18} />}
-                               </div>
-                               <div className="flex-1 min-w-0">
-                                 <div className="text-sm font-medium truncate text-gray-200">{note.fileName}</div>
-                               </div>
-                               <button onClick={() => setUploadedNotes(p => p.filter((_, i) => i !== idx))} className="text-gray-500 hover:text-red-400 transition-colors p-1">
-                                 <XCircle size={18} />
-                               </button>
-                             </motion.div>
-                          ))}
-                        </div>
-                      </motion.div>
-                    )}
-
-                    <button
-                      onClick={handleStartExam}
-                      disabled={examLoading || uploadedNotes.length === 0}
-                      className="w-full relative overflow-hidden bg-blue-600 text-white py-4 rounded-2xl font-bold text-lg flex items-center justify-center transition-all shadow-[0_0_30px_rgba(37,99,235,0.3)] hover:bg-blue-500 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed group"
-                    >
-                      <div className="relative z-10 flex items-center justify-center gap-2">
-                        {examLoading ? (
-                          <><LucideLoader2 className="animate-spin" /> Preparing Engine...</>
+            <AnimatePresence mode="wait">
+              
+              {/* --- STAGE 1: UPLOAD --- */}
+              {examStage === 'upload' && (
+                <motion.div 
+                  key="upload"
+                  variants={pageVariants}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                  className="space-y-6"
+                >
+                  {/* Upload Area */}
+                  <div className="relative group">
+                    <div className="absolute inset-0 bg-gradient-to-r from-purple-600/20 to-indigo-600/20 rounded-3xl blur-xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                    <div className="relative bg-slate-800/40 backdrop-blur-xl border border-white/10 rounded-3xl p-10 text-center border-dashed border-2 border-slate-700 group-hover:border-purple-500/50 transition-all overflow-hidden">
+                      
+                      <input 
+                        type="file" 
+                        onChange={handleFileUpload}
+                        multiple
+                        accept=".pdf,.txt,.ppt,.pptx,.docx,.mp3,.wav,.m4a,.mp4,.mov,.avi"
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
+                        disabled={uploadLoading}
+                      />
+                      
+                      <div className="w-20 h-20 bg-slate-700/50 rounded-full flex items-center justify-center mx-auto mb-6 group-hover:scale-110 group-hover:bg-purple-500/20 transition-all duration-300">
+                        {uploadLoading ? (
+                          <div className="w-8 h-8 border-3 border-purple-400 border-t-transparent rounded-full animate-spin" />
                         ) : (
-                          <>Generate Exam <ArrowLeft className="rotate-180 group-hover:translate-x-1 transition-transform" size={20} /></>
+                          <Upload size={40} className="text-purple-400 group-hover:text-purple-300" />
                         )}
                       </div>
-                    </button>
-                  </motion.div>
-                )}
-
-                {/* STAGE: REVIEW */}
-                {examStage === 'review' && (
-                  <motion.div key="review" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="space-y-6 flex-grow flex flex-col">
-                    <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-6 md:p-8 flex-grow overflow-y-auto custom-scrollbar shadow-lg">
-                      <div className="prose prose-invert max-w-none prose-p:text-gray-300 prose-headings:text-white prose-strong:text-blue-300 prose-ul:list-disc prose-li:marker:text-blue-500">
-                        <pre className="whitespace-pre-wrap font-sans text-sm md:text-base leading-relaxed">{reviewContent}</pre>
-                      </div>
-                    </div>
-                    <button 
-                      onClick={() => {
-                        setExamStage('mcq');
-                        const totalTime = (mcqQuestions.length * 60) + (fillInQuestions.length * 180);
-                        setTimeLeft(totalTime);
-                        setIsTimerActive(true);
-                      }} 
-                      className="w-full bg-blue-600 hover:bg-blue-500 text-white p-4 rounded-2xl font-bold text-lg shadow-[0_0_30px_rgba(37,99,235,0.3)] flex items-center justify-center gap-2 active:scale-[0.98] transition-all group"
-                    >
-                      Start Assessment <ArrowLeft className="rotate-180 group-hover:translate-x-1 transition-transform" size={20}/>
-                    </button>
-                  </motion.div>
-                )}
-
-                {/* STAGE: MCQ */}
-                {examStage === 'mcq' && mcqQuestions.length > 0 && (
-                  <motion.div key="mcq" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="space-y-6">
-                    <div className="relative h-1.5 bg-white/5 rounded-full overflow-hidden">
-                      <motion.div 
-                        className="absolute top-0 left-0 h-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.8)]" 
-                        initial={false} 
-                        animate={{ width: `${((currentMcqIndex + 1) / mcqQuestions.length) * 100}%` }} 
-                        transition={{ ease: "linear", duration: 0.3 }}
-                      />
-                    </div>
-
-                    <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-6 md:p-10 shadow-lg">
-                      <div className="flex justify-between items-center mb-6">
-                        <span className="text-blue-400 text-xs font-bold tracking-widest uppercase bg-blue-500/10 border border-blue-500/20 px-3 py-1 rounded-full">
-                          Q {currentMcqIndex + 1} / {mcqQuestions.length}
-                        </span>
-                        <span className="text-gray-500 text-xs font-mono font-bold bg-white/5 px-2 py-1 rounded">2 Pts</span>
-                      </div>
-                      <h2 className="text-xl md:text-2xl font-bold mb-8 leading-snug tracking-tight text-white">{mcqQuestions[currentMcqIndex].question}</h2>
                       
-                      <div className="grid grid-cols-1 gap-3">
-                        {mcqQuestions[currentMcqIndex].options.map((option, idx) => {
-                          let styleClass = "bg-white/5 border-white/5 hover:bg-white/10 hover:border-blue-500/30 text-gray-300";
-                          if (selectedAnswer === option) {
-                            if (isCorrect) styleClass = "bg-green-500/20 border-green-500/50 text-green-300 shadow-[0_0_20px_rgba(34,197,94,0.2)]";
-                            else styleClass = "bg-red-500/20 border-red-500/50 text-red-300 shadow-[0_0_20px_rgba(239,68,68,0.2)]";
-                          } else if (selectedAnswer && option === mcqQuestions[currentMcqIndex].correctAnswer) {
-                            styleClass = "bg-green-500/10 border-green-500/30 text-green-400 opacity-70";
-                          } else if (selectedAnswer) {
-                            styleClass = "opacity-30 cursor-not-allowed border-transparent bg-black/20";
-                          }
-                          return (
-                            <button
-                              key={idx}
-                              onClick={() => handleMcqAnswer(option)}
-                              disabled={selectedAnswer !== null}
-                              className={`p-4 md:p-5 rounded-2xl text-left border transition-all duration-300 font-medium ${styleClass}`}
-                            >
-                              <span className="mr-3 opacity-50 font-mono text-sm">{String.fromCharCode(65 + idx)}.</span>
-                              {option}
-                            </button>
-                          );
-                        })}
+                      <h3 className="text-xl font-bold text-white mb-2">
+                        {uploadLoading ? 'Analyzing Files...' : 'Click or Drag to Upload'}
+                      </h3>
+                      <p className="text-slate-400 text-sm max-w-md mx-auto">
+                        Upload up to 50 files at once.
+                        <br/>
+                        Compatible with <span className="text-slate-300">PDF, TXT, DOCX, PPTX</span>, <span className="text-slate-300">Audio</span>, and <span className="text-slate-300">Video</span>.
+                        <br/><span className="text-xs opacity-70 mt-2 block">Max file size: 50MB</span>
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Uploaded Files List */}
+                  {uploadedNotes.length > 0 && (
+                    <motion.div 
+                      variants={staggerContainer}
+                      initial="hidden"
+                      animate="show"
+                      className="bg-slate-800/40 backdrop-blur-md border border-white/5 rounded-2xl p-5"
+                    >
+                      <h4 className="text-sm font-semibold text-slate-300 mb-4 px-2 flex items-center gap-2 justify-between">
+                        <span className="flex items-center gap-2"><CheckCircle size={16} className="text-green-500" /> Ready for Processing</span>
+                        <span className="text-xs text-slate-500">{uploadedNotes.length} / 50 files</span>
+                      </h4>
+                      <div className="space-y-3 max-h-64 overflow-y-auto custom-scrollbar">
+                        {uploadedNotes.map((note, idx) => (
+                           <motion.div 
+                             key={`${note.fileName}-${note.createdAt}-${idx}`} 
+                             layout
+                             variants={listItem}
+                             className="flex items-center gap-4 bg-slate-900/60 p-4 rounded-xl border border-white/5 hover:border-purple-500/30 transition-colors"
+                           >
+                             <div className={`p-2 rounded-lg ${note.isAudio ? 'bg-orange-500/10 text-orange-400' : note.isVideo ? 'bg-red-500/10 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                               {note.isAudio ? <Mic size={18} /> : note.isVideo ? <Video size={18} /> : <FileText size={18} />}
+                             </div>
+                             <div className="flex-1 min-w-0">
+                               <div className="text-sm font-medium truncate text-white">{note.fileName}</div>
+                               <div className="text-xs text-slate-500">Processed • {new Date(note.createdAt).toLocaleTimeString()}</div>
+                             </div>
+                             <button onClick={() => setUploadedNotes(p => p.filter((_, i) => i !== idx))} className="text-slate-600 hover:text-red-400">
+                               <XCircle size={18} />
+                             </button>
+                           </motion.div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {/* Action Button */}
+                  <button
+                    onClick={handleStartExam}
+                    disabled={examLoading || uploadedNotes.length === 0}
+                    className="group w-full relative overflow-hidden bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white p-5 rounded-2xl font-bold text-lg shadow-xl shadow-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-[0.99]"
+                  >
+                    <div className="relative z-10 flex items-center justify-center gap-3">
+                      {examLoading ? (
+                        <>
+                          <Loader2 className="animate-spin" /> Preparing Interface...
+                        </>
+                      ) : (
+                        <>
+                          Generate Exam <ChevronRight className="group-hover:translate-x-1 transition-transform" />
+                        </>
+                      )}
+                    </div>
+                    {/* Button Shine Effect */}
+                    <div className="absolute inset-0 -translate-x-full group-hover:animate-[shimmer_1.5s_infinite] bg-gradient-to-r from-transparent via-white/10 to-transparent z-0" />
+                  </button>
+                </motion.div>
+              )}
+
+              {/* --- STAGE 2: REVIEW --- */}
+              {examStage === 'review' && (
+                <motion.div 
+                  key="review"
+                  variants={pageVariants}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                  className="space-y-6"
+                >
+                  <div className="bg-slate-800/60 backdrop-blur-xl border border-white/10 rounded-2xl p-6 md:p-8 max-h-[60vh] overflow-y-auto custom-scrollbar shadow-2xl">
+                    <div className="flex items-center gap-2 mb-6 border-b border-white/10 pb-4">
+                      <FileText className="text-purple-400" />
+                      <h2 className="text-lg font-bold">Study Notes</h2>
+                    </div>
+                    <div className="prose prose-invert max-w-none prose-p:text-slate-300 prose-headings:text-white prose-strong:text-purple-300 prose-ul:list-disc prose-li:marker:text-purple-500">
+                      <pre className="whitespace-pre-wrap font-sans text-sm md:text-base leading-relaxed">{reviewContent}</pre>
+                    </div>
+                  </div>
+                  
+                  <button 
+                    onClick={() => setExamStage('mcq')} 
+                    className="w-full bg-purple-600 hover:bg-purple-500 text-white p-4 rounded-xl font-bold text-lg shadow-lg flex items-center justify-center gap-2 hover:-translate-y-1 transition-all"
+                  >
+                    I'm Ready - Start Quiz <ChevronRight />
+                  </button>
+                </motion.div>
+              )}
+
+              {/* --- STAGE 3: MCQ --- */}
+              {examStage === 'mcq' && mcqQuestions.length > 0 && (
+                <motion.div 
+                  key="mcq"
+                  variants={pageVariants}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                  className="space-y-6"
+                >
+                  {/* Progress Bar */}
+                  <div className="relative h-2 bg-slate-800 rounded-full overflow-hidden">
+                    <motion.div 
+                      className="absolute top-0 left-0 h-full bg-gradient-to-r from-purple-500 to-indigo-500" 
+                      initial={false} 
+                      animate={{ width: `${((currentMcqIndex + 1) / mcqQuestions.length) * 100}%` }} 
+                      transition={{ ease: "linear", duration: 0.3 }}
+                    />
+                  </div>
+
+                  <div className="bg-slate-800/60 backdrop-blur-xl border border-white/10 rounded-2xl p-6 md:p-10 min-h-[400px] flex flex-col justify-center shadow-2xl">
+                    <div className="flex justify-between items-center mb-6">
+                      <span className="text-purple-400 text-xs font-bold tracking-widest uppercase bg-purple-500/10 px-3 py-1 rounded-full">
+                        Question {currentMcqIndex + 1} / {mcqQuestions.length}
+                      </span>
+                      <span className="text-slate-500 text-xs font-mono">2 Points</span>
+                    </div>
+
+                    <h2 className="text-xl md:text-2xl font-bold mb-8 leading-snug">{mcqQuestions[currentMcqIndex].question}</h2>
+                    
+                    <div className="grid grid-cols-1 gap-3">
+                      {mcqQuestions[currentMcqIndex].options.map((option, idx) => {
+                        // Determine styles based on state
+                        let styleClass = "bg-slate-700/30 border-white/5 hover:bg-slate-700/50 hover:border-purple-500/30 text-slate-200";
+                        if (selectedAnswer === option) {
+                          if (isCorrect) styleClass = "bg-green-500/20 border-green-500 text-green-200 shadow-[0_0_15px_rgba(34,197,94,0.3)]";
+                          else styleClass = "bg-red-500/20 border-red-500 text-red-200 shadow-[0_0_15px_rgba(239,68,68,0.3)]";
+                        } else if (selectedAnswer && option === mcqQuestions[currentMcqIndex].correctAnswer) {
+                          // Show correct answer if wrong one selected
+                          styleClass = "bg-green-500/10 border-green-500/50 text-green-300 opacity-70";
+                        } else if (selectedAnswer) {
+                          styleClass = "opacity-40 cursor-not-allowed border-transparent";
+                        }
+
+                        return (
+                          <button
+                            key={idx}
+                            onClick={() => handleMcqAnswer(option)}
+                            disabled={selectedAnswer !== null}
+                            className={`p-4 md:p-5 rounded-xl text-left border transition-all duration-300 font-medium ${styleClass}`}
+                          >
+                            <span className="mr-3 opacity-50">{String.fromCharCode(65 + idx)}.</span>
+                            {option}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {selectedAnswer && (
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+                       <button 
+                        onClick={handleNextMcq} 
+                        className="w-full bg-white text-slate-900 hover:bg-slate-200 p-4 rounded-xl font-bold text-lg shadow-lg flex items-center justify-center gap-2 transition-colors"
+                       >
+                         {currentMcqIndex < mcqQuestions.length - 1 ? 'Next Question' : 'Continue to Part 2'} 
+                         <ArrowLeft className="rotate-180" size={20} />
+                       </button>
+                    </motion.div>
+                  )}
+                </motion.div>
+              )}
+
+              {/* --- STAGE 4: FILL-IN (MIXED TYPES) --- */}
+              {examStage === 'fill-in' && (
+                <motion.div 
+                  key="fill-in"
+                  variants={pageVariants}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                  className="space-y-6"
+                >
+                  <div className="bg-slate-800/60 backdrop-blur-xl border border-white/10 rounded-2xl p-6 md:p-8 shadow-2xl">
+                    <div className="flex items-center gap-3 mb-8">
+                       <div className="p-3 bg-indigo-500/20 rounded-lg text-indigo-400">
+                         <FileText size={24} />
+                       </div>
+                       <div>
+                         <h3 className="text-xl font-bold">Written Assessment</h3>
+                         <p className="text-sm text-slate-400">Answer the following mixed questions (State, Explain, Define, List, etc.).</p>
+                       </div>
+                    </div>
+                    
+                    <div className="space-y-10">
+                      {fillInQuestions.map((q, idx) => (
+                        <div key={q.id} className="space-y-3 group">
+                          
+                          <div className="flex items-start gap-3">
+                            <div className="mt-1 flex-shrink-0 w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center text-sm font-bold text-white">
+                              {idx + 1}
+                            </div>
+                            <div className="flex-1">
+                              {/* Question Type Badge */}
+                              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-purple-500/20 text-purple-300 mb-2">
+                                {getQuestionTypeIcon(q.type)}
+                                {getQuestionTypeLabel(q.type)}
+                              </span>
+
+                              <label className="text-slate-200 text-lg font-medium leading-relaxed block">
+                                {q.question}
+                              </label>
+                            </div>
+                          </div>
+                          
+                          <div className="relative pl-11">
+                            {['explain', 'list', 'state_explain'].includes(q.type) ? (
+                              <textarea 
+                                rows={4}
+                                placeholder={`Type your ${q.type} here...`}
+                                className="w-full bg-slate-900/50 border border-white/10 rounded-xl p-4 text-white focus:border-purple-500 focus:ring-1 focus:ring-purple-500 focus:outline-none transition-all placeholder:text-slate-600 resize-none"
+                                value={fillInAnswers[q.id] || ''}
+                                onChange={(e) => setFillInAnswers(p => ({ ...p, [q.id]: e.target.value }))}
+                                disabled={submitLoading}
+                              />
+                            ) : (
+                              <input 
+                                type="text" 
+                                placeholder="Type your answer here..."
+                                className="w-full bg-slate-900/50 border border-white/10 rounded-xl p-4 text-white focus:border-purple-500 focus:ring-1 focus:ring-purple-500 focus:outline-none transition-all placeholder:text-slate-600"
+                                value={fillInAnswers[q.id] || ''}
+                                onChange={(e) => setFillInAnswers(p => ({ ...p, [q.id]: e.target.value }))}
+                                disabled={submitLoading}
+                              />
+                            )}
+                            
+                            {fillInAnswers[q.id] && (
+                              <div className="absolute right-4 top-4">
+                                <CheckCircle size={16} className="text-green-500 animate-pulse" />
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button 
+                    onClick={handleFillSubmit} 
+                    disabled={submitLoading}
+                    className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white p-4 rounded-xl font-bold text-lg shadow-lg flex items-center justify-center gap-3 transition-all active:scale-[0.99]"
+                  >
+                    {submitLoading ? (
+                      <>
+                        <Loader2 className="animate-spin" /> Analyzing Answers...
+                      </>
+                    ) : (
+                      <>
+                        Submit Exam <Check size={20} />
+                      </>
+                    )}
+                  </button>
+                </motion.div>
+              )}
+
+              {/* --- STAGE 5: MARKING (REAL-TIME STATUS) --- */}
+              {examStage === 'marking' && (
+                <motion.div 
+                  key="marking"
+                  variants={pageVariants}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                  className="flex flex-col items-center justify-center py-20 text-center"
+                >
+                  <div className="relative w-40 h-40 mb-10">
+                    <div className="absolute inset-0 border-8 border-slate-800 rounded-full" />
+                    <svg className="absolute inset-0 w-full h-full -rotate-90">
+                      <circle 
+                        cx="80" cy="80" r="72" 
+                        fill="none" 
+                        stroke="url(#gradient)" 
+                        strokeWidth="8"
+                        strokeDasharray="452"
+                        strokeDashoffset={452 - (452 * ((markingProgress.mcq + markingProgress.fillIn) / 200))}
+                        className="transition-all duration-300 ease-out"
+                      />
+                      <defs>
+                        <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                          <stop offset="0%" stopColor="#9333ea" />
+                          <stop offset="100%" stopColor="#4f46e5" />
+                        </linearGradient>
+                      </defs>
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <Cpu size={32} className="text-purple-400 animate-pulse mb-2" />
+                      <span className="text-xl font-bold text-white">{Math.round((markingProgress.mcq + markingProgress.fillIn) / 2)}%</span>
+                    </div>
+                  </div>
+
+                  <h2 className="text-2xl font-bold mb-2 animate-pulse">AI Grading in Progress</h2>
+                  
+                  {/* Real-time Status Log */}
+                  <div className="h-8 mb-6 overflow-hidden w-full max-w-md">
+                     <AnimatePresence mode="wait">
+                       <motion.p
+                         key={markingStatus}
+                         initial={{ opacity: 0, y: 10 }}
+                         animate={{ opacity: 1, y: 0 }}
+                         exit={{ opacity: 0, y: -10 }}
+                         transition={{ duration: 0.3 }}
+                         className="text-slate-400 font-mono text-sm"
+                       >
+                         <span className="text-purple-500 mr-2">{'>'}</span>
+                         {markingStatus}
+                       </motion.p>
+                     </AnimatePresence>
+                  </div>
+                  
+                  <div className="w-full max-w-md space-y-4 bg-slate-800/50 p-6 rounded-2xl border border-white/5">
+                     <div className="space-y-2">
+                       <div className="flex justify-between text-xs uppercase text-slate-400 font-bold tracking-wider">
+                         <span>Checking MCQ</span>
+                         <span className={markingProgress.mcq === 100 ? "text-green-400" : "text-white"}>{Math.round(markingProgress.mcq)}%</span>
+                       </div>
+                       <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                         <motion.div 
+                           className="h-full bg-blue-500" 
+                           animate={{ width: `${markingProgress.mcq}%` }} 
+                           transition={{ ease: "linear", duration: 0.3 }}
+                         />
+                       </div>
+                     </div>
+                     
+                     <div className="space-y-2">
+                       <div className="flex justify-between text-xs uppercase text-slate-400 font-bold tracking-wider">
+                         <span>Semantic Analysis (Written)</span>
+                         <span className={markingProgress.fillIn === 100 ? "text-green-400" : "text-white"}>{Math.round(markingProgress.fillIn)}%</span>
+                       </div>
+                       <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                         <motion.div 
+                            className="h-full bg-purple-500" 
+                            animate={{ width: `${markingProgress.fillIn}%` }} 
+                            transition={{ ease: "linear", duration: 0.3 }}
+                         />
+                       </div>
+                     </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* --- STAGE 6: RESULTS --- */}
+              {examStage === 'results' && (
+                <motion.div 
+                  key="results"
+                  variants={pageVariants}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                  className="space-y-8"
+                >
+                  
+                  {/* Score Dashboard */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="col-span-1 md:col-span-3 bg-gradient-to-br from-purple-900/80 to-indigo-900/80 backdrop-blur-xl border border-purple-500/30 rounded-3xl p-8 flex flex-col md:flex-row items-center justify-between text-center md:text-left shadow-2xl relative overflow-hidden">
+                       <div className="relative z-10">
+                         <span className="text-purple-200 text-sm uppercase font-bold tracking-wider mb-2 block">Final Result</span>
+                         <div className="flex items-baseline gap-2 justify-center md:justify-start">
+                           <span className="text-6xl font-bold text-white tracking-tight">{scores.total}</span>
+                           <span className="text-2xl text-white/40">/100</span>
+                         </div>
+                         <div className={`inline-block mt-3 px-4 py-1.5 rounded-full text-xs font-bold border ${
+                           scores.total >= 70 ? 'bg-green-500/20 border-green-500/30 text-green-300' : 'bg-orange-500/20 border-orange-500/30 text-orange-300'
+                         }`}>
+                           {scores.total >= 90 ? 'Outstanding!' : scores.total >= 70 ? 'Good Job!' : 'Needs Improvement'}
+                         </div>
+                       </div>
+                       
+                       {/* Decorative Circle */}
+                       <div className="hidden md:block w-32 h-32 rounded-full border-8 border-white/10 relative">
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <GraduationCap size={40} className="text-white/50" />
+                          </div>
+                       </div>
+
+                       {/* Confetti if high score (simple css) */}
+                       {scores.total > 80 && (
+                         <div className="absolute top-0 right-0 w-full h-full pointer-events-none opacity-30 bg-[url('https://assets.codepen.io/t-1/confetti.png')] bg-cover" />
+                       )}
+                    </div>
+
+                    <div className="bg-slate-800/40 border border-white/5 rounded-2xl p-6 text-center hover:bg-slate-800/60 transition-colors">
+                      <div className="text-slate-400 text-xs font-bold uppercase mb-2">MCQ Score</div>
+                      <div className="text-2xl font-bold">{scores.mcq} <span className="text-sm text-slate-500">/ {mcqQuestions.length * 2}</span></div>
+                    </div>
+                    <div className="bg-slate-800/40 border border-white/5 rounded-2xl p-6 text-center hover:bg-slate-800/60 transition-colors">
+                      <div className="text-slate-400 text-xs font-bold uppercase mb-2">Written Score</div>
+                      <div className="text-2xl font-bold">{scores.fillIn} <span className="text-sm text-slate-500">/ {fillInQuestions.length * 5}</span></div>
+                    </div>
+                    <div className="bg-slate-800/40 border border-white/5 rounded-2xl p-6 text-center hover:bg-slate-800/60 transition-colors">
+                       <div className="text-slate-400 text-xs font-bold uppercase mb-2">Accuracy</div>
+                       <div className="text-2xl font-bold">{scores.total}%</div>
+                    </div>
+                  </div>
+
+                  {/* AI Tutor Chat */}
+                  <div className="bg-slate-800/60 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
+                    <div className="bg-white/5 p-4 border-b border-white/5 flex items-center gap-3">
+                      <div className="p-2 bg-gradient-to-br from-yellow-400 to-orange-500 rounded-lg shadow-lg">
+                        <Sparkles size={18} className="text-white" />
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-white">Ask DwenLite AI</h3>
+                        <p className="text-xs text-slate-400">Ask about your mistakes or for more explanation</p>
                       </div>
                     </div>
 
-                    {selectedAnswer && (
-                      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
-                         <button 
-                          onClick={handleNextMcq} 
-                          className="w-full bg-white text-black hover:bg-gray-200 p-4 rounded-2xl font-bold text-lg shadow-[0_0_20px_rgba(255,255,255,0.2)] flex items-center justify-center gap-2 active:scale-[0.98] transition-all group"
-                         >
-                           {currentMcqIndex < mcqQuestions.length - 1 ? 'Next Question' : 'Continue to Part 2'} 
-                           <ArrowLeft className="rotate-180 group-hover:translate-x-1 transition-transform" size={20} />
-                         </button>
-                      </motion.div>
-                    )}
-                  </motion.div>
-                )}
-
-                {/* STAGE: FILL-IN */}
-                {examStage === 'fill-in' && (
-                  <motion.div key="fill-in" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="space-y-6 flex-grow flex flex-col">
-                    <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl p-6 md:p-8 shadow-lg flex-grow overflow-y-auto custom-scrollbar">
-                      <div className="space-y-8">
-                        {fillInQuestions.map((q, idx) => (
-                          <div key={q.id} className="space-y-4">
-                            <div className="flex items-start gap-4">
-                              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-sm font-bold text-blue-400">
-                                {idx + 1}
-                              </div>
-                              <div className="flex-1">
-                                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-white/10 text-gray-300 mb-2 border border-white/5">
-                                  {getQuestionTypeIcon(q.type)}
-                                  {getQuestionTypeLabel(q.type)}
-                                </span>
-                                <label className="text-white text-lg font-medium leading-relaxed block tracking-tight">
-                                  {q.question}
-                                </label>
-                              </div>
-                            </div>
-                            <div className="relative pl-12">
-                              {['explain', 'list', 'state_explain'].includes(q.type) ? (
-                                <textarea 
-                                  rows={4}
-                                  placeholder={`Type your ${q.type} here...`}
-                                  className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none transition-all placeholder:text-gray-600 resize-none shadow-inner"
-                                  value={fillInAnswers[q.id] || ''}
-                                  onChange={(e) => setFillInAnswers(p => ({ ...p, [q.id]: e.target.value }))}
-                                  disabled={submitLoading}
-                                />
-                              ) : (
-                                <input 
-                                  type="text" 
-                                  placeholder="Type your answer here..."
-                                  className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none transition-all placeholder:text-gray-600 shadow-inner"
-                                  value={fillInAnswers[q.id] || ''}
-                                  onChange={(e) => setFillInAnswers(p => ({ ...p, [q.id]: e.target.value }))}
-                                  disabled={submitLoading}
-                                />
+                    <div className="p-4 md:p-6">
+                      <div className="h-64 overflow-y-auto mb-4 space-y-4 pr-2 custom-scrollbar" ref={chatContainerRef}>
+                        {chatHistory.length === 0 && (
+                          <div className="text-center text-slate-500 py-10">
+                            <p>Ask me anything about the exam content!</p>
+                          </div>
+                        )}
+                        {chatHistory.map((msg, i) => (
+                          <div key={i} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[85%] rounded-2xl px-5 py-3 text-sm leading-relaxed shadow-md ${
+                              msg.type === 'user' 
+                                ? 'bg-purple-600 text-white rounded-br-none' 
+                                : 'bg-slate-700 text-slate-200 rounded-bl-none relative group border border-white/5'
+                            }`}>
+                              {msg.content}
+                              
+                              {msg.type === 'ai' && (
+                                <button 
+                                  onClick={() => setShowReportForm(i)} 
+                                  className="absolute -right-8 top-1 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition-all p-1"
+                                  title="Report Content"
+                                >
+                                  <AlertTriangle size={14} />
+                                </button>
                               )}
                             </div>
                           </div>
                         ))}
+                        
+                        {/* Report Form */}
+                        <AnimatePresence>
+                          {showReportForm !== null && (
+                            <motion.div 
+                              initial={{ opacity: 0, height: 0 }} 
+                              animate={{ opacity: 1, height: 'auto' }}
+                              exit={{ opacity: 0, height: 0 }}
+                              className="bg-red-500/5 border border-red-500/20 p-4 rounded-xl mb-4 mx-4"
+                            >
+                              <p className="text-xs font-bold text-red-400 mb-2 uppercase">Report Inappropriate Content</p>
+                              <input 
+                                className="w-full bg-slate-900/50 border border-red-500/30 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-600 outline-none focus:border-red-500 mb-3"
+                                placeholder="Describe the issue..."
+                                value={reportReason}
+                                onChange={(e) => setReportReason(e.target.value)}
+                              />
+                              <div className="flex justify-end gap-3">
+                                <button onClick={() => setShowReportForm(null)} className="text-xs text-slate-400 hover:text-white transition-colors">Cancel</button>
+                                <button 
+                                  onClick={() => handleReportContent(showReportForm, reportReason)} 
+                                  className="text-xs bg-red-600 hover:bg-red-500 text-white px-3 py-1.5 rounded-lg transition-colors shadow-lg shadow-red-500/20"
+                                >
+                                  Submit Report
+                                </button>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
                       </div>
-                    </div>
-                    <button 
-                      onClick={handleFillSubmit} 
-                      disabled={submitLoading}
-                      className="w-full bg-blue-600 hover:bg-blue-500 text-white p-4 rounded-2xl font-bold text-lg shadow-[0_0_30px_rgba(37,99,235,0.3)] flex items-center justify-center gap-2 active:scale-[0.98] transition-all disabled:opacity-50"
-                    >
-                      {submitLoading ? <><LucideLoader2 className="animate-spin" /> Finalizing...</> : <>Submit Exam <Check size={20} /></>}
-                    </button>
-                  </motion.div>
-                )}
 
-                {/* STAGE: MARKING */}
-                {examStage === 'marking' && (
-                  <motion.div key="marking" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="flex flex-col items-center justify-center py-16 md:py-24 text-center">
-                    <div className="relative w-32 h-32 mb-8 flex items-center justify-center">
-                      <div className="absolute inset-0 border-4 border-white/10 rounded-full border-t-blue-500 animate-spin"></div>
-                      <FileText size={40} className="text-white" />
+                      <form onSubmit={handleChatSubmit} className="flex gap-2">
+                        <input 
+                          value={chatInput}
+                          onChange={(e) => setChatInput(e.target.value)}
+                          placeholder="Type your question here..."
+                          className="flex-1 bg-slate-900/50 border border-white/10 rounded-xl px-4 py-3 text-sm focus:border-purple-500 focus:ring-1 focus:ring-purple-500 outline-none transition-all placeholder:text-slate-600 text-white"
+                          disabled={chatLoading}
+                        />
+                        <button 
+                          disabled={chatLoading} 
+                          type="submit" 
+                          className="bg-purple-600 p-3 rounded-xl hover:bg-purple-500 text-white transition-colors disabled:opacity-50 shadow-lg shadow-purple-500/20"
+                        >
+                          {chatLoading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Send size={20} />}
+                        </button>
+                      </form>
                     </div>
-                    <h2 className="text-2xl md:text-3xl font-bold text-white tracking-tight mb-2">Evaluating Answers</h2>
-                    <div className="h-8 mb-8 overflow-hidden w-full max-w-md">
-                       <AnimatePresence mode="wait">
-                         <motion.p key={markingStatus} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="text-gray-400 font-medium text-sm">
-                           {markingStatus}
-                         </motion.p>
-                       </AnimatePresence>
-                    </div>
-                    <div className="w-full max-w-md space-y-6 bg-white/5 p-6 rounded-3xl border border-white/10 shadow-lg">
-                       <div className="space-y-2">
-                         <div className="flex justify-between text-xs uppercase text-gray-400 font-bold tracking-widest">
-                           <span>MCQ Evaluation</span>
-                           <span className="text-white">{Math.round(markingProgress.mcq)}%</span>
-                         </div>
-                         <div className="h-1.5 bg-black/50 rounded-full overflow-hidden">
-                           <motion.div className="h-full bg-blue-500" animate={{ width: `${markingProgress.mcq}%` }} transition={{ ease: "easeOut", duration: 0.5 }}/>
-                         </div>
-                       </div>
-                       <div className="space-y-2">
-                         <div className="flex justify-between text-xs uppercase text-gray-400 font-bold tracking-widest">
-                           <span>Written Evaluation</span>
-                           <span className="text-white">{Math.round(markingProgress.fillIn)}%</span>
-                         </div>
-                         <div className="h-1.5 bg-black/50 rounded-full overflow-hidden">
-                           <motion.div className="h-full bg-blue-500" animate={{ width: `${markingProgress.fillIn}%` }} transition={{ ease: "easeOut", duration: 0.5 }}/>
-                         </div>
-                       </div>
-                    </div>
-                  </motion.div>
-                )}
+                  </div>
 
-                {/* STAGE: RESULTS */}
-                {examStage === 'results' && (
-                  <motion.div key="results" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="space-y-6 flex-grow flex flex-col">
-                    <div className="bg-gradient-to-br from-blue-600/20 to-purple-600/20 border border-white/10 rounded-[2.5rem] p-8 flex flex-col md:flex-row items-center justify-between shadow-2xl relative overflow-hidden">
-                       <div className="relative z-10 text-center md:text-left">
-                         <span className="text-blue-200 text-sm uppercase font-bold tracking-wider mb-2 block">Final Score</span>
-                         <div className="flex items-baseline gap-2 justify-center md:justify-start">
-                           <span className="text-6xl md:text-7xl font-extrabold text-white tracking-tight">{scores.total}</span>
-                           <span className="text-2xl text-white/40 font-medium">/100</span>
-                         </div>
-                         <div className={`inline-block mt-4 px-5 py-2 rounded-full text-sm font-bold border ${scores.total >= 70 ? 'bg-green-500/20 border-green-500/30 text-green-300' : 'bg-red-500/20 border-red-500/30 text-red-300'}`}>
-                           {scores.total >= 90 ? 'Outstanding Performance!' : scores.total >= 70 ? 'Good Job!' : 'Keep Practicing'}
-                         </div>
-                       </div>
-                    </div>
+                  {/* Detailed Results List */}
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-bold text-slate-300 px-2">Detailed Breakdown</h3>
                     
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="bg-white/5 border border-white/10 rounded-3xl p-6 hover:bg-white/10 transition-colors cursor-default text-center">
-                        <div className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-2">MCQ Score</div>
-                        <div className="text-3xl font-bold text-white">{scores.mcq} <span className="text-sm text-gray-500 font-medium">/ {mcqQuestions.length * 2}</span></div>
-                      </div>
-                      <div className="bg-white/5 border border-white/10 rounded-3xl p-6 hover:bg-white/10 transition-colors cursor-default text-center">
-                        <div className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-2">Written Score</div>
-                        <div className="text-3xl font-bold text-white">{scores.fillIn} <span className="text-sm text-gray-500 font-medium">/ {fillInQuestions.length * 5}</span></div>
-                      </div>
-                    </div>
+                    {fillInResults.map((res, idx) => {
+                      // Logic to determine visual style based on score (0-5)
+                      const isPerfect = res.score === 5;
+                      const isPartial = res.score >= 3 && res.score < 5;
+                      const isPoor = res.score > 0 && res.score < 3;
+                      const isZero = res.score === 0;
 
-                    <div className="flex gap-4 mt-6">
-                      <button onClick={resetExam} className="flex-1 bg-white/5 hover:bg-white/10 border border-white/10 text-white p-4 rounded-2xl font-bold transition-all shadow-sm">
-                        Retake Assessment
-                      </button>
-                      <button onClick={() => navigate('/dashboard')} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white p-4 rounded-2xl font-bold transition-all shadow-[0_0_20px_rgba(37,99,235,0.3)]">
-                        Done
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+                      let borderColor = 'border-white/10';
+                      let bgColor = 'bg-slate-800/40';
+                      let badgeColor = 'text-slate-400 bg-slate-500/10';
+                      let badgeIcon = <XCircle size={12}/>;
+                      let badgeText = `Score: ${res.score}/5`;
+
+                      if (isPerfect) {
+                        borderColor = 'border-green-500/20';
+                        bgColor = 'bg-green-500/5';
+                        badgeColor = 'text-green-400 bg-green-500/10';
+                        badgeIcon = <CheckCircle size={12}/>;
+                        badgeText = `Perfect (+5)`;
+                      } else if (isPartial) {
+                         borderColor = 'border-yellow-500/20';
+                         bgColor = 'bg-yellow-500/5';
+                         badgeColor = 'text-yellow-400 bg-yellow-500/10';
+                         badgeIcon = <AlertCircle size={12}/>;
+                         badgeText = `Partial Credit (+${res.score})`;
+                      } else if (isPoor) {
+                         borderColor = 'border-orange-500/20';
+                         bgColor = 'bg-orange-500/5';
+                         badgeColor = 'text-orange-400 bg-orange-500/10';
+                         badgeIcon = <AlertCircle size={12}/>;
+                         badgeText = `Poor (+${res.score})`;
+                      } else {
+                         borderColor = 'border-red-500/20';
+                         bgColor = 'bg-red-500/5';
+                         badgeColor = 'text-red-400 bg-red-500/10';
+                         badgeIcon = <XCircle size={12}/>;
+                         badgeText = `Incorrect (0)`;
+                      }
+
+                      return (
+                        <div key={idx} className={`p-5 rounded-2xl border transition-all ${bgColor} ${borderColor} hover:opacity-90`}>
+                           <div className="flex justify-between items-start mb-3">
+                             <div className="flex items-center gap-2">
+                               <span className="text-sm font-bold text-slate-300">Question {idx + 1}</span>
+                               <span className="text-[10px] font-bold uppercase bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded">{res.type}</span>
+                             </div>
+                             
+                             {/* Status Badge */}
+                             <span className={`flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full ${badgeColor}`}>
+                               {badgeIcon} {badgeText}
+                             </span>
+                           </div>
+                           <p className="text-sm mb-4 text-white font-medium leading-relaxed">{res.question}</p>
+                           
+                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                             <div className="bg-black/20 p-3 rounded-lg border border-white/5">
+                               <div className="text-xs text-slate-500 mb-1">Your Answer</div>
+                               <div className={isPerfect ? 'text-green-300' : isPartial ? 'text-yellow-300' : 'text-red-300'}>
+                                 {res.userAnswer || '(Empty)'}
+                               </div>
+                             </div>
+                             <div className="bg-black/20 p-3 rounded-lg border border-white/5">
+                               <div className="text-xs text-slate-500 mb-1">Expected Answer</div>
+                               <div className="text-purple-300">{res.expectedAnswer}</div>
+                             </div>
+                           </div>
+                           
+                           {/* Lecturer Feedback */}
+                           {res.feedback && (
+                             <div className="mt-3 text-xs text-slate-400 italic flex gap-2 items-start bg-black/10 p-2 rounded-lg">
+                               <Sparkles size={14} className="mt-0.5 shrink-0 text-purple-400" />
+                               <span><span className="font-bold text-purple-400 not-italic">Lecturer Feedback:</span> {res.feedback}</span>
+                             </div>
+                           )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Reset Button */}
+                  <div className="flex justify-center pt-8">
+                    <button 
+                      onClick={resetExam} 
+                      className="flex items-center gap-2 px-8 py-3 rounded-xl border border-white/10 text-slate-400 hover:bg-white/5 hover:text-white transition-all font-medium"
+                    >
+                      <RefreshCw size={18} /> Start New Exam
+                    </button>
+                  </div>
+
+                </motion.div>
+              )}
+
+            </AnimatePresence>
           </div>
-        </motion.div>
-      </div>
-    </div>
+        </div>
+    </>
   );
 }
 
