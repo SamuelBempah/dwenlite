@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Download, X } from 'lucide-react';
+import logo from '../assets/react.png';
 
 const PwaInstallPrompt = () => {
   const [deferredPrompt, setDeferredPrompt] = useState(null);
@@ -62,6 +63,9 @@ const PwaInstallPrompt = () => {
   if (isInstallable) {
     return (
       <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 md:bottom-6 md:right-6 md:left-auto md:transform-none bg-gray-800 border border-purple-500 text-white p-4 rounded-xl shadow-2xl z-50 flex items-center gap-4 max-w-sm w-11/12">
+        <div className="w-12 h-12 flex-shrink-0 bg-gradient-to-br from-blue-500/20 to-purple-600/20 rounded-xl flex items-center justify-center border border-white/10 p-1.5">
+          <img src={logo} alt="DwenLite Logo" className="w-full h-full object-contain" />
+        </div>
         <div className="flex-1">
           <h4 className="font-bold text-lg mb-1">Install DwenLite</h4>
           <p className="text-sm text-gray-300">Get the best experience by installing DwenLite on your device!</p>
@@ -91,10 +95,17 @@ const PwaInstallPrompt = () => {
   if (isIOS && !isStandalone) {
     return (
       <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 md:bottom-6 md:right-6 md:left-auto md:transform-none bg-gray-800 border border-purple-500 text-white p-4 rounded-xl shadow-2xl z-50 max-w-sm w-11/12">
-        <h4 className="font-bold text-lg mb-2">Install DwenLite on iOS</h4>
-        <p className="text-sm text-gray-300">
-          Tap the <strong>Share</strong> button at the bottom of your screen, then select <strong>"Add to Home Screen"</strong> to install DwenLite as an app.
-        </p>
+        <div className="flex gap-4 items-start">
+          <div className="w-12 h-12 flex-shrink-0 bg-gradient-to-br from-blue-500/20 to-purple-600/20 rounded-xl flex items-center justify-center border border-white/10 p-1.5 mt-1">
+            <img src={logo} alt="DwenLite Logo" className="w-full h-full object-contain" />
+          </div>
+          <div className="flex-1">
+            <h4 className="font-bold text-lg mb-2">Install DwenLite on iOS</h4>
+            <p className="text-sm text-gray-300">
+              Tap the <strong>Share</strong> button at the bottom of your screen, then select <strong>"Add to Home Screen"</strong> to install DwenLite as an app.
+            </p>
+          </div>
+        </div>
         <div className="mt-3 flex justify-end">
            <button 
             onClick={handleDismiss}
