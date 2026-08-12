@@ -50,9 +50,21 @@ const ImmersiveLoading = ({ title, status, logs, progress }) => {
 
   return (
     <div className="fixed inset-0 z-[100] bg-[#09090b]/80 backdrop-blur-xl flex flex-col items-center justify-center text-center p-6 transition-all duration-300">
-      <div className="relative z-10 w-full max-w-md flex flex-col items-center bg-white/5 border border-white/10 p-8 rounded-3xl shadow-2xl">
+      <div className="relative z-10 w-full max-w-md flex flex-col items-center p-8 rounded-3xl">
         <div className="mb-8 scale-75 md:scale-100 flex items-center justify-center h-32 w-32 relative">
-           <CurrentLoader />
+           <AnimatePresence mode="wait">
+             <motion.div 
+               key={loaderIndex}
+               initial={{ opacity: 0, scale: 0.95 }}
+               animate={{ opacity: 1, scale: 1 }}
+               exit={{ opacity: 0, scale: 1.05 }}
+               transition={{ duration: 0.4, ease: "easeInOut" }}
+               className="absolute inset-0 flex items-center justify-center"
+               style={{ willChange: 'transform, opacity' }}
+             >
+               <CurrentLoader />
+             </motion.div>
+           </AnimatePresence>
         </div>
 
         <h2 className="text-2xl md:text-3xl font-extrabold text-white mb-2 tracking-tight bg-gradient-to-r from-blue-100 to-blue-400 bg-clip-text text-transparent">
@@ -104,6 +116,7 @@ function ExamsPreparation() {
   const [files, setFiles] = useState([]);
   const [uploadedNotes, setUploadedNotes] = useState([]);
   const [uploadLoading, setUploadLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [examStage, setExamStage] = useState('upload'); // 'upload', 'review', 'mcq', 'fill-in', 'marking', 'results'
   const [reviewContent, setReviewContent] = useState('');
   
@@ -338,6 +351,9 @@ function ExamsPreparation() {
     }
 
     setUploadLoading(true);
+    setUploadProgress(0);
+    let completedFiles = 0;
+    const totalFiles = selectedFiles.length;
 
     try {
       const newNotesPromises = selectedFiles.map(async (selectedFile) => {
@@ -375,7 +391,7 @@ function ExamsPreparation() {
             }
           }
 
-          return {
+          const noteResult = {
             url: downloadURL,
             isAudio,
             isVideo,
@@ -384,9 +400,14 @@ function ExamsPreparation() {
             createdAt: new Date().toISOString(),
             fileName: selectedFile.name,
           };
+          completedFiles++;
+          setUploadProgress(Math.round((completedFiles / totalFiles) * 100));
+          return noteResult;
         } catch (fileErr) {
           console.error(`Error processing file ${selectedFile.name}:`, fileErr);
           toast.error(`Failed to process ${selectedFile.name}`);
+          completedFiles++;
+          setUploadProgress(Math.round((completedFiles / totalFiles) * 100));
           return null;
         }
       });
@@ -1042,11 +1063,33 @@ function ExamsPreparation() {
                           className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
                           disabled={uploadLoading}
                         />
-                        <div className="w-20 h-20 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto mb-6 group-hover:scale-110 group-hover:bg-blue-500/20 transition-all duration-300 border border-blue-500/20">
+                        <div className="w-24 h-24 mx-auto mb-6 relative group-hover:scale-110 transition-transform duration-300">
                           {uploadLoading ? (
-                            <div className="w-8 h-8 border-3 border-blue-400 border-t-transparent rounded-full animate-spin" />
+                            <>
+                              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+                                <circle cx="50" cy="50" r="45" fill="none" stroke="currentColor" strokeWidth="6" className="text-blue-500/20" />
+                                <motion.circle 
+                                  cx="50" cy="50" r="45" 
+                                  fill="none" 
+                                  stroke="currentColor" 
+                                  strokeWidth="6" 
+                                  className="text-blue-400"
+                                  strokeDasharray={2 * 3.14159 * 45}
+                                  strokeDashoffset={2 * 3.14159 * 45 * (1 - uploadProgress / 100)}
+                                  initial={{ strokeDashoffset: 2 * 3.14159 * 45 }}
+                                  animate={{ strokeDashoffset: 2 * 3.14159 * 45 * (1 - uploadProgress / 100) }}
+                                  transition={{ ease: "easeOut", duration: 0.3 }}
+                                  strokeLinecap="round"
+                                />
+                              </svg>
+                              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                <span className="text-lg font-bold text-white tracking-tighter">{uploadProgress}%</span>
+                              </div>
+                            </>
                           ) : (
-                            <Upload size={40} className="text-blue-400 group-hover:text-blue-300" />
+                            <div className="w-full h-full bg-blue-500/10 rounded-full flex items-center justify-center border border-blue-500/20 group-hover:bg-blue-500/20 transition-colors shadow-inner">
+                              <Upload size={40} className="text-blue-400 group-hover:text-blue-300" />
+                            </div>
                           )}
                         </div>
                         <h3 className="text-xl font-bold text-white mb-2 tracking-tight">
