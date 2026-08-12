@@ -13,8 +13,8 @@ export default defineConfig({
         name: 'DwenLite',
         short_name: 'DwenLite',
         description: 'Interactive AI teacher for generating notes, quizzes, and flashcards.',
-        theme_color: '#ffffff',
-        background_color: '#ffffff',
+        theme_color: '#1f2937',
+        background_color: '#1f2937',
         display: 'standalone',
         icons: [
           {

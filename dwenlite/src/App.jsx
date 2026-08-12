@@ -107,10 +107,23 @@ function NotFound() {
   );
 }
 
-function App() {
+function AppContent() {
   const [showBanPopup, setShowBanPopup] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAccountDisabled, setIsAccountDisabled] = useState(false);
+  const location = useLocation();
+
+  useEffect(() => {
+    // Dynamic theme color based on page for PWA
+    const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+    if (metaThemeColor) {
+      if (location.pathname === '/') {
+        metaThemeColor.setAttribute('content', '#09090b'); // Welcome page color
+      } else {
+        metaThemeColor.setAttribute('content', '#1f2937'); // Main app layout color
+      }
+    }
+  }, [location.pathname]);
 
   useEffect(() => {
     const fetchUserStatus = async () => {
@@ -159,51 +172,59 @@ function App() {
   }, []);
 
   return (
+    <>
+      <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
+      <BanPopup isOpen={showBanPopup} onClose={() => setShowBanPopup(false)} />
+      <PwaInstallPrompt />
+      <style jsx global>{`
+        html, body {
+          margin: 0;
+          padding: 0;
+          height: 100%;
+          width: 100%;
+          background-color: #1f2937;
+          overscroll-behavior: none;
+        }
+        #root {
+          min-height: 100vh;
+          background-color: #1f2937;
+        }
+      `}</style>
+      <Routes>
+        <Route path="/" element={<MaintenanceRoute component={Welcome} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/login" element={<MaintenanceRoute component={Login} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/signup" element={<MaintenanceRoute component={Signup} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/verify-email" element={<MaintenanceRoute component={VerifyEmail} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/dashboard" element={<MaintenanceRoute component={Dashboard} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/folder/:folderId" element={<MaintenanceRoute component={ViewFolder} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/folder/:folderId/notes" element={<MaintenanceRoute component={Notes} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/folder/:folderId/quizzes" element={<MaintenanceRoute component={Quizzes} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/folder/:folderId/flashcards" element={<MaintenanceRoute component={Flashcards} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/folder/:folderId/podcast" element={<MaintenanceRoute component={Podcast} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/delete-account" element={<MaintenanceRoute component={DeleteAccount} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/dwenlite-download" element={<MaintenanceRoute component={DwenLiteDownload} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/terms" element={<MaintenanceRoute component={Terms} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/reset-password" element={<MaintenanceRoute component={ResetPassword} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/support" element={<MaintenanceRoute component={Support} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/buy-coins" element={<MaintenanceRoute component={BuyCoins} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/buy-bundles" element={<MaintenanceRoute component={Bundles} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/community-support" element={<MaintenanceRoute component={CommunitySupport} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/dwenlite-helpdesk" element={<MaintenanceRoute component={DwenliteHelpdesk} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/exams-preparation" element={<MaintenanceRoute component={ExamsPreparation} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/reports" element={<MaintenanceRoute component={Reports} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/ai-teacher" element={<MaintenanceRoute component={AITeacher} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/maintenance" element={<Maintenance />} />
+        <Route path="*" element={isMaintenanceWindow() ? <Maintenance /> : <NotFound />} />
+      </Routes>
+    </>
+  );
+}
+
+function App() {
+  return (
     <ErrorBoundary>
       <Router>
-        <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
-        <BanPopup isOpen={showBanPopup} onClose={() => setShowBanPopup(false)} />
-        <PwaInstallPrompt />
-        <style jsx global>{`
-          html, body {
-            margin: 0;
-            padding: 0;
-            height: 100%;
-            width: 100%;
-            background-color: #1f2937;
-            overscroll-behavior: none;
-          }
-          #root {
-            min-height: 100vh;
-            background-color: #1f2937;
-          }
-        `}</style>
-        <Routes>
-          <Route path="/" element={<MaintenanceRoute component={Welcome} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/login" element={<MaintenanceRoute component={Login} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/signup" element={<MaintenanceRoute component={Signup} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/verify-email" element={<MaintenanceRoute component={VerifyEmail} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/dashboard" element={<MaintenanceRoute component={Dashboard} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/folder/:folderId" element={<MaintenanceRoute component={ViewFolder} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/folder/:folderId/notes" element={<MaintenanceRoute component={Notes} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/folder/:folderId/quizzes" element={<MaintenanceRoute component={Quizzes} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/folder/:folderId/flashcards" element={<MaintenanceRoute component={Flashcards} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/folder/:folderId/podcast" element={<MaintenanceRoute component={Podcast} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/delete-account" element={<MaintenanceRoute component={DeleteAccount} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/dwenlite-download" element={<MaintenanceRoute component={DwenLiteDownload} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/terms" element={<MaintenanceRoute component={Terms} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/reset-password" element={<MaintenanceRoute component={ResetPassword} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/support" element={<MaintenanceRoute component={Support} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/buy-coins" element={<MaintenanceRoute component={BuyCoins} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/buy-bundles" element={<MaintenanceRoute component={Bundles} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/community-support" element={<MaintenanceRoute component={CommunitySupport} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/dwenlite-helpdesk" element={<MaintenanceRoute component={DwenliteHelpdesk} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/exams-preparation" element={<MaintenanceRoute component={ExamsPreparation} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/reports" element={<MaintenanceRoute component={Reports} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/ai-teacher" element={<MaintenanceRoute component={AITeacher} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
-          <Route path="/maintenance" element={<Maintenance />} />
-          <Route path="*" element={isMaintenanceWindow() ? <Maintenance /> : <NotFound />} />
-        </Routes>
+        <AppContent />
       </Router>
     </ErrorBoundary>
   );
