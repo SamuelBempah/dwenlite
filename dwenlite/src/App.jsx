@@ -27,6 +27,7 @@ import Reports from './pages/Reports';
 import AITeacher from './pages/AITeacher';
 
 import AppLayout from './components/layout/AppLayout';
+import PwaInstallPrompt from './components/PwaInstallPrompt';
 
 const isMaintenanceWindow = () => {
   const now = new Date();
@@ -162,6 +163,7 @@ function App() {
       <Router>
         <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
         <BanPopup isOpen={showBanPopup} onClose={() => setShowBanPopup(false)} />
+        <PwaInstallPrompt />
         <style jsx global>{`
           html, body {
             margin: 0;
