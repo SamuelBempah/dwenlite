@@ -225,6 +225,36 @@ const AITeacher = () => {
     return () => clearInterval(interval);
   }, [isTimerActive]);
 
+  // Desktop Push-to-Talk Spacebar Logic
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Ignore if typing in an input field (like the name edit modal)
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      if (e.code === 'Space' && !e.repeat) {
+        e.preventDefault(); // Prevent scrolling
+        if (!isMobileRef.current && isListeningRef.current) {
+           handleMicTouchStart(e, true);
+        }
+      }
+    };
+
+    const handleKeyUp = (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      if (e.code === 'Space') {
+        if (!isMobileRef.current && isListeningRef.current) {
+           handleMicTouchEnd(e, true);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
   const getEyeAnimation = () => {
     if (currentEmoji) {
       let scale = 1;
@@ -462,21 +492,6 @@ const AITeacher = () => {
         }
         
         interimTranscriptRef.current = interimTranscript;
-        const currentText = (finalTranscriptRef.current + interimTranscript).trim();
-
-        if (!isMobileRef.current) {
-          clearTimeout(silenceTimerRef.current);
-          if (currentText.length > 0) {
-            silenceTimerRef.current = setTimeout(() => {
-              if (currentText.length > 0) {
-                const textToSend = currentText;
-                finalTranscriptRef.current = '';
-                recognition.stop();
-                handleUserSpeech(textToSend);
-              }
-            }, 2000);
-          }
-        }
       };
 
       recognition.onerror = (event) => {
@@ -486,39 +501,29 @@ const AITeacher = () => {
       };
 
       recognition.onend = () => {
-        if (isMobileRef.current) {
-          // If the browser auto-stopped the mic due to silence, but the user is STILL holding the button, restart it!
-          if (isHoldingMicRef.current) {
-            try {
-              recognition.start();
-            } catch(e) {}
-            return;
-          }
+        // If the browser auto-stopped the mic due to silence, but the user is STILL holding the button/key, restart it!
+        if (isHoldingMicRef.current) {
+          try {
+            recognition.start();
+          } catch(e) {}
+          return;
+        }
 
-          const currentText = (finalTranscriptRef.current + (interimTranscriptRef.current || '')).trim();
-          if (currentText.length > 0 && isListeningRef.current) {
-            const textToSend = currentText;
-            finalTranscriptRef.current = '';
-            interimTranscriptRef.current = '';
-            setIsListening(false);
-            isListeningRef.current = false;
-            handleUserSpeech(textToSend);
-          } else {
-             // If they just tapped it and no speech was recorded, keep it in listening mode so they can try again.
-             // We still clear the transcript just in case.
-             finalTranscriptRef.current = '';
-             interimTranscriptRef.current = '';
-          }
+        const currentText = (finalTranscriptRef.current + (interimTranscriptRef.current || '')).trim();
+        if (currentText.length > 0 && isListeningRef.current) {
+          const textToSend = currentText;
+          finalTranscriptRef.current = '';
+          interimTranscriptRef.current = '';
+          setIsListening(false);
+          isListeningRef.current = false;
+          handleUserSpeech(textToSend);
         } else {
-          // Persistent Listening Logic for Desktop
-          if (!isSpeakingRef.current && !isPausedRef.current && stepRef.current !== 2 && stepRef.current !== 4 && !showUploadDrawer) {
-            try {
-              recognitionRef.current.start();
-            } catch (e) { }
-          } else {
-            setIsListening(false);
-            isListeningRef.current = false;
-          }
+           // If they just tapped it and no speech was recorded, keep it in listening mode so they can try again.
+           finalTranscriptRef.current = '';
+           interimTranscriptRef.current = '';
+           
+           // If we are on desktop, and not holding mic, we should still stop "listening" to force them to hold spacebar again if they want to speak
+           // Actually, isListening is the "ready to speak" state. We keep it ready.
         }
       };
 
@@ -860,8 +865,8 @@ RULES:
     }
   };
 
-  const handleMicTouchStart = (e) => {
-    if (!isMobileRef.current || stepRef.current === 2 || isSpeakingRef.current || isThinking) return;
+  const handleMicTouchStart = (e, isDesktopOverride = false) => {
+    if ((!isMobileRef.current && !isDesktopOverride) || stepRef.current === 2 || isSpeakingRef.current || isThinking) return;
 
     setIsHoldingMic(true);
     isHoldingMicRef.current = true;
@@ -874,8 +879,8 @@ RULES:
     }
   };
 
-  const handleMicTouchEnd = (e) => {
-    if (!isMobileRef.current) return;
+  const handleMicTouchEnd = (e, isDesktopOverride = false) => {
+    if (!isMobileRef.current && !isDesktopOverride) return;
 
     setIsHoldingMic(false);
     isHoldingMicRef.current = false;
@@ -894,14 +899,6 @@ RULES:
     isListeningRef.current = true;
     finalTranscriptRef.current = '';
     clearTimeout(silenceTimerRef.current);
-
-    if (!isMobileRef.current) {
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.start();
-        } catch (e) { }
-      }
-    }
   };
 
   const stopSpeakerVisualizer = () => {
@@ -1529,6 +1526,7 @@ RULES:
                     <div className="absolute bottom-4 flex flex-col items-center gap-1 opacity-80">
                        <Mic size={20} className="text-white drop-shadow-lg animate-pulse" />
                        {isMobile && !isHoldingMic && <span className="text-white font-bold tracking-widest text-[8px] uppercase">Hold to Speak</span>}
+                       {!isMobile && !isHoldingMic && <span className="text-white font-bold tracking-widest text-[10px] uppercase text-center leading-tight">Hold Space<br/>to talk</span>}
                     </div>
                   )}
                 </motion.div>
@@ -1584,18 +1582,18 @@ RULES:
       <div className="flex items-center justify-center px-4 md:px-6 py-4 md:py-6 bg-[#0E0E0E] z-50">
         <div className="flex items-center justify-between w-full max-w-md md:justify-center md:gap-4 md:w-auto">
 
-          {/* Mic Button (Desktop Continuous Listening Indicator) */}
+          {/* Mic Button (Desktop Push-to-Talk Indicator) */}
           {!isMobile && (
             <div className="flex flex-col items-center gap-1.5 w-16">
               <div
                 className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg ${
-                   isListening && stepRef.current !== 2 && stepRef.current !== 4 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50' : 'bg-gray-800 text-gray-400 border border-gray-700'
+                   isHoldingMic ? 'bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.5)]' : isListening && stepRef.current !== 2 && stepRef.current !== 4 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50' : 'bg-gray-800 text-gray-400 border border-gray-700'
                   }`}
               >
                 <Mic size={24} />
               </div>
               <span className="text-[11px] text-gray-400 font-medium tracking-wide whitespace-nowrap">
-                {isListening && stepRef.current !== 2 && stepRef.current !== 4 ? 'Listening' : 'Mic Off'}
+                {isHoldingMic ? 'Recording' : isListening && stepRef.current !== 2 && stepRef.current !== 4 ? 'Hold Space' : 'Mic Off'}
               </span>
             </div>
           )}
