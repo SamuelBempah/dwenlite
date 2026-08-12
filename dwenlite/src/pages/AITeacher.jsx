@@ -231,7 +231,13 @@ const AITeacher = () => {
       // Ignore if typing in an input field (like the name edit modal)
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       if (e.code === 'Space' && !e.repeat) {
-        e.preventDefault(); // Prevent scrolling
+        e.preventDefault(); // Prevent scrolling and default button down action
+        
+        // Remove focus from any active button so spacebar doesn't click it on keyup
+        if (document.activeElement && document.activeElement.tagName === 'BUTTON') {
+          document.activeElement.blur();
+        }
+        
         if (!isMobileRef.current && isListeningRef.current) {
            handleMicTouchStart(e, true);
         }
@@ -241,6 +247,7 @@ const AITeacher = () => {
     const handleKeyUp = (e) => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       if (e.code === 'Space') {
+        e.preventDefault(); // Prevent button click on release
         if (!isMobileRef.current && isListeningRef.current) {
            handleMicTouchEnd(e, true);
         }
