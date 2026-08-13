@@ -170,7 +170,7 @@ const AITeacher = () => {
   useEffect(() => {
     if (!currentCaption) return;
     const captionLower = currentCaption.toLowerCase();
-    
+
     // Intro Sequence Sync
     if (captionLower.includes('menu button in the top left')) {
       setEyeEmotion('lookUpLeft');
@@ -208,7 +208,7 @@ const AITeacher = () => {
     else if (captionLower.includes('look') || captionLower.includes('see') || captionLower.includes('here')) newHand = '👇';
     else if (captionLower.includes('explain') || captionLower.includes('dive in')) newHand = '👐';
     else newHand = RANDOM_TEACHING_HANDS[Math.floor(Math.random() * RANDOM_TEACHING_HANDS.length)];
-    
+
     if (isSpeakingRef.current) {
       setCurrentHand(newHand);
     }
@@ -232,14 +232,14 @@ const AITeacher = () => {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
       if (e.code === 'Space' && !e.repeat) {
         e.preventDefault(); // Prevent scrolling and default button down action
-        
+
         // Remove focus from any active button so spacebar doesn't click it on keyup
         if (document.activeElement && document.activeElement.tagName === 'BUTTON') {
           document.activeElement.blur();
         }
-        
+
         if (!isMobileRef.current && isListeningRef.current) {
-           handleMicTouchStart(e, true);
+          handleMicTouchStart(e, true);
         }
       }
     };
@@ -249,7 +249,7 @@ const AITeacher = () => {
       if (e.code === 'Space') {
         e.preventDefault(); // Prevent button click on release
         if (!isMobileRef.current && isListeningRef.current) {
-           handleMicTouchEnd(e, true);
+          handleMicTouchEnd(e, true);
         }
       }
     };
@@ -277,19 +277,19 @@ const AITeacher = () => {
     if (isBlinking) {
       return { height: 4, width: 64, y: 0, x: 0, opacity: 1, borderRadius: '10px', transition: { duration: 0.1 } };
     }
-    
+
     let base = { width: 64, height: 64, x: 0, y: 0, opacity: 1, borderRadius: '50%' };
-    
+
     switch (eyeEmotion) {
       case 'lookLeft': base.x = -30; break;
       case 'lookRight': base.x = 30; break;
       case 'lookUp': base.y = -30; break;
       case 'lookDown': base.y = 30; break;
       case 'lookUpLeft': base.x = -25; base.y = -25; break;
-      case 'happy': 
-        base.height = 70; 
-        base.width = 70; 
-        base.borderRadius = '30% 30% 50% 50%'; 
+      case 'happy':
+        base.height = 70;
+        base.width = 70;
+        base.borderRadius = '30% 30% 50% 50%';
         base.y = -5;
         break;
       case 'sad':
@@ -328,11 +328,11 @@ const AITeacher = () => {
       default:
         break;
     }
-    
+
     // Add speaking pulse
     if (isSpeaking && !['lookLeft', 'lookRight', 'lookUpLeft'].includes(eyeEmotion)) {
-       base.width = 64 + (speakerVolume / 255) * 30;
-       base.height = 64 + (speakerVolume / 255) * 30;
+      base.width = 64 + (speakerVolume / 255) * 30;
+      base.height = 64 + (speakerVolume / 255) * 30;
     }
     return base;
   };
@@ -445,14 +445,14 @@ const AITeacher = () => {
   useEffect(() => {
     let idleTimer;
     let cycleInterval;
-    
+
     // Only start timer if waiting for upload (step 2) OR paused, AND not speaking
     const isWaitingToUpload = uiStep === 2 && !uploadLoading;
     if ((isWaitingToUpload || isPaused) && !isSpeaking) {
       idleTimer = setTimeout(() => {
         setIsIdle(true);
         setCurrentEasterEgg(LOADERS[Math.floor(Math.random() * LOADERS.length)]);
-        
+
         cycleInterval = setInterval(() => {
           setCurrentEasterEgg(LOADERS[Math.floor(Math.random() * LOADERS.length)]);
         }, 10000);
@@ -497,7 +497,7 @@ const AITeacher = () => {
             interimTranscript += event.results[i][0].transcript;
           }
         }
-        
+
         interimTranscriptRef.current = interimTranscript;
       };
 
@@ -512,7 +512,7 @@ const AITeacher = () => {
         if (isHoldingMicRef.current) {
           try {
             recognition.start();
-          } catch(e) {}
+          } catch (e) { }
           return;
         }
 
@@ -525,12 +525,12 @@ const AITeacher = () => {
           isListeningRef.current = false;
           handleUserSpeech(textToSend);
         } else {
-           // If they just tapped it and no speech was recorded, keep it in listening mode so they can try again.
-           finalTranscriptRef.current = '';
-           interimTranscriptRef.current = '';
-           
-           // If we are on desktop, and not holding mic, we should still stop "listening" to force them to hold spacebar again if they want to speak
-           // Actually, isListening is the "ready to speak" state. We keep it ready.
+          // If they just tapped it and no speech was recorded, keep it in listening mode so they can try again.
+          finalTranscriptRef.current = '';
+          interimTranscriptRef.current = '';
+
+          // If we are on desktop, and not holding mic, we should still stop "listening" to force them to hold spacebar again if they want to speak
+          // Actually, isListening is the "ready to speak" state. We keep it ready.
         }
       };
 
@@ -546,7 +546,7 @@ const AITeacher = () => {
       isListeningRef.current = false;
       if (audioCtxRef.current) audioCtxRef.current.close();
       if (document.fullscreenElement && document.exitFullscreen) {
-        document.exitFullscreen().catch(()=>{});
+        document.exitFullscreen().catch(() => { });
       }
     };
   }, []);
@@ -557,13 +557,13 @@ const AITeacher = () => {
     if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
       audioCtxRef.current.resume();
     }
-    
+
     try {
       if (document.documentElement.requestFullscreen) {
-        document.documentElement.requestFullscreen().catch(()=>{});
+        document.documentElement.requestFullscreen().catch(() => { });
         setIsFullscreen(true);
       }
-    } catch (e) {}
+    } catch (e) { }
 
     const hasSeenIntro = localStorage.getItem('hasSeenAITeacherIntro');
     if (!hasSeenIntro) {
@@ -682,6 +682,53 @@ const AITeacher = () => {
     }
   };
 
+  const extractImageText = async (file) => {
+    try {
+      setUploadStatus(`Reading through image...`);
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+      if (!apiKey) {
+        throw new Error("Gemini API key is not configured.");
+      }
+
+      const base64Data = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => {
+          const result = reader.result;
+          const base64 = result.split(',')[1];
+          resolve(base64);
+        };
+        reader.onerror = error => reject(error);
+      });
+
+      const response = await axios.post(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
+        {
+          contents: [
+            {
+              parts: [
+                { text: "Extract and transcribe all handwritten and printed text from this image precisely as it appears. Ensure you capture the full context. If there are diagrams, describe them." },
+                {
+                  inlineData: {
+                    mimeType: file.type || "image/jpeg",
+                    data: base64Data
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+
+      const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      return text || 'No text found in the image.';
+    } catch (err) {
+      console.error('Gemini API Error:', err.response?.data || err.message);
+      throw new Error('Image extraction failed: ' + (err.response?.data?.error?.message || err.message));
+    }
+  };
+
   const transcribeMedia = async (url, type) => {
     try {
       const apiKey = import.meta.env.VITE_ASSEMBLYAI_API_KEY;
@@ -726,7 +773,7 @@ const AITeacher = () => {
     if (files.length === 0) return;
 
     if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(() => {});
+      document.documentElement.requestFullscreen().catch(() => { });
     }
 
     setShowUploadDrawer(false);
@@ -749,8 +796,9 @@ const AITeacher = () => {
         const isPptx = fileType === 'application/vnd.openxmlformats-officedocument.presentationml.presentation' || fileType === 'application/vnd.ms-powerpoint' || ['ppt', 'pptx'].includes(fileExtension);
         const isDocx = fileType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || fileExtension === 'docx';
         const isText = fileType === 'text/plain' || fileType === 'application/pdf' || ['txt', 'pdf'].includes(fileExtension) || isPptx || isDocx;
+        const isImage = fileType.startsWith('image/') || ['png', 'jpg', 'jpeg', 'webp', 'heic'].includes(fileExtension);
 
-        if (!isAudio && !isVideo && !isText) {
+        if (!isAudio && !isVideo && !isText && !isImage) {
           toast.error(`Skipped ${file.name}: Unsupported type.`);
           continue;
         }
@@ -763,6 +811,7 @@ const AITeacher = () => {
         let extractedText = '';
         if (isAudio) extractedText = await transcribeMedia(downloadURL, 'Audio');
         else if (isVideo) extractedText = await transcribeMedia(downloadURL, 'Video');
+        else if (isImage) extractedText = await extractImageText(file);
         else if (isText) {
           if (fileExtension === 'txt' || fileType === 'text/plain') extractedText = await file.text();
           else if (fileExtension === 'pdf' || fileType === 'application/pdf') extractedText = await extractPdfText(file);
@@ -1171,9 +1220,9 @@ RULES:
       setEyeEmotion('closed');
       setTimeout(() => setEyeEmotion('center'), 150);
       setIsThinking(false);
-      
+
       await speakAndAdvance(aiText);
-      
+
       if (stepRef.current === 4) {
         setEyeEmotion('sleep');
       }
@@ -1232,17 +1281,17 @@ RULES:
             <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-5 text-left">Please use a supported browser</p>
             <ul className="text-left space-y-4 text-sm md:text-base text-gray-200 font-medium">
               <li className="flex items-center gap-4">
-                <div className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-[0_0_12px_rgba(59,130,246,1)]"/> 
-                Google Chrome 
+                <div className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-[0_0_12px_rgba(59,130,246,1)]" />
+                Google Chrome
                 <span className="text-[10px] uppercase tracking-wider text-blue-400 bg-blue-500/10 px-2 py-1 rounded-full ml-auto font-bold">Recommended</span>
               </li>
               <li className="flex items-center gap-4">
-                <div className="w-2.5 h-2.5 rounded-full bg-blue-400/40"/> 
+                <div className="w-2.5 h-2.5 rounded-full bg-blue-400/40" />
                 Microsoft Edge
               </li>
               <li className="flex items-center gap-4">
-                <div className="w-2.5 h-2.5 rounded-full bg-blue-400/40"/> 
-                Safari 
+                <div className="w-2.5 h-2.5 rounded-full bg-blue-400/40" />
+                Safari
                 <span className="text-[10px] uppercase tracking-wider text-gray-500 ml-auto font-bold">macOS 14.1+ / iOS 14.5+</span>
               </li>
             </ul>
@@ -1298,7 +1347,7 @@ RULES:
       {/* Top Navigation Bar */}
       <div className="flex items-center justify-between px-4 md:px-6 py-4 bg-[#0E0E0E] z-50">
         <div className="flex items-center gap-4">
-          <button 
+          <button
             onClick={() => setIsSidebarOpen(true)}
             className="text-gray-400 hover:text-white transition-colors"
           >
@@ -1490,7 +1539,7 @@ RULES:
               className={`relative z-10 w-48 h-48 rounded-full flex items-center justify-center overflow-hidden transition-all duration-500 ${isMobile && isListening && stepRef.current !== 2 ? 'cursor-pointer select-none ' : ''}${isHoldingMic ? 'bg-red-500 scale-95 shadow-[0_0_80px_rgba(239,68,68,0.6)]' : isSpeaking ? 'bg-blue-600 shadow-[0_0_80px_rgba(59,130,246,0.6)]' : isListening && stepRef.current !== 2 ? 'bg-emerald-600 shadow-[0_0_50px_rgba(16,185,129,0.4)]' : 'bg-[#27272A] border border-gray-700 shadow-xl'}`}
             >
               {/* TOUCH OVERLAY - Captures all events and never unmounts so touchend is guaranteed */}
-              <div 
+              <div
                 className="absolute inset-0 z-50 rounded-full touch-none"
                 onPointerDown={isMobile ? handleMicTouchStart : undefined}
                 onPointerUp={isMobile ? handleMicTouchEnd : undefined}
@@ -1531,9 +1580,9 @@ RULES:
                   {/* Overlay for mic status */}
                   {(isHoldingMic || (isListening && stepRef.current !== 2)) && (
                     <div className="absolute bottom-4 flex flex-col items-center gap-1 opacity-80">
-                       <Mic size={20} className="text-white drop-shadow-lg animate-pulse" />
-                       {isMobile && !isHoldingMic && <span className="text-white font-bold tracking-widest text-[8px] uppercase">Hold to Speak</span>}
-                       {!isMobile && !isHoldingMic && <span className="text-white font-bold tracking-widest text-[10px] uppercase text-center leading-tight">Hold Space<br/>to talk</span>}
+                      <Mic size={20} className="text-white drop-shadow-lg animate-pulse" />
+                      {isMobile && !isHoldingMic && <span className="text-white font-bold tracking-widest text-[8px] uppercase">Hold to Speak</span>}
+                      {!isMobile && !isHoldingMic && <span className="text-white font-bold tracking-widest text-[10px] uppercase text-center leading-tight">Hold Space<br />to talk</span>}
                     </div>
                   )}
                 </motion.div>
@@ -1541,7 +1590,7 @@ RULES:
             </div>
 
             {/* Teaching Hand */}
-            <motion.div 
+            <motion.div
               className="absolute z-20 top-1/2 left-1/2 ml-10 mt-10 pointer-events-none"
               animate={{ y: [-5, 5, -5], rotate: [-2, 2, -2] }}
               transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
@@ -1593,8 +1642,7 @@ RULES:
           {!isMobile && (
             <div className="flex flex-col items-center gap-1.5 w-16">
               <div
-                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg ${
-                   isHoldingMic ? 'bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.5)]' : isListening && stepRef.current !== 2 && stepRef.current !== 4 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50' : 'bg-gray-800 text-gray-400 border border-gray-700'
+                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all shadow-lg ${isHoldingMic ? 'bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.5)]' : isListening && stepRef.current !== 2 && stepRef.current !== 4 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/50' : 'bg-gray-800 text-gray-400 border border-gray-700'
                   }`}
               >
                 <Mic size={24} />
@@ -1696,7 +1744,7 @@ RULES:
             <input
               type="file"
               multiple
-              accept=".pdf,.txt,.ppt,.pptx,.docx,.mp3,.wav,.m4a,.mp4,.mov,.avi"
+              accept=".pdf,.txt,.ppt,.pptx,.docx,.mp3,.wav,.m4a,.mp4,.mov,.avi,.png,.jpg,.jpeg,.webp,.heic"
               onChange={(e) => setFiles([...files, ...Array.from(e.target.files)])}
               className="hidden"
               id="material-upload"
@@ -1704,7 +1752,7 @@ RULES:
             <label htmlFor="material-upload" className="cursor-pointer flex flex-col items-center justify-center w-full h-36 border-2 border-dashed border-blue-500/40 rounded-xl bg-blue-500/5 hover:bg-blue-500/10 transition group">
               <Upload className="text-blue-400 mb-3 group-hover:scale-110 transition-transform" size={36} />
               <span className="text-sm text-gray-300 font-medium">Click to browse files</span>
-              <span className="text-xs text-gray-500 mt-1">PDF, TXT, DOCX, PPTX, Video, Audio</span>
+              <span className="text-xs text-gray-500 mt-1">Images, PDF, TXT, DOCX, PPTX, Video, Audio</span>
             </label>
 
             {files.length > 0 && (
