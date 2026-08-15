@@ -81,6 +81,45 @@ const AITeacher = () => {
   const [isIdle, setIsIdle] = useState(false);
   const [currentEasterEgg, setCurrentEasterEgg] = useState(null);
 
+  const [isListening, setIsListening] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [isRaisingHand, setIsRaisingHand] = useState(false);
+
+  // Realtime Audio Data
+  const [speakerVolume, setSpeakerVolume] = useState(0);
+  const [micVolume, setMicVolume] = useState(0);
+
+  // File Upload State
+  const [uiStep, setUiStep] = useState(0);
+  const [showUploadDrawer, setShowUploadDrawer] = useState(false);
+  const [showEndSessionModal, setShowEndSessionModal] = useState(false);
+  const [files, setFiles] = useState([]);
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const uploadLoadingRef = useRef(false);
+  const [uploadStatus, setUploadStatus] = useState('');
+
+  const recognitionRef = useRef(null);
+  const audioRef = useRef(null);
+  const initializedRef = useRef(false);
+
+  const isListeningRef = useRef(false);
+  const isSpeakingRef = useRef(false);
+  const isPausedRef = useRef(false);
+
+  const audioQueueRef = useRef([]);
+  const currentAudioSessionRef = useRef(0);
+
+  const audioCtxRef = useRef(null);
+  const speakerAnalyserRef = useRef(null);
+  const micAnalyserRef = useRef(null);
+  const micStreamRef = useRef(null);
+
+  const finalTranscriptRef = useRef('');
+  const interimTranscriptRef = useRef('');
+  const silenceTimerRef = useRef(null);
+  const isHoldingMicRef = useRef(false);
+
   const LOADERS = [
     { el: <Loader1 key="1" />, scale: 1 },
     { el: <Loader2 key="2" />, scale: 1 },
@@ -376,10 +415,7 @@ const AITeacher = () => {
     setSessionTime(0);
   };
 
-  const [isListening, setIsListening] = useState(false);
-  const [isSpeaking, setIsSpeaking] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [isRaisingHand, setIsRaisingHand] = useState(false);
+
 
   useEffect(() => {
     if (!isSpeaking) {
@@ -422,39 +458,7 @@ const AITeacher = () => {
     speakAndAdvance("I see you have a question! What's on your mind?", stepRef.current);
   };
 
-  // Realtime Audio Data
-  const [speakerVolume, setSpeakerVolume] = useState(0);
-  const [micVolume, setMicVolume] = useState(0);
 
-  // File Upload State
-  const [uiStep, setUiStep] = useState(0);
-  const [showUploadDrawer, setShowUploadDrawer] = useState(false);
-  const [showEndSessionModal, setShowEndSessionModal] = useState(false);
-  const [files, setFiles] = useState([]);
-  const [uploadLoading, setUploadLoading] = useState(false);
-  const uploadLoadingRef = useRef(false);
-  const [uploadStatus, setUploadStatus] = useState('');
-
-  const recognitionRef = useRef(null);
-  const audioRef = useRef(null);
-  const initializedRef = useRef(false);
-
-  const isListeningRef = useRef(false);
-  const isSpeakingRef = useRef(false);
-  const isPausedRef = useRef(false);
-
-  const audioQueueRef = useRef([]);
-  const currentAudioSessionRef = useRef(0);
-
-  const audioCtxRef = useRef(null);
-  const speakerAnalyserRef = useRef(null);
-  const micAnalyserRef = useRef(null);
-  const micStreamRef = useRef(null);
-
-  const finalTranscriptRef = useRef('');
-  const interimTranscriptRef = useRef('');
-  const silenceTimerRef = useRef(null);
-  const isHoldingMicRef = useRef(false);
 
   // Idle Easter Egg Timer
   useEffect(() => {
