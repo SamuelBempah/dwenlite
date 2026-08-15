@@ -61,9 +61,9 @@ const AITeacher = () => {
   const studyMaterialRef = useRef('');
   const messagesRef = useRef([]);
 
-  // New States
   const [sessionTime, setSessionTime] = useState(0);
   const [isTimerActive, setIsTimerActive] = useState(false);
+  const [estimatedTime, setEstimatedTime] = useState(0);
   const pendingNameRef = useRef('');
   const [showNameEditModal, setShowNameEditModal] = useState(false);
   const [newNameInput, setNewNameInput] = useState('');
@@ -224,6 +224,17 @@ const AITeacher = () => {
     }
     return () => clearInterval(interval);
   }, [isTimerActive]);
+
+  // Estimated Processing Timer Effect
+  useEffect(() => {
+    let interval;
+    if (uploadLoading && estimatedTime > 0) {
+      interval = setInterval(() => {
+        setEstimatedTime(prev => (prev > 1 ? prev - 1 : 1));
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [uploadLoading, estimatedTime]);
 
   // Desktop Push-to-Talk Spacebar Logic
   useEffect(() => {
@@ -776,6 +787,15 @@ const AITeacher = () => {
       document.documentElement.requestFullscreen().catch(() => { });
     }
 
+    let estSeconds = 15;
+    for (let file of files) {
+      const type = file.type;
+      if (type.startsWith('image/')) estSeconds += 8;
+      else if (type.startsWith('video/') || type.startsWith('audio/')) estSeconds += 45;
+      else estSeconds += 5;
+    }
+    setEstimatedTime(estSeconds);
+
     setShowUploadDrawer(false);
     setUploadLoading(true);
     uploadLoadingRef.current = true;
@@ -826,7 +846,7 @@ const AITeacher = () => {
 
       // Step 2: Generate detailed notes
       setUploadStatus('Getting ready, please wait...');
-      const notesPrompt = `You are an expert teacher. Restructure the following raw material into detailed, comprehensive study notes. Ensure you do not leave any important information out, as this will be your entire knowledge base. Material: "${combinedText}"`;
+      const notesPrompt = `You are an expert teacher. Restructure the following raw material into a strictly ordered, numbered list of distinct, comprehensive study concepts (e.g., "1. [Concept]", "2. [Concept]"). You MUST include EVERY single piece of important information, as this will be the AI Teacher's entire knowledge base. Do not skip or summarize too heavily. Material: "${combinedText}"`;
       const functionUrl = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
 
       const notesResponse = await axios.post(functionUrl, { prompt: notesPrompt });
@@ -848,7 +868,7 @@ const AITeacher = () => {
       uploadLoadingRef.current = false;
       setUploadStatus('');
 
-      const aiPrompt = `The user ${userNameRef.current} has provided study materials. You synthesized them into these notes: "${generatedNotes}". Acknowledge that the notes are ready. Then, teach the VERY FIRST core concept from the notes in 2-3 short, friendly sentences. Finally, ask a single question to test their understanding of it. ALWAYS end your turn after the question so the student can answer.`;
+      const aiPrompt = `The user ${userNameRef.current} has provided study materials. You synthesized them into these numbered notes: "${generatedNotes}". Acknowledge that the notes are ready. Then, teach ONLY Concept #1 from the notes in 2-3 short, friendly sentences. Finally, ask a single question to test their understanding of Concept #1. ALWAYS end your turn after the question so the student can answer.`;
 
       await generateAIResponse(aiPrompt, [
         { role: 'system', content: `You are an incredibly friendly, empathetic, and human-like personal AI teacher for ${userNameRef.current}. You are the absolute best at teaching, especially for students with ADHD. You make learning highly engaging, memorable, and easy to digest. Your goal is to cover ALL of the study materials comprehensively. Express emotions naturally using your words. NEVER use emojis, asterisks (like *smiles*), brackets for actions, markdown formatting, or underscores (like __bold__) as the text-to-speech engine will read them out loud. Keep your responses relatively short, conversational and encouraging. IMPORTANT STT RULE: The student's input is from a Speech-to-Text engine. If a sentence contains words that sound similar but make no contextual sense (e.g., 'eye sea' instead of 'I see'), you MUST infer their true phonetic meaning and respond to what they actually meant. Don't point out the typo, just answer naturally. BACKGROUND NOISE & ECHO FILTER: If the student's transcript contains random background chatter, or looks like an echo of what you just said, ignore it completely. NEVER complain about an audio problem or echo. If you feel the need to try a different approach because the student is confused, say "Let me try explaining this differently..." instead of repeating yourself.` }
@@ -903,17 +923,17 @@ const AITeacher = () => {
         {
           role: 'system', content: `You are an incredibly friendly, empathetic, and human-like personal AI teacher for ${userNameRef.current}. 
 You are the absolute best at teaching, especially for students with ADHD. You make learning highly engaging, memorable, and easy to digest.
-Your goal is to teach ALL of the following study material segment by segment, testing their understanding along the way.
+Your goal is to teach ALL of the following study material strictly chronologically, one numbered segment at a time, testing their understanding along the way.
 STUDY MATERIAL: ${studyMaterialRef.current}
 
 RULES:
 1. ALWAYS wait for the student to speak. NEVER answer your own questions.
 2. Evaluate the student's answer. Be encouraging! If they struggle or answer incorrectly, simplify the concept drastically. Use vivid real-world examples, fun acronyms, or mnemonics to make it stick in their long-term memory.
-3. Teach the next core concept from the notes in 2-3 short, punchy, conversational sentences. Keep their attention!
+3. Teach the NEXT core concept (e.g., if you just finished Concept 1, move to Concept 2) from the notes in 2-3 short, punchy, conversational sentences. Keep their attention! DO NOT skip any numbered concepts. You must progress strictly sequentially through the numbered list.
 4. Periodically, ask the student if they truly understand the concept. If they say no, ask them exactly what part is confusing, and reteach it from a completely new angle until it clicks.
 5. Express emotions naturally in your speech (e.g., happiness, encouragement). NEVER use emojis, asterisks (like *smiles*), brackets for actions, markdown formatting, or underscores (like __bold__) as the text-to-speech engine reads them out loud.
 6. Immediately after teaching a concept, ask ONE question to test their understanding. Stop speaking immediately after asking.
-7. Only when ALL material from the notes is fully covered AND you are confident the student has demonstrated clear understanding of everything, conclude by saying exactly "[SESSION COMPLETE]". Do not say this prematurely.
+7. Only when ALL numbered concepts from the notes are fully covered AND you are confident the student has demonstrated clear understanding of the FINAL concept, conclude by saying exactly "[SESSION COMPLETE]". Do not say this prematurely.
 8. STT TRANSLATOR: The student is speaking via a Speech-to-Text engine. If their words sound phonetically similar to something else that makes sense in context, assume they meant that (e.g. "eye sea" -> "I see"). Do not point out the typo, just answer their true meaning naturally.
 9. BACKGROUND NOISE & ECHO FILTER: If the transcript contains random fragments of background conversations, or looks like an echo of what you just said, completely ignore them. NEVER complain about an audio problem or echo. If you feel the need to try a different approach because the student is confused, say "Let me try explaining this differently..." instead of repeating yourself.` },
         ...messagesRef.current.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
@@ -1442,6 +1462,7 @@ RULES:
               className="fixed top-24 left-1/2 bg-blue-600/20 text-blue-300 px-6 py-2 rounded-full border border-blue-500/20 text-sm font-medium animate-pulse z-[60] shadow-lg whitespace-nowrap"
             >
               {uploadStatus || 'Processing files...'}
+              {estimatedTime > 0 && ` (~${estimatedTime}s left)`}
             </motion.div>
           )}
         </AnimatePresence>
