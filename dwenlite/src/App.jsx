@@ -28,6 +28,7 @@ import AITeacher from './pages/AITeacher';
 
 import AppLayout from './components/layout/AppLayout';
 import PwaInstallPrompt from './components/PwaInstallPrompt';
+import ReleaseNotesModal from './components/ReleaseNotesModal';
 
 const isMaintenanceWindow = () => {
   const now = new Date();
@@ -176,6 +177,7 @@ function AppContent() {
       <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
       <BanPopup isOpen={showBanPopup} onClose={() => setShowBanPopup(false)} />
       <PwaInstallPrompt />
+      <ReleaseNotesModal />
       <style jsx global>{`
         html, body {
           margin: 0;
