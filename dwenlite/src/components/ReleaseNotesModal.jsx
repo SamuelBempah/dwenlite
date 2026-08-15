@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Sparkles, Zap, Star } from 'lucide-react';
 import { auth } from '../firebase';
+import logo from '../assets/react.png';
 
 // UPDATE THIS VERSION STRING EVERY TIME YOU WANT THE MODAL TO SHOW AGAIN
 const CURRENT_VERSION = 'v1.1.0';
@@ -67,8 +68,8 @@ export default function ReleaseNotesModal() {
                 transition={{ delay: 0.2, type: 'spring' }}
                 className="relative z-10 flex flex-col items-center"
               >
-                <div className="bg-white/20 backdrop-blur-md p-3 rounded-2xl shadow-lg border border-white/30 mb-2">
-                  <Sparkles size={32} className="text-white" />
+                <div className="bg-white/20 backdrop-blur-md p-2 w-16 h-16 rounded-2xl shadow-lg border border-white/30 mb-2 flex items-center justify-center">
+                  <img src={logo} alt="DwenLite Logo" className="w-full h-full object-contain drop-shadow-md" />
                 </div>
                 <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight drop-shadow-lg">
                   What's New!
