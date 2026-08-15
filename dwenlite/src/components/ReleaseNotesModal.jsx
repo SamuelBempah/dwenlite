@@ -68,8 +68,8 @@ export default function ReleaseNotesModal() {
                 transition={{ delay: 0.2, type: 'spring' }}
                 className="relative z-10 flex flex-col items-center"
               >
-                <div className="bg-white/20 backdrop-blur-md p-2 w-16 h-16 rounded-2xl shadow-lg border border-white/30 mb-2 flex items-center justify-center">
-                  <img src={logo} alt="DwenLite Logo" className="w-full h-full object-contain drop-shadow-md" />
+                <div className="bg-white p-2 w-16 h-16 rounded-2xl shadow-xl border border-white/40 mb-2 flex items-center justify-center">
+                  <img src={logo} alt="DwenLite Logo" className="w-full h-full object-contain" />
                 </div>
                 <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight drop-shadow-lg">
                   What's New!
