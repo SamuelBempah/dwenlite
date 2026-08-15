@@ -5,7 +5,7 @@ import { auth } from '../firebase';
 import logo from '../assets/react.png';
 
 // UPDATE THIS VERSION STRING EVERY TIME YOU WANT THE MODAL TO SHOW AGAIN
-const CURRENT_VERSION = 'v1.1.0';
+const CURRENT_VERSION = 'v1.2.0';
 
 export default function ReleaseNotesModal() {
   const [isOpen, setIsOpen] = useState(false);
@@ -96,13 +96,13 @@ export default function ReleaseNotesModal() {
                 <div className="flex gap-4">
                   <div className="flex-shrink-0 mt-1">
                     <div className="w-10 h-10 rounded-full bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-400">
-                      <Zap size={20} />
+                      <Star size={20} />
                     </div>
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-white mb-1">AI Teacher Processing Timer</h3>
+                    <h3 className="text-lg font-bold text-white mb-1">Adaptive Analogy Engine</h3>
                     <p className="text-gray-400 text-sm leading-relaxed">
-                      You now get an estimated countdown while your files are being processed. No more guessing when your study session will begin!
+                      If you struggle with a topic, the AI will dynamically switch gears and use vivid real-world examples or pop-culture references to make it click!
                     </p>
                   </div>
                 </div>
@@ -111,13 +111,28 @@ export default function ReleaseNotesModal() {
                 <div className="flex gap-4">
                   <div className="flex-shrink-0 mt-1">
                     <div className="w-10 h-10 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-400">
-                      <Star size={20} />
+                      <Zap size={20} />
                     </div>
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-white mb-1">Strict Teaching Mode</h3>
+                    <h3 className="text-lg font-bold text-white mb-1">Lightning Review Round</h3>
                     <p className="text-gray-400 text-sm leading-relaxed">
-                      We've upgraded the AI Teacher to ensure it covers <strong>every single concept</strong> in your study material without skipping.
+                      At the end of your material, the AI will now run a rapid-fire review round combining multiple concepts to ensure long-term retention.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Feature 3 */}
+                <div className="flex gap-4">
+                  <div className="flex-shrink-0 mt-1">
+                    <div className="w-10 h-10 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                      <Sparkles size={20} />
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-white mb-1">Smarter Interruptions</h3>
+                    <p className="text-gray-400 text-sm leading-relaxed">
+                      Interrupt away! The AI will answer your questions perfectly without losing its place or skipping topics.
                     </p>
                   </div>
                 </div>
