@@ -715,54 +715,63 @@ const AITeacher = () => {
     }
   };
 
-  const extractImageText = async (file) => {
-    try {
-      setUploadStatus(`Reading through image...`);
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-      if (!apiKey) {
-        throw new Error("Gemini API key is not configured.");
-      }
+  const extractImageBatchText = async (imageFiles) => {
+    let attempt = 0;
+    const maxAttempts = 3;
 
-      const base64Data = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = () => {
-          const result = reader.result;
-          const base64 = result.split(',')[1];
-          resolve(base64);
-        };
-        reader.onerror = error => reject(error);
-      });
+    while (attempt < maxAttempts) {
+      try {
+        setUploadStatus(`Reading through ${imageFiles.length} image(s)...`);
+        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+        if (!apiKey) {
+          throw new Error("Gemini API key is not configured.");
+        }
 
-      const response = await axios.post(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
-        {
-          contents: [
-            {
-              parts: [
-                { text: "Extract and transcribe all handwritten and printed text from this image precisely as it appears. Ensure you capture the full context. If there are diagrams, describe them." },
-                {
-                  inlineData: {
-                    mimeType: file.type || "image/jpeg",
-                    data: base64Data
-                  }
-                }
-              ]
+        const parts = [
+          { text: "I am providing you with multiple images. Extract and transcribe all handwritten and printed text from EACH image in order, starting from the first to the last. Do not skip any images, and clearly separate the text from each image. Ensure you capture the full context. If there are diagrams, describe them." }
+        ];
+
+        for (const file of imageFiles) {
+          const base64Data = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result.split(',')[1]);
+            reader.onerror = error => reject(error);
+          });
+          
+          parts.push({
+            inlineData: {
+              mimeType: file.type || "image/jpeg",
+              data: base64Data
             }
-          ]
-        },
-        { headers: { 'Content-Type': 'application/json' } }
-      );
+          });
+        }
 
-      const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      return text || 'No text found in the image.';
-    } catch (err) {
-      console.error('Dwenlite Vision Model Error:', err.response?.data || err.message);
-      const errMsg = err.response?.data?.error?.message || err.message;
-      if (errMsg.toLowerCase().includes('high demand') || errMsg.toLowerCase().includes('503') || errMsg.toLowerCase().includes('capacity') || errMsg.toLowerCase().includes('quota') || errMsg.toLowerCase().includes('unavailable')) {
-        throw new Error('Our Dwenlite Vision Model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.');
+        const response = await axios.post(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
+          { contents: [{ parts }] },
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+
+        const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        return text || 'No text found in the images.';
+      } catch (err) {
+        console.error('Dwenlite Vision Model Error:', err.response?.data || err.message);
+        const errMsg = err.response?.data?.error?.message || err.message;
+        const isRateLimit = errMsg.toLowerCase().includes('high demand') || errMsg.toLowerCase().includes('503') || errMsg.toLowerCase().includes('capacity') || errMsg.toLowerCase().includes('quota') || errMsg.toLowerCase().includes('unavailable') || errMsg.toLowerCase().includes('429');
+        
+        attempt++;
+        if (isRateLimit && attempt < maxAttempts) {
+          setUploadStatus(`High demand detected. Retrying in ${attempt * 3}s (${attempt}/${maxAttempts})...`);
+          await new Promise(resolve => setTimeout(resolve, attempt * 3000));
+          continue;
+        }
+
+        if (isRateLimit) {
+          throw new Error('Our Dwenlite Vision Model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.');
+        }
+        throw new Error('Dwenlite Vision extraction failed: ' + errMsg);
       }
-      throw new Error('Dwenlite Vision extraction failed: ' + errMsg);
     }
   };
 
@@ -831,9 +840,11 @@ const AITeacher = () => {
     try {
       let combinedText = '';
 
+      const imageFiles = [];
+
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        setUploadStatus(`Processing ${file.name}...`);
+        setUploadStatus(`Uploading ${file.name}...`);
 
         const fileType = file.type;
         const fileExtension = file.name.split('.').pop().toLowerCase();
@@ -854,10 +865,15 @@ const AITeacher = () => {
         await uploadBytes(storageRef, file);
         const downloadURL = await getDownloadURL(storageRef);
 
+        if (isImage) {
+          imageFiles.push(file);
+          continue;
+        }
+
+        setUploadStatus(`Processing ${file.name}...`);
         let extractedText = '';
         if (isAudio) extractedText = await transcribeMedia(downloadURL, 'Audio');
         else if (isVideo) extractedText = await transcribeMedia(downloadURL, 'Video');
-        else if (isImage) extractedText = await extractImageText(file);
         else if (isText) {
           if (fileExtension === 'txt' || fileType === 'text/plain') extractedText = await file.text();
           else if (fileExtension === 'pdf' || fileType === 'application/pdf') extractedText = await extractPdfText(file);
@@ -866,6 +882,11 @@ const AITeacher = () => {
         }
 
         combinedText += `\n\n--- Content from ${file.name} ---\n${extractedText}`;
+      }
+
+      if (imageFiles.length > 0) {
+        const extractedImagesText = await extractImageBatchText(imageFiles);
+        combinedText += `\n\n--- Content from Images ---\n${extractedImagesText}`;
       }
 
       if (!combinedText.trim()) throw new Error("No readable text was found in the uploaded files.");
