@@ -5,7 +5,7 @@ import { auth } from '../firebase';
 import logo from '../assets/react.png';
 
 // UPDATE THIS VERSION STRING EVERY TIME YOU WANT THE MODAL TO SHOW AGAIN
-const CURRENT_VERSION = 'v1.2.0';
+const CURRENT_VERSION = 'v1.3.0';
 
 export default function ReleaseNotesModal() {
   const [isOpen, setIsOpen] = useState(false);
@@ -100,9 +100,9 @@ export default function ReleaseNotesModal() {
                     </div>
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-white mb-1">Adaptive Analogy Engine</h3>
+                    <h3 className="text-lg font-bold text-white mb-1">Introducing Dwenlite Vision Model</h3>
                     <p className="text-gray-400 text-sm leading-relaxed">
-                      If you struggle with a topic, the AI will dynamically switch gears and use vivid real-world examples or pop-culture references to make it click!
+                      Our brand new proprietary Vision Model perfectly extracts handwritten and printed text from your images with stunning accuracy and speed.
                     </p>
                   </div>
                 </div>
@@ -115,9 +115,9 @@ export default function ReleaseNotesModal() {
                     </div>
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-white mb-1">Lightning Review Round</h3>
+                    <h3 className="text-lg font-bold text-white mb-1">Dwenlite Cognitive Engine</h3>
                     <p className="text-gray-400 text-sm leading-relaxed">
-                      At the end of your material, the AI will now run a rapid-fire review round combining multiple concepts to ensure long-term retention.
+                      Experience our upgraded Cognitive Engine! It intelligently generates notes, quizzes, and flashcards, and powers the AI Teacher for a smoother learning experience.
                     </p>
                   </div>
                 </div>
@@ -130,9 +130,9 @@ export default function ReleaseNotesModal() {
                     </div>
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold text-white mb-1">Smarter Interruptions</h3>
+                    <h3 className="text-lg font-bold text-white mb-1">Dwenlite Agent Assistant & Data Processor</h3>
                     <p className="text-gray-400 text-sm leading-relaxed">
-                      Interrupt away! The AI will answer your questions perfectly without losing its place or skipping topics.
+                      Our Helpdesk and Support are now powered by the new Dwenlite Agent Assistant and Data Processor, ensuring rapid, professional, and accurate support.
                     </p>
                   </div>
                 </div>
