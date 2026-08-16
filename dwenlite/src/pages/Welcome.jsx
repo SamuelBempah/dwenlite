@@ -74,15 +74,9 @@ function Welcome() {
             <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight bg-gradient-to-r from-blue-100 to-blue-400 bg-clip-text text-transparent mb-3 drop-shadow-sm">
               DwenLite Teacher
             </h1>
-            <p className="text-lg md:text-xl text-gray-400 max-w-md font-medium leading-relaxed mb-6">
+            <p className="text-lg md:text-xl text-gray-400 max-w-md font-medium leading-relaxed">
               Your interactive AI teacher. Let's learn together through engaging, real-time conversations.
             </p>
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20 shadow-[0_0_15px_rgba(59,130,246,0.15)] backdrop-blur-md">
-              <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse shadow-[0_0_5px_rgba(96,165,250,0.8)]" />
-              <span className="text-[10px] sm:text-xs font-bold text-blue-200/90 uppercase tracking-widest">
-                Powered by DwenLite Cognitive Engine (DCE) • Trained by SBMind Technologies
-              </span>
-            </div>
           </motion.div>
         </div>
 
@@ -144,7 +138,7 @@ function Welcome() {
             </div>
 
             <p className="text-center text-xs text-gray-500 font-medium mt-8">
-              Developed & Published By <a href="https://sbmindtechnologies.com" className="text-gray-400 hover:text-blue-400 transition-colors">SBMind Technologies</a> • © 2025
+              Powered by DwenLite Cognitive Engine (DCE) • Trained by <a href="https://sbmindtechnologies.com" className="text-gray-400 hover:text-blue-400 transition-colors">SBMind Technologies</a>
             </p>
           </div>
         </motion.div>

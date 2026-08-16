@@ -5,7 +5,7 @@ import { auth } from '../firebase';
 import logo from '../assets/react.png';
 
 // UPDATE THIS VERSION STRING EVERY TIME YOU WANT THE MODAL TO SHOW AGAIN
-const CURRENT_VERSION = 'v1.3.0';
+const CURRENT_VERSION = 'v1.3.1';
 
 export default function ReleaseNotesModal() {
   const [isOpen, setIsOpen] = useState(false);
