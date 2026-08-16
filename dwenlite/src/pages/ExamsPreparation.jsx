@@ -228,6 +228,64 @@ function ExamsPreparation() {
     }
   };
 
+  const extractImageBatchText = async (imageFiles) => {
+    let attempt = 0;
+    const maxAttempts = 3;
+
+    while (attempt < maxAttempts) {
+      try {
+        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+        if (!apiKey) {
+          throw new Error("Gemini API key is not configured.");
+        }
+
+        const parts = [
+          { text: "I am providing you with multiple images. Extract and transcribe all handwritten and printed text from EACH image in order, starting from the first to the last. Do not skip any images, and clearly separate the text from each image. Ensure you capture the full context. If there are diagrams, describe them." }
+        ];
+
+        for (const file of imageFiles) {
+          const base64Data = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result.split(',')[1]);
+            reader.onerror = error => reject(error);
+          });
+          
+          parts.push({
+            inlineData: {
+              mimeType: file.type || "image/jpeg",
+              data: base64Data
+            }
+          });
+        }
+
+        const response = await axios.post(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
+          { contents: [{ parts }] },
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+
+        const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        return text || 'No text found in the images.';
+      } catch (err) {
+        console.error('Dwenlite Vision Model Error:', err.response?.data || err.message);
+        const errMsg = err.response?.data?.error?.message || err.message;
+        const isRateLimit = errMsg.toLowerCase().includes('high demand') || errMsg.toLowerCase().includes('503') || errMsg.toLowerCase().includes('capacity') || errMsg.toLowerCase().includes('quota') || errMsg.toLowerCase().includes('unavailable') || errMsg.toLowerCase().includes('429');
+        
+        attempt++;
+        if (isRateLimit && attempt < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, attempt * 3000));
+          continue;
+        }
+
+        if (isRateLimit) {
+          throw new Error('Our Dwenlite Vision Model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.');
+        }
+        throw new Error('Dwenlite Vision extraction failed: ' + errMsg);
+      }
+    }
+  };
+
   const handleFileUpload = async (e) => {
     const selectedFiles = Array.from(e.target.files);
     if (selectedFiles.length === 0) return;
@@ -241,7 +299,22 @@ function ExamsPreparation() {
     setUploadLoading(true);
 
     try {
-      const newNotesPromises = selectedFiles.map(async (selectedFile) => {
+      const imageFiles = [];
+      const nonImageFiles = [];
+
+      for (const file of selectedFiles) {
+        const fileType = file.type;
+        const fileExtension = file.name.split('.').pop().toLowerCase();
+        const isImage = fileType.startsWith('image/') || ['png', 'jpg', 'jpeg', 'webp', 'heic'].includes(fileExtension);
+        
+        if (isImage) {
+          imageFiles.push(file);
+        } else {
+          nonImageFiles.push(file);
+        }
+      }
+
+      const newNotesPromises = nonImageFiles.map(async (selectedFile) => {
         try {
           const fileType = selectedFile.type;
           const fileExtension = selectedFile.name.split('.').pop().toLowerCase();
@@ -294,6 +367,33 @@ function ExamsPreparation() {
 
       const results = await Promise.all(newNotesPromises);
       const validNotes = results.filter(note => note !== null);
+
+      if (imageFiles.length > 0) {
+        try {
+          const imageStoragePromises = imageFiles.map(async (selectedFile) => {
+            const storageRef = ref(storage, `exam_notes/${currentUser.uid}/${Date.now()}_${selectedFile.name}`);
+            await uploadBytes(storageRef, selectedFile);
+            const downloadURL = await getDownloadURL(storageRef);
+            return downloadURL;
+          });
+          
+          const downloadedURLs = await Promise.all(imageStoragePromises);
+          const batchedText = await extractImageBatchText(imageFiles);
+
+          validNotes.push({
+            url: downloadedURLs[0] || '',
+            isAudio: false,
+            isVideo: false,
+            isText: true,
+            extractedText: batchedText,
+            createdAt: new Date().toISOString(),
+            fileName: `${imageFiles.length} Image(s) Batch`,
+          });
+        } catch (err) {
+          console.error("Batch image extraction failed:", err);
+          toast.error("Failed to process images.");
+        }
+      }
 
       setUploadedNotes(prev => [...prev, ...validNotes]);
       setFiles(prev => [...prev, ...selectedFiles]);
@@ -1006,7 +1106,7 @@ function ExamsPreparation() {
                         type="file" 
                         onChange={handleFileUpload}
                         multiple
-                        accept=".pdf,.txt,.ppt,.pptx,.docx,.mp3,.wav,.m4a,.mp4,.mov,.avi"
+                        accept=".pdf,.txt,.ppt,.pptx,.docx,.mp3,.wav,.m4a,.mp4,.mov,.avi,.png,.jpg,.jpeg,.webp,.heic"
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
                         disabled={uploadLoading}
                       />
@@ -1025,7 +1125,7 @@ function ExamsPreparation() {
                       <p className="text-slate-400 text-sm max-w-md mx-auto">
                         Upload up to 50 files at once.
                         <br/>
-                        Compatible with <span className="text-slate-300">PDF, TXT, DOCX, PPTX</span>, <span className="text-slate-300">Audio</span>, and <span className="text-slate-300">Video</span>.
+                        Compatible with <span className="text-slate-300">PDF, TXT, DOCX, PPTX</span>, <span className="text-slate-300">Audio</span>, <span className="text-slate-300">Video</span>, and <span className="text-slate-300">Images</span>.
                         <br/><span className="text-xs opacity-70 mt-2 block">Max file size: 50MB</span>
                       </p>
                     </div>

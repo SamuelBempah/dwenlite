@@ -207,11 +207,69 @@ function ViewFolder() {
     }
   };
 
+  const extractImageBatchText = async (imageFiles) => {
+    let attempt = 0;
+    const maxAttempts = 3;
+
+    while (attempt < maxAttempts) {
+      try {
+        const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+        if (!apiKey) {
+          throw new Error("Gemini API key is not configured.");
+        }
+
+        const parts = [
+          { text: "I am providing you with multiple images. Extract and transcribe all handwritten and printed text from EACH image in order, starting from the first to the last. Do not skip any images, and clearly separate the text from each image. Ensure you capture the full context. If there are diagrams, describe them." }
+        ];
+
+        for (const file of imageFiles) {
+          const base64Data = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.readAsDataURL(file);
+            reader.onload = () => resolve(reader.result.split(',')[1]);
+            reader.onerror = error => reject(error);
+          });
+          
+          parts.push({
+            inlineData: {
+              mimeType: file.type || "image/jpeg",
+              data: base64Data
+            }
+          });
+        }
+
+        const response = await axios.post(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${apiKey}`,
+          { contents: [{ parts }] },
+          { headers: { 'Content-Type': 'application/json' } }
+        );
+
+        const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        return text || 'No text found in the images.';
+      } catch (err) {
+        console.error('Dwenlite Vision Model Error:', err.response?.data || err.message);
+        const errMsg = err.response?.data?.error?.message || err.message;
+        const isRateLimit = errMsg.toLowerCase().includes('high demand') || errMsg.toLowerCase().includes('503') || errMsg.toLowerCase().includes('capacity') || errMsg.toLowerCase().includes('quota') || errMsg.toLowerCase().includes('unavailable') || errMsg.toLowerCase().includes('429');
+        
+        attempt++;
+        if (isRateLimit && attempt < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, attempt * 3000));
+          continue;
+        }
+
+        if (isRateLimit) {
+          throw new Error('Our Dwenlite Vision Model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.');
+        }
+        throw new Error('Dwenlite Vision extraction failed: ' + errMsg);
+      }
+    }
+  };
+
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
       const fileName = selectedFile.name.toLowerCase();
-      const allowedExtensions = ['.pdf', '.docx', '.txt', '.pptx', '.mp3', '.wav', '.m4a', '.ogg', '.flac', '.mp4', '.mov', '.avi', '.mkv', '.webm'];
+      const allowedExtensions = ['.pdf', '.docx', '.txt', '.pptx', '.mp3', '.wav', '.m4a', '.ogg', '.flac', '.mp4', '.mov', '.avi', '.mkv', '.webm', '.png', '.jpg', '.jpeg', '.webp', '.heic'];
       const isValidFile = allowedExtensions.some(ext => fileName.endsWith(ext));
       if (!isValidFile) {
         toast.error('Invalid file type. Please check supported formats.');
@@ -236,14 +294,20 @@ function ViewFolder() {
       let extractedTextUrl = '';
 
       const fileExtension = file.name.split('.').pop().toLowerCase();
+      const isImageExtension = ['png', 'jpg', 'jpeg', 'webp', 'heic'].includes(fileExtension);
+      
       try {
-        if (['pdf', 'docx', 'txt', 'pptx'].includes(fileExtension)) {
+        if (['pdf', 'docx', 'txt', 'pptx'].includes(fileExtension) || isImageExtension) {
           isText = true;
-          switch (fileExtension) {
-            case 'pdf': extractedText = await extractPdfText(file); break;
-            case 'docx': extractedText = await extractDocxText(file); break;
-            case 'txt': extractedText = await extractTxtText(file); break;
-            case 'pptx': extractedText = await extractPptxText(file); break;
+          if (isImageExtension) {
+            extractedText = await extractImageBatchText([file]);
+          } else {
+            switch (fileExtension) {
+              case 'pdf': extractedText = await extractPdfText(file); break;
+              case 'docx': extractedText = await extractDocxText(file); break;
+              case 'txt': extractedText = await extractTxtText(file); break;
+              case 'pptx': extractedText = await extractPptxText(file); break;
+            }
           }
           const txtBlob = new Blob([extractedText], { type: 'text/plain' });
           const txtStorageRef = ref(storage, `documents/${folderId}/extracted_${file.name}.txt`);
