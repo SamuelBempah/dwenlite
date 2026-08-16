@@ -269,7 +269,21 @@ const AITeacher = () => {
     let interval;
     if (uploadLoading && estimatedTime > 0) {
       interval = setInterval(() => {
-        setEstimatedTime(prev => (prev > 1 ? prev - 1 : 1));
+        setEstimatedTime(prev => {
+          if (prev <= 1) return 1;
+          const fluctuation = Math.random();
+          if (fluctuation > 0.85) {
+            // 15% chance to increase by 1 to 3 seconds (simulating fluctuating load)
+            return prev + Math.floor(Math.random() * 3) + 1;
+          } else if (fluctuation > 0.6) {
+            // 25% chance to stall for a second
+            return prev;
+          } else {
+            // 60% chance to decrease by 1 to 2 seconds
+            const decrease = Math.floor(Math.random() * 2) + 1;
+            return prev - decrease > 0 ? prev - decrease : 1;
+          }
+        });
       }, 1000);
     }
     return () => clearInterval(interval);
@@ -743,8 +757,12 @@ const AITeacher = () => {
       const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
       return text || 'No text found in the image.';
     } catch (err) {
-      console.error('Gemini API Error:', err.response?.data || err.message);
-      throw new Error('Image extraction failed: ' + (err.response?.data?.error?.message || err.message));
+      console.error('Dwenlite Vision Model Error:', err.response?.data || err.message);
+      const errMsg = err.response?.data?.error?.message || err.message;
+      if (errMsg.toLowerCase().includes('high demand') || errMsg.toLowerCase().includes('503') || errMsg.toLowerCase().includes('capacity') || errMsg.toLowerCase().includes('quota') || errMsg.toLowerCase().includes('unavailable')) {
+        throw new Error('Our Dwenlite Vision Model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.');
+      }
+      throw new Error('Dwenlite Vision extraction failed: ' + errMsg);
     }
   };
 
@@ -1256,8 +1274,8 @@ RULES (STRICT STATE GATES):
       }
 
     } catch (error) {
-      console.error('AI generation error:', error);
-      toast.error('Failed to get AI response.');
+      console.error('Dwenlite Cognitive Engine error:', error);
+      toast.error('Our Dwenlite Cognitive Engine is currently busy. Please try again.');
       setIsThinking(false);
       setIsSpeaking(false);
       isSpeakingRef.current = false;

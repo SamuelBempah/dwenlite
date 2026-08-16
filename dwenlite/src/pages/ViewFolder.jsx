@@ -200,10 +200,10 @@ function ViewFolder() {
         { text },
         { headers: { 'Authorization': 'Bearer YOUR_DEEPSEEK_API_KEY', 'Content-Type': 'application/json' } }
       );
-      return response.data.results || 'No results from DeepSeek.';
+      return response.data.results || 'No results from Dwenlite Data Processor.';
     } catch (error) {
-      console.warn('DeepSeek API error:', error.message);
-      return 'Failed to process text with DeepSeek: ' + error.message;
+      console.warn('Dwenlite Data Processor API error:', error.message);
+      return 'Failed to process text with Dwenlite Data Processor: ' + error.message;
     }
   };
 

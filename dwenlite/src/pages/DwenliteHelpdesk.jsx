@@ -42,8 +42,8 @@ function DwenliteHelpdesk() {
   const rewriteText = async (text) => {
     const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
     if (!apiKey) {
-      console.error('DeepSeek API key is missing or undefined.');
-      toast.error('API key is missing. Please check your environment configuration.');
+      console.error('Dwenlite Agent Assistant API key is missing or undefined.');
+      toast.error('Dwenlite Agent Assistant is unavailable. Please check configuration.');
       return null;
     }
 
@@ -80,11 +80,11 @@ function DwenliteHelpdesk() {
       if (data.choices && data.choices.length > 0 && data.choices[0].message.content) {
         return data.choices[0].message.content.trim();
       } else {
-        throw new Error('No valid response from DeepSeek API');
+        throw new Error('No valid response from Dwenlite Agent Assistant');
       }
     } catch (error) {
-      console.error('Error rewriting text with DeepSeek API:', error.message);
-      toast.error(`Failed to rewrite message: ${error.message}`);
+      console.error('Error rewriting text with Dwenlite Agent Assistant:', error.message);
+      toast.error(`Dwenlite Agent Assistant failed to rewrite message: ${error.message}`);
       return null;
     }
   };

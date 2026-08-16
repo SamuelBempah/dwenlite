@@ -287,7 +287,7 @@ function Support() {
         try {
           const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
           if (!apiKey) {
-            throw new Error('DeepSeek API key not found.');
+            throw new Error('Dwenlite Agent Assistant API key not found.');
           }
 
           const prompt = `You are a support assistant for Dwenlite, DwenLite your interactive AI teacher that helps users create folders to organize study materials, upload documents (PDF, PPTX, TXT, DOCX), audio, and videos, and generate notes, quizzes, and flashcards from them. Provide a concise, helpful response to the following user query: "${input}". Keep the response under 100 words and relevant to Dwenlite's features. If the user asks for a human agent, instruct them to type "agent". End your response with: "Is that all?"`;
@@ -310,13 +310,13 @@ function Support() {
           });
 
           if (!response.ok) {
-            throw new Error(`DeepSeek API request failed: ${response.status}`);
+            throw new Error(`Dwenlite Agent Assistant request failed: ${response.status}`);
           }
 
           const data = await response.json();
           const generatedText = data.choices?.[0]?.message?.content?.trim();
           if (!generatedText) {
-            throw new Error('No response from DeepSeek API.');
+            throw new Error('No response from Dwenlite Agent Assistant.');
           }
 
           setTimeout(() => {
@@ -344,7 +344,7 @@ function Support() {
             const errorMessage = {
               id: Date.now(),
               sender: 'dwenlite',
-              content: 'Sorry, I encountered an error. Please try again or type "agent" for assistance. Is that all?',
+              content: 'Sorry, the Dwenlite Agent Assistant is currently busy. Please try again or type "agent" for assistance. Is that all?',
               timestamp: new Date().toLocaleString(),
             };
             setMessages(prev => [...prev, errorMessage]);
