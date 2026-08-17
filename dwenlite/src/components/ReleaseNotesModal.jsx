@@ -57,7 +57,7 @@ export default function ReleaseNotesModal() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.9, y: 20 }}
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="relative w-full max-w-lg bg-[#0f0f13] border border-white/10 rounded-3xl overflow-hidden shadow-2xl"
+            className="relative w-full max-w-lg bg-[#0f0f13] border border-white/10 rounded-3xl overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
           >
             {/* Header / Banner */}
             <div className="relative h-32 sm:h-40 bg-gradient-to-br from-blue-600 via-purple-600 to-pink-600 flex items-center justify-center overflow-hidden">
@@ -85,7 +85,7 @@ export default function ReleaseNotesModal() {
             </div>
 
             {/* Content */}
-            <div className="p-6 sm:p-8">
+            <div className="p-6 sm:p-8 overflow-y-auto overscroll-contain">
               <p className="text-gray-400 text-sm mb-6 text-center">
                 Version {CURRENT_VERSION}
               </p>
