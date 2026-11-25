@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { auth, db } from '../firebase';
+import { askAI } from '../lib/ai';
 import { collection, addDoc, doc, onSnapshot, updateDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 
@@ -285,39 +286,7 @@ function Support() {
         }
 
         try {
-          const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
-          if (!apiKey) {
-            throw new Error('Dwenlite Agent Assistant API key not found.');
-          }
-
-          const prompt = `You are a support assistant for Dwenlite, DwenLite your interactive AI teacher that helps users create folders to organize study materials, upload documents (PDF, PPTX, TXT, DOCX), audio, and videos, and generate notes, quizzes, and flashcards from them. Provide a concise, helpful response to the following user query: "${input}". Keep the response under 100 words and relevant to Dwenlite's features. If the user asks for a human agent, instruct them to type "agent". End your response with: "Is that all?"`;
-
-          const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${apiKey}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              model: 'deepseek-chat',
-              messages: [
-                { role: 'system', content: 'You are a helpful assistant for Dwenlite support.' },
-                { role: 'user', content: prompt },
-              ],
-              max_tokens: 500,
-              temperature: 0.7,
-            }),
-          });
-
-          if (!response.ok) {
-            throw new Error(`Dwenlite Agent Assistant request failed: ${response.status}`);
-          }
-
-          const data = await response.json();
-          const generatedText = data.choices?.[0]?.message?.content?.trim();
-          if (!generatedText) {
-            throw new Error('No response from Dwenlite Agent Assistant.');
-          }
+          const generatedText = await askAI(input, 'support');
 
           setTimeout(() => {
             const botMessage = {

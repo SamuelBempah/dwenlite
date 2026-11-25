@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
+import { askAI } from '../lib/ai';
 import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp, deleteDoc, addDoc, getDoc, getDocs } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
@@ -40,48 +41,8 @@ function DwenliteHelpdesk() {
   };
 
   const rewriteText = async (text) => {
-    const apiKey = import.meta.env.VITE_DEEPSEEK_API_KEY;
-    if (!apiKey) {
-      console.error('Dwenlite Agent Assistant API key is missing or undefined.');
-      toast.error('Dwenlite Agent Assistant is unavailable. Please check configuration.');
-      return null;
-    }
-
     try {
-      const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'deepseek-chat',
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a professional customer support agent. Rewrite the following text to be concise, polite, clear, and professional, without adding introductory or concluding sentences.',
-            },
-            {
-              role: 'user',
-              content: text,
-            },
-          ],
-          max_tokens: 200,
-          temperature: 0.7,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(`HTTP error! status: ${response.status}, message: ${errorData.message || 'Unknown error'}`);
-      }
-
-      const data = await response.json();
-      if (data.choices && data.choices.length > 0 && data.choices[0].message.content) {
-        return data.choices[0].message.content.trim();
-      } else {
-        throw new Error('No valid response from Dwenlite Agent Assistant');
-      }
+      return await askAI(text, 'rewrite');
     } catch (error) {
       console.error('Error rewriting text with Dwenlite Agent Assistant:', error.message);
       toast.error(`Dwenlite Agent Assistant failed to rewrite message: ${error.message}`);

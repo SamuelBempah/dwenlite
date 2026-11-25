@@ -192,20 +192,8 @@ function ViewFolder() {
     }
   };
 
-  const sendToDeepSeek = async (text) => {
-    try {
-      // Placeholder for actual DeepSeek integration
-      const response = await axios.post(
-        'https://api.deepseek.com/v1/process',
-        { text },
-        { headers: { 'Authorization': 'Bearer YOUR_DEEPSEEK_API_KEY', 'Content-Type': 'application/json' } }
-      );
-      return response.data.results || 'No results from Dwenlite Data Processor.';
-    } catch (error) {
-      console.warn('Dwenlite Data Processor API error:', error.message);
-      return 'Failed to process text with Dwenlite Data Processor: ' + error.message;
-    }
-  };
+  // Removed: this called a placeholder endpoint with a fake key and never worked.
+  const sendToDeepSeek = async () => '';
 
   const extractImageBatchText = async (imageFiles) => {
     let attempt = 0;

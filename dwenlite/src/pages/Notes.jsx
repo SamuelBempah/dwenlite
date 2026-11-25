@@ -287,18 +287,12 @@ function Notes() {
         else context = latestDocument.extractedText || folder.name;
       }
 
-      // UPDATED PROMPT: Explicitly requests structure for NEW notes
-      const prompt = `Generate comprehensive study notes based on the following content: "${context}". 
-      
-      Formatting Rules:
-      1. Headings: Use # for title, ## for main sections.
-      2. Highlights: Use > for key definitions, warnings, or important takeaways.
-      3. Lists: Use - for bullet points.
-      4. Keywords: Use **bold** for vocabulary.
-      5. Do not include intro text. Just the notes.`;
+      // Formatting rules (and meeting/lecture templates) live in the backend system prompt.
+      const prompt = `Create notes from the following source material:\n\n${context}`;
 
-      const response = await axios.post(functionUrl, { prompt })
+      const response = await axios.post(functionUrl, { prompt, task: 'notes' })
         .catch(err => {
+           if (err.response?.data?.error) throw new Error(err.response.data.error);
            if (err.response?.status === 404) throw new Error('Backend function not found.');
            throw new Error(`Generation failed: ${err.message}`);
         });
