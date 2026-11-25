@@ -204,9 +204,16 @@ exports.generateNotesProxy = onRequest(
         dedupeSet(key, response.data);
         return res.status(200).json(response.data);
       } catch (error) {
-        logger.error("API Error", error.response?.status, error.message);
-        // Never forward upstream details (they can echo request data).
-        return res.status(500).json({ error: "Failed to generate content. Please try again." });
+        const status = error.response?.status;
+        logger.error("API Error", status, error.response?.data?.error?.message || error.message);
+        // Never forward upstream details (they can echo request data); give a safe hint instead.
+        const hint =
+          status === 401 ? "AI service key is invalid. Admin: re-set DEEPSEEK_API_KEY and redeploy." :
+          status === 402 ? "AI service balance is empty. Admin: top up the DeepSeek account." :
+          status === 429 || status === 503 ? "AI service is busy. Please try again in a moment." :
+          error.code === "ECONNABORTED" ? "The AI took too long. Try again with a shorter document." :
+          "Failed to generate content. Please try again.";
+        return res.status(500).json({ error: hint });
       }
     });
   }

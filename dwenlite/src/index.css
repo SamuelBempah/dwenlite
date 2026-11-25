@@ -1,3 +1,19 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+/* ---- Mobile fixes ---- */
+html, body { overflow-x: hidden; max-width: 100%; -webkit-text-size-adjust: 100%; }
+img, video, canvas, svg { max-width: 100%; }
+/* 100vh is taller than the visible area on mobile browsers (address bar) */
+@supports (height: 100dvh) {
+  .min-h-screen { min-height: 100dvh; }
+  .h-screen { height: 100dvh; }
+}
+/* iOS zooms into inputs smaller than 16px; stop that */
+@media (max-width: 767px) {
+  input, select, textarea { font-size: 16px !important; }
+  button, a { -webkit-tap-highlight-color: transparent; }
+}
+/* long words/URLs/markdown tables must not push the page wider than the screen */
+.prose, .markdown, [class*="whitespace-pre"] { overflow-wrap: anywhere; }
+table { display: block; max-width: 100%; overflow-x: auto; }

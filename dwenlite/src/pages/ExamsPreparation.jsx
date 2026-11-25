@@ -1014,8 +1014,8 @@ function ExamsPreparation() {
 
       {/* Background Ambience */}
       <div className="fixed inset-0 z-0 opacity-20 pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-purple-600 rounded-full blur-[120px]" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-indigo-600 rounded-full blur-[120px]" />
+        <div className="absolute top-[-10%] left-[-10%] w-72 h-72 md:w-[500px] md:h-[500px] bg-purple-600 rounded-full blur-[120px]" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-72 h-72 md:w-[500px] md:h-[500px] bg-indigo-600 rounded-full blur-[120px]" />
       </div>
 
       <div className="w-full max-w-7xl mx-auto p-4 md:p-8 relative">

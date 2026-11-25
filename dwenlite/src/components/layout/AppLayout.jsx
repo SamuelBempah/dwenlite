@@ -62,8 +62,8 @@ const AppLayout = ({ children }) => {
     <div className="min-h-screen bg-[#09090b] text-white font-sans selection:bg-purple-500 selection:text-white overflow-hidden relative flex flex-col">
       {/* Dynamic Background */}
       <div className="fixed inset-0 z-0 opacity-20 pointer-events-none">
-        <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-purple-600 rounded-full blur-[100px]" />
-        <div className="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-indigo-600 rounded-full blur-[100px]" />
+        <div className="absolute top-[-10%] left-[-10%] w-64 h-64 md:w-96 md:h-96 bg-purple-600 rounded-full blur-[100px]" />
+        <div className="absolute bottom-[-10%] right-[-10%] w-64 h-64 md:w-96 md:h-96 bg-indigo-600 rounded-full blur-[100px]" />
       </div>
 
       {/* Global Header */}
