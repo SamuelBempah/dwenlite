@@ -3,6 +3,7 @@ import { Filter } from 'bad-words';
 import { Volume2, User, ArrowLeft, Upload, X, Mic, Pause, Play, Edit2, Check, PhoneOff, Hand, Maximize, Minimize, Menu } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import TeacherSidebar from '../components/TeacherSidebar';
+import UsageMeter from '../components/UsageMeter';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { auth, storage } from '../firebase';
@@ -95,6 +96,26 @@ const AITeacher = () => {
   const [uiStep, setUiStep] = useState(0);
   const [showUploadDrawer, setShowUploadDrawer] = useState(false);
   const [showVoiceLimit, setShowVoiceLimit] = useState(false);
+  const [voiceUsage, setVoiceUsage] = useState({ used: 0, limit: 0 });
+
+  // Load today's usage for the signed-in account.
+  useEffect(() => {
+    let cancelled = false;
+    const unsub = auth.onAuthStateChanged(async (user) => {
+      if (!user) return;
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch('https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ task: 'usage' })
+        });
+        const j = await res.json();
+        if (!cancelled && j.voice) setVoiceUsage(j.voice);
+      } catch { /* meter just stays empty */ }
+    });
+    return () => { cancelled = true; unsub(); };
+  }, []);
   const [showEndSessionModal, setShowEndSessionModal] = useState(false);
   const [files, setFiles] = useState([]);
   const [uploadLoading, setUploadLoading] = useState(false);
@@ -1101,6 +1122,7 @@ const AITeacher = () => {
   };
 
   const handleVoiceLimit = () => {
+    setVoiceUsage(v => ({ ...v, used: v.limit || v.used }));
     try { currentAudioSessionRef.current += 1; if (audioRef.current) audioRef.current.pause(); } catch { /* ignore */ }
     if (recognitionRef.current) { try { recognitionRef.current.abort(); } catch { /* ignore */ } }
     clearTimeout(silenceTimerRef.current);
@@ -1384,6 +1406,7 @@ const AITeacher = () => {
         let j;
         try { j = JSON.parse(ev.slice(5)); } catch { continue; }
         if (j.error) throw new Error(j.error);
+        if (j.voice) setVoiceUsage(j.voice);
         if (j.t && onText(j.t) === 'stop') { reader.cancel().catch(() => { }); return; }
       }
     }
@@ -1521,6 +1544,7 @@ const AITeacher = () => {
 
       // ---- Fallback: normal request, then speak ----
       const response = await axios.post(TEACHER_URL, payload);
+      if (response.data.voice) setVoiceUsage(response.data.voice);
       const content = response.data.choices?.[0]?.message?.content || response.data.choices?.[0]?.text;
       if (!content) throw new Error('Invalid API response');
       const { aiText, wantsUpload } = finishReply(content);
@@ -1616,6 +1640,7 @@ const AITeacher = () => {
         <button onClick={() => setIsSidebarOpen(true)} className="absolute top-6 left-6 text-gray-500 hover:text-white transition-colors z-20">
           <Menu size={32} />
         </button>
+        <UsageMeter used={voiceUsage.used} limit={voiceUsage.limit} className="absolute top-5 right-5 z-20" />
         <TeacherSidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
         <div className="max-w-md w-full flex flex-col items-center gap-8 z-10">
           <motion.div
@@ -1663,7 +1688,8 @@ const AITeacher = () => {
         </div>
 
         {/* Top Right Controls */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 sm:gap-4">
+          <UsageMeter used={voiceUsage.used} limit={voiceUsage.limit} />
           <button onClick={toggleFullscreen} className="text-gray-400 hover:text-white transition-colors">
             {isFullscreen ? <Minimize size={24} /> : <Maximize size={24} />}
           </button>

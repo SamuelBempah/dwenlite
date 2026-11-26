@@ -151,7 +151,7 @@ async function checkAndCountUsage(uid, weight = 1, { voice = false } = {}) {
     if (dayCount >= DAILY_LIMIT) return { ok: false, reason: "daily" };
     if (voice && (d[voiceKey()] || 0) >= VOICE_DAILY_CHARS) return { ok: false, reason: "voice" };
     tx.set(ref, { hourStart, hourCount: hourCount + weight, dayStart, dayCount: dayCount + weight }, { merge: true });
-    return { ok: true };
+    return { ok: true, voiceUsed: d[voiceKey()] || 0 };
   });
 }
 
@@ -343,6 +343,17 @@ exports.generateNotesProxy = onRequest(
 
       // 2. Validate input.
       const { prompt, task = "general", messages, material, userName } = req.body || {};
+
+      // Read-only: how much of today's allowance this account has used.
+      if (task === "usage") {
+        try {
+          const snap = await db.collection("aiUsage").doc(uid).get();
+          const d = snap.exists ? snap.data() : {};
+          return res.status(200).json({ voice: { used: d[voiceKey()] || 0, limit: VOICE_DAILY_CHARS } });
+        } catch (e) {
+          return res.status(500).json({ error: "Could not load usage." });
+        }
+      }
       const cfg = TASKS[task];
       if (!cfg) return res.status(400).json({ error: "Unknown task." });
       let teacherMessages = null;
@@ -408,7 +419,7 @@ exports.generateNotesProxy = onRequest(
         }
         try { await addVoiceChars(uid, total.length); } catch (e) { logger.warn("voice count failed", e.message); }
         logger.info("ai_usage", { uid, task, streamed: true, chars: total.length });
-        res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+        res.write(`data: ${JSON.stringify({ done: true, voice: { used: (usage.voiceUsed || 0) + total.length, limit: VOICE_DAILY_CHARS } })}\n\n`);
         return res.end();
       }
 
@@ -430,7 +441,9 @@ exports.generateNotesProxy = onRequest(
         });
 
         if (task === "teacher") {
-          try { await addVoiceChars(uid, (response.data.choices?.[0]?.message?.content || "").length); } catch (e) { /* ignore */ }
+          const spoken = (response.data.choices?.[0]?.message?.content || "").length;
+          try { await addVoiceChars(uid, spoken); } catch (e) { /* ignore */ }
+          response.data.voice = { used: (usage.voiceUsed || 0) + spoken, limit: VOICE_DAILY_CHARS };
         }
         dedupeSet(key, response.data);
         return res.status(200).json(response.data);
