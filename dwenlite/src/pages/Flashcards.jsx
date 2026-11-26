@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { db, auth, storage } from '../firebase';
 import { ref as storageRef, getDownloadURL } from 'firebase/storage';
 import { uploadWithProgress } from '../lib/uploadManager';
+import { parseCards, toCsv } from '../lib/cards';
 import { doc, getDoc, updateDoc, addDoc, collection, setDoc, query, where, getDocs } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
@@ -16,7 +17,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, Zap, Coins, Brain, RotateCw, ChevronLeft, ChevronRight, 
   MessageSquare, Send, AlertTriangle, Trash2, Star, ChevronDown, 
-  ChevronUp, Sparkles, FolderOpen, MoreVertical 
+  ChevronUp, Sparkles, FolderOpen, MoreVertical, Download
 } from 'lucide-react';
 
 function Flashcards() {
@@ -31,6 +32,11 @@ function Flashcards() {
   const [showAnswer, setShowAnswer] = useState(false);
   const [dueOnly, setDueOnly] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
+  const [diffFilter, setDiffFilter] = useState('all');
+  const [cardStyle, setCardStyle] = useState(() => {
+    try { return localStorage.getItem('dwenliteCardStyle') === 'cloze' ? 'cloze' : 'qa'; } catch { return 'qa'; }
+  });
+  const importInputRef = useRef(null);
   const imageInputRef = useRef(null);
   const [reverseCards, setReverseCards] = useState(() => {
     try { return localStorage.getItem('dwenliteReverseCards') === '1'; } catch { return false; }
@@ -271,7 +277,10 @@ function Flashcards() {
         else context = latestDocument.extractedText || folder.name;
       }
 
-      const prompt = `Generate 20 flashcards based on the following content: "${context}". Each flashcard should have a question and an answer. Format as a JSON array: [{ "question": "...", "answer": "..." }, ...]. Return only the JSON array string, without any markdown, code block markers (like \`\`\`json), or additional text. Ensure the output is valid JSON.`;
+      const styleText = cardStyle === 'cloze'
+        ? 'Make every flashcard a fill-in-the-gap card: "question" is one clear sentence from the content with the key term replaced by ____ (exactly one gap), and "answer" is just the missing word or short phrase.'
+        : 'Each flashcard should have a question and an answer.';
+      const prompt = `Generate 20 flashcards based on the following content: "${context}". ${styleText} Format as a JSON array: [{ "question": "...", "answer": "..." }, ...]. Return only the JSON array string, without any markdown, code block markers (like \`\`\`json), or additional text. Ensure the output is valid JSON.`;
 
       const response = await axios.post(functionUrl, { prompt });
       
@@ -476,7 +485,8 @@ function Flashcards() {
 
   const allCards = selectedFlashcardGroup?.flashcards || [];
   const dueCount = allCards.filter(c => isDue(c)).length;
-  const cards = dueOnly ? allCards.filter(c => isDue(c)) : allCards;
+  const dueFiltered = dueOnly ? allCards.filter(c => isDue(c)) : allCards;
+  const cards = diffFilter === 'all' ? dueFiltered : dueFiltered.filter(c => (c.difficulty || 'unrated') === diffFilter);
   const currentFlashcard = cards[currentFlashcardIndex];
   // Reverse mode: you see the answer and recall the question.
   const frontText = reverseCards ? currentFlashcard?.answer : currentFlashcard?.question;
@@ -531,6 +541,39 @@ function Flashcards() {
     setShowAnswer(false);
     // In "due only" mode the rated card leaves the list, so the next card slides into this spot.
     if (!dueOnly) setCurrentFlashcardIndex(i => i + 1);
+  };
+
+  // ---- Import / export ----
+  const handleImportCards = async (file) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const imported = parseCards(text);
+      if (imported.length === 0) { toast.error('No cards found. Use two columns: question, answer.'); return; }
+      const group = { id: Date.now().toString(), flashcards: imported, createdAt: new Date().toISOString(), rating: 0, name: `Imported: ${file.name}`.slice(0, 60) };
+      const groups = [...(folder.flashcardGroups || []), group];
+      await updateDoc(doc(db, 'folders', folderId), { flashcardGroups: groups });
+      setFolder(prev => ({ ...prev, flashcardGroups: groups }));
+      setShowStoredFlashcards(true);
+      toast.success(`Imported ${imported.length} cards`);
+    } catch (err) {
+      toast.error('Could not import that file.');
+    } finally {
+      if (importInputRef.current) importInputRef.current.value = '';
+    }
+  };
+
+  const handleExportGroup = (group, idx) => {
+    const blob = new Blob([toCsv(group.flashcards)], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `flashcards-group-${idx + 1}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    toast.success('CSV downloaded');
   };
 
   // Shrinks a photo to about 900px so it loads fast and costs almost nothing to store.
@@ -616,6 +659,23 @@ function Flashcards() {
                  </p>
               </div>
            </div>
+           <div className="flex w-full flex-col gap-3 md:w-auto md:flex-row md:items-center">
+           <select
+              value={cardStyle}
+              onChange={(e) => { setCardStyle(e.target.value); try { localStorage.setItem('dwenliteCardStyle', e.target.value); } catch { /* ignore */ } }}
+              aria-label="Card style"
+              className="rounded-xl border border-white/20 bg-slate-900/60 px-3 py-3 text-sm text-white outline-none focus:border-purple-400"
+           >
+              <option value="qa">Question and answer</option>
+              <option value="cloze">Fill the gap</option>
+           </select>
+           <input ref={importInputRef} type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" className="hidden" onChange={(e) => handleImportCards(e.target.files?.[0])} />
+           <button
+              onClick={() => importInputRef.current?.click()}
+              className="rounded-xl border border-white/20 px-4 py-3 text-sm font-semibold text-white hover:bg-white/10 transition-colors"
+           >
+              Import CSV
+           </button>
            <button
               onClick={handleGenerateFlashcards}
               disabled={flashcardsLoading}
@@ -627,6 +687,7 @@ function Flashcards() {
                  <> <Zap size={18} fill="currentColor" /> Generate </>
               )}
            </button>
+           </div>
         </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -697,6 +758,18 @@ function Flashcards() {
                             >
                                 Reverse cards
                             </button>
+                            <select
+                                value={diffFilter}
+                                onChange={(e) => { setDiffFilter(e.target.value); setCurrentFlashcardIndex(0); setShowAnswer(false); }}
+                                aria-label="Filter by difficulty"
+                                className="rounded-full border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-xs text-slate-300 outline-none"
+                            >
+                                <option value="all">All levels</option>
+                                <option value="hard">Hard</option>
+                                <option value="medium">Medium</option>
+                                <option value="easy">Easy</option>
+                                <option value="unrated">Unrated</option>
+                            </select>
                         </div>
                         <div className="flex justify-between items-center mb-4 px-2">
                             <span className="text-sm font-mono text-purple-400">
@@ -800,6 +873,22 @@ function Flashcards() {
                             )}
                         </div>
 
+                        <div className="mt-3 flex items-center justify-center gap-2 text-xs">
+                            <span className="text-slate-500">Mark as</span>
+                            {['easy', 'medium', 'hard'].map(d => (
+                                <button
+                                    key={d}
+                                    onClick={(e) => { e.stopPropagation(); persistCardPatch({ difficulty: currentFlashcard.difficulty === d ? null : d }); }}
+                                    aria-pressed={currentFlashcard.difficulty === d}
+                                    className={`rounded-full border px-3 py-1 capitalize transition-colors ${currentFlashcard.difficulty === d
+                                        ? (d === 'hard' ? 'border-red-500 bg-red-500/20 text-red-200' : d === 'medium' ? 'border-amber-400 bg-amber-400/20 text-amber-100' : 'border-green-500 bg-green-500/20 text-green-200')
+                                        : 'border-slate-700 text-slate-400 hover:text-white'}`}
+                                >
+                                    {d}
+                                </button>
+                            ))}
+                        </div>
+
                         {/* How well did you know it? */}
                         {showAnswer && (
                             <div className="mt-6 grid grid-cols-4 gap-2 sm:gap-3">
@@ -852,7 +941,7 @@ function Flashcards() {
                                                 className="flex-1 cursor-pointer"
                                                 onClick={() => handleSelectFlashcardGroup(group)}
                                             >
-                                                <h4 className="font-bold text-slate-200">Group {idx + 1}</h4>
+                                                <h4 className="font-bold text-slate-200">Group {idx + 1}{group.name ? <span className="ml-2 text-xs font-normal text-purple-300">{group.name}</span> : null}</h4>
                                                 <p className="text-xs text-slate-500">Created: {new Date(group.createdAt).toLocaleDateString()}</p>
                                             </div>
                                             
@@ -876,6 +965,14 @@ function Flashcards() {
                                                     {expandedGroups[group.id] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                                                 </button>
                                                 
+                                                <button
+                                                    onClick={() => handleExportGroup(group, idx)}
+                                                    className="p-2 hover:bg-blue-500/20 text-slate-400 hover:text-blue-400 rounded-lg"
+                                                    title="Export as CSV"
+                                                >
+                                                    <Download size={16} />
+                                                </button>
+
                                                 <button 
                                                     onClick={() => handleDeleteFlashcardGroup(group.id)}
                                                     className="p-2 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-lg"
