@@ -28,6 +28,9 @@ function Flashcards() {
   const [currentFlashcardIndex, setCurrentFlashcardIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
   const [dueOnly, setDueOnly] = useState(false);
+  const [reverseCards, setReverseCards] = useState(() => {
+    try { return localStorage.getItem('dwenliteReverseCards') === '1'; } catch { return false; }
+  });
   const [showStoredFlashcards, setShowStoredFlashcards] = useState(false);
   const [selectedFlashcardGroup, setSelectedFlashcardGroup] = useState(null);
   const [expandedGroups, setExpandedGroups] = useState({});
@@ -471,6 +474,9 @@ function Flashcards() {
   const dueCount = allCards.filter(c => isDue(c)).length;
   const cards = dueOnly ? allCards.filter(c => isDue(c)) : allCards;
   const currentFlashcard = cards[currentFlashcardIndex];
+  // Reverse mode: you see the answer and recall the question.
+  const frontText = reverseCards ? currentFlashcard?.answer : currentFlashcard?.question;
+  const backText = reverseCards ? currentFlashcard?.question : currentFlashcard?.answer;
 
   // One deck with every card that is due today, from all groups in this folder.
   const dueAcrossGroups = (folder.flashcardGroups || []).flatMap(g => (g.flashcards || []).filter(c => isDue(c)).map(c => ({ ...c, _g: g.id })));
@@ -641,7 +647,13 @@ function Flashcards() {
                                     Due today ({dueCount})
                                 </button>
                             </div>
-                            <span className="text-xs text-slate-500 hidden sm:block">Rate each card to schedule your next review</span>
+                            <button
+                                onClick={() => { setReverseCards(v => { try { localStorage.setItem('dwenliteReverseCards', v ? '0' : '1'); } catch { /* ignore */ } return !v; }); setShowAnswer(false); }}
+                                aria-pressed={reverseCards}
+                                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${reverseCards ? 'border-purple-500 bg-purple-600/30 text-purple-200' : 'border-slate-700 text-slate-400 hover:text-white'}`}
+                            >
+                                Reverse cards
+                            </button>
                         </div>
                         <div className="flex justify-between items-center mb-4 px-2">
                             <span className="text-sm font-mono text-purple-400">
@@ -669,8 +681,8 @@ function Flashcards() {
                                     className="absolute inset-0 bg-slate-800 border border-white/10 rounded-3xl p-8 md:p-12 flex flex-col items-center justify-center text-center shadow-2xl shadow-black/50"
                                     style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
                                 >
-                                    <h3 className="text-sm text-purple-400 font-bold uppercase tracking-wider mb-4">Question</h3>
-                                    <p className="text-xl md:text-3xl font-medium leading-relaxed overflow-y-auto max-h-[80%] scrollbar-hide">{currentFlashcard.question}</p>
+                                    <h3 className="text-sm text-purple-400 font-bold uppercase tracking-wider mb-4">{reverseCards ? 'Answer' : 'Question'}</h3>
+                                    <p className="text-xl md:text-3xl font-medium leading-relaxed overflow-y-auto max-h-[80%] scrollbar-hide">{frontText}</p>
                                     <div className="absolute bottom-6 text-xs text-slate-500 flex items-center gap-1 opacity-50 group-hover:opacity-100 transition-opacity">
                                         <RotateCw size={12} /> Click to flip
                                     </div>
@@ -685,8 +697,8 @@ function Flashcards() {
                                         WebkitBackfaceVisibility: 'hidden' 
                                     }}
                                 >
-                                    <h3 className="text-sm text-green-400 font-bold uppercase tracking-wider mb-4">Answer</h3>
-                                    <p className="text-xl md:text-2xl font-medium leading-relaxed text-slate-100 overflow-y-auto max-h-[80%] scrollbar-hide">{currentFlashcard.answer}</p>
+                                    <h3 className="text-sm text-green-400 font-bold uppercase tracking-wider mb-4">{reverseCards ? 'Question' : 'Answer'}</h3>
+                                    <p className="text-xl md:text-2xl font-medium leading-relaxed text-slate-100 overflow-y-auto max-h-[80%] scrollbar-hide">{backText}</p>
                                 </div>
                             </motion.div>
                         </div>
