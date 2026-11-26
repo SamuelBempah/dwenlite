@@ -4,7 +4,7 @@ import { db, auth } from '../firebase';
 import { doc, getDoc, updateDoc, addDoc, collection, setDoc, query, where, getDocs, arrayUnion } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
-import { askStudyChat, buildFolderContext } from '../lib/ai';
+import { askStudyChat, buildFolderContext, askAI } from '../lib/ai';
 import FollowUpChips from '../components/FollowUpChips';
 import { useChatMemory } from '../lib/chatMemory';
 import jsPDF from 'jspdf';
@@ -28,6 +28,7 @@ function Notes() {
   const [showStoredNotes, setShowStoredNotes] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState({});
   const [noteQuery, setNoteQuery] = useState('');
+  const [toolBusy, setToolBusy] = useState(null); // `${noteId}:${mode}` while a tool runs
   const [chatInput, setChatInput] = useState('');
   const [selectedNoteId, setSelectedNoteId] = useState('');
   const [chatHistory, setChatHistory] = useState([]);
@@ -459,6 +460,36 @@ function Notes() {
     }
   };
 
+  // Shorter / longer / action items / key terms: creates a NEW note and keeps the original.
+  const NOTE_TOOLS = {
+    shorter: { label: 'Shorter', tag: 'shorter' },
+    longer: { label: 'Longer', tag: 'longer' },
+    action_items: { label: 'Action items', tag: 'action items' },
+    key_terms: { label: 'Key terms', tag: 'key terms' },
+  };
+  const runNoteTool = async (note, idx, mode) => {
+    if (toolBusy) return;
+    setToolBusy(`${note.id}:${mode}`);
+    try {
+      const content = await askAI(`MODE: ${mode}\n\n${note.content}`, 'note_tools');
+      const newNote = {
+        id: Date.now().toString(),
+        content,
+        createdAt: new Date().toISOString(),
+        rating: 0,
+        label: `${NOTE_TOOLS[mode].tag} of Note ${idx + 1}`,
+      };
+      await updateDoc(doc(db, 'folders', folderId), { notes: arrayUnion(newNote) });
+      setFolder(prev => ({ ...prev, notes: [...prev.notes, newNote] }));
+      setExpandedGroups(prev => ({ ...prev, [newNote.id]: true }));
+      toast.success(`Created: ${newNote.label}`);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setToolBusy(null);
+    }
+  };
+
   const handleChatSubmit = async (e) => {
     e.preventDefault();
     if (!chatInput.trim() || chatLoading) return;
@@ -643,7 +674,7 @@ function Notes() {
                                                 onClick={() => handleToggleGroup(note.id)}
                                             >
                                                 <h4 className="font-bold text-slate-200 flex items-center gap-2">
-                                                   Note {idx + 1}
+                                                   Note {idx + 1}{note.label ? <span className="text-xs font-normal text-purple-300"> · {note.label}</span> : null}
                                                 </h4>
                                                 <p className="text-xs text-slate-500 mt-1">Created: {new Date(note.createdAt).toLocaleDateString()}</p>
                                                 {snippet && (
@@ -698,6 +729,18 @@ function Notes() {
                                                     exit={{ height: 0, opacity: 0 }}
                                                     className="border-t border-white/5 bg-slate-900/30 px-6 py-6"
                                                 >
+                                                    <div className="mb-4 flex flex-wrap gap-2">
+                                                       {Object.entries(NOTE_TOOLS).map(([mode, t]) => (
+                                                          <button
+                                                             key={mode}
+                                                             onClick={() => runNoteTool(note, idx, mode)}
+                                                             disabled={!!toolBusy}
+                                                             className="rounded-full border border-purple-500/30 bg-purple-500/10 px-3 py-1.5 text-xs font-medium text-purple-200 hover:bg-purple-500/20 disabled:opacity-40 transition-colors"
+                                                          >
+                                                             {toolBusy === `${note.id}:${mode}` ? 'Working...' : t.label}
+                                                          </button>
+                                                       ))}
+                                                    </div>
                                                     {/* STYLED CONTENT VIEWER */}
                                                     <div 
                                                        className="prose prose-invert prose-sm max-w-none 

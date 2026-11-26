@@ -17,7 +17,7 @@ const DEEPSEEK_API_KEY = defineSecret("DEEPSEEK_API_KEY");
 // can never burn through your balance.
 // ---------------------------------------------------------------------------
 // Max input per task (characters). A 1-hour meeting transcript is ~50-60k characters.
-const MAX_CHARS = { general: 120000, notes: 400000, concepts: 300000, teacher: 160000, study_chat: 220000, recap: 60000, support: 3000, rewrite: 5000 };
+const MAX_CHARS = { general: 120000, notes: 400000, concepts: 300000, teacher: 160000, study_chat: 220000, recap: 60000, note_tools: 60000, support: 3000, rewrite: 5000 };
 // Teacher turns are tiny, so they count for less against the hourly/daily limits.
 const WEIGHTS = { teacher: 0.25, study_chat: 0.5 };
 // Free spoken-voice allowance per ACCOUNT per day, counted in characters of teacher replies
@@ -156,6 +156,14 @@ const RECAP_SYSTEM =
   "## Needs more practice\n(use the weak concepts given; name each topic in words, not just the number; if none, say so)\n" +
   "## Next steps\n(3 short, concrete actions)";
 
+const NOTE_TOOLS_SYSTEM =
+  BASE_SYSTEM + "\n\n" +
+  "You transform an existing set of study or meeting notes. The user message starts with MODE: and then the notes. Markdown only, no preamble.\n" +
+  "- MODE: shorter -> keep the title, a one-line summary and only the essential points, about 40% of the length. Keep every name, number, date and definition that matters.\n" +
+  "- MODE: longer -> keep everything and expand: clearer explanations, worked examples, analogies and extra context from your own knowledge. Put added material under a blockquote starting with '> **Added:**' or in sections titled 'Going deeper'.\n" +
+  "- MODE: action_items -> extract only what must be done. Output: a short '## Summary', then '## Action Items' as a table with columns Task | Owner | Deadline (write 'Unassigned' or 'Not stated' when unknown, never invent), then '## Decisions Made' and '## Open Questions'. If the notes contain no actions, say so briefly.\n" +
+  "- MODE: key_terms -> a glossary table of the important terms with short definitions taken from the notes.";
+
 const TASKS = {
   general: { system: BASE_SYSTEM, maxTokens: 4000, temperature: 0.4 },
   notes: { system: NOTES_SYSTEM, maxTokens: 4000, temperature: 0.2 },
@@ -165,6 +173,7 @@ const TASKS = {
   teacher: { system: TEACHER_SYSTEM, maxTokens: 450, temperature: 0.6 },
   study_chat: { system: STUDY_CHAT_SYSTEM, maxTokens: 1500, temperature: 0.5 },
   recap: { system: RECAP_SYSTEM, maxTokens: 700, temperature: 0.3 },
+  note_tools: { system: NOTE_TOOLS_SYSTEM, maxTokens: 4000, temperature: 0.3 },
 };
 
 // ---------------------------------------------------------------------------
