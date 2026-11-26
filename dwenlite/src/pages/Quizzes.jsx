@@ -4,17 +4,19 @@ import { db, auth } from '../firebase';
 import { doc, getDoc, updateDoc, addDoc, collection, setDoc, query, where, getDocs } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
-import { askStudyChat, buildFolderContext } from '../lib/ai';
+import { askStudyChat, buildFolderContext, askAI } from '../lib/ai';
+import jsPDF from 'jspdf';
 import FollowUpChips from '../components/FollowUpChips';
 import AnswerLengthToggle from '../components/AnswerLengthToggle';
 import { useChatMemory } from '../lib/chatMemory';
 import { questionKey, weakQuestions, answersMatch } from '../lib/quizStats';
+import { arrayUnion } from 'firebase/firestore';
 import { recordStudy } from '../lib/streak';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, Zap, Coins, ChevronLeft, ChevronRight, 
   MessageSquare, Send, AlertTriangle, Trash2, Star, ChevronDown, 
-  ChevronUp, Sparkles, FolderOpen, FileQuestion, CheckCircle, XCircle, Timer, Target
+  ChevronUp, Sparkles, FolderOpen, FileQuestion, CheckCircle, XCircle, Timer, Target, Printer
 } from 'lucide-react';
 
 function Quizzes() {
@@ -34,6 +36,8 @@ function Quizzes() {
   });
   const [timeLeft, setTimeLeft] = useState(QUESTION_SECONDS);
   const [fillText, setFillText] = useState('');
+  const [explanation, setExplanation] = useState('');
+  const [explainLoading, setExplainLoading] = useState(false);
   const [results, setResults] = useState([]); // [{ quiz, correct, timedOut }]
   const [showStoredQuizzes, setShowStoredQuizzes] = useState(true); // Default to true to match Notes style
   const [selectedQuizGroup, setSelectedQuizGroup] = useState(null);
@@ -429,6 +433,7 @@ function Quizzes() {
     setResults([]);
     setTimeLeft(QUESTION_SECONDS);
     setFillText('');
+    setExplanation('');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -464,10 +469,70 @@ function Quizzes() {
     saveQuestionResult(currentQuiz, false);
   };
 
+  // Short explanation of a missed question (one small AI call, only when asked).
+  const explainWrong = async () => {
+    if (!currentQuiz || explainLoading) return;
+    setExplainLoading(true);
+    try {
+      const given = selectedAnswer === '__timeout__' ? '(ran out of time)' : selectedAnswer;
+      const prompt = `Question: ${currentQuiz.question}\n${currentQuiz.type === 'fill' ? '' : `Options: ${currentQuiz.options.join(' | ')}\n`}Correct answer: ${currentQuiz.correctAnswer}\nStudent's answer: ${given}\n\nIn 3 short sentences explain why the correct answer is right and why the student's answer is wrong. Then give one memory tip. Plain text, no markdown.`;
+      setExplanation(await askAI(prompt, 'general'));
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setExplainLoading(false);
+    }
+  };
+
+  // Printable copy of a quiz group with an answer key on the last page.
+  const exportQuizPdf = (group, idx) => {
+    try {
+      const pdf = new jsPDF();
+      const W = pdf.internal.pageSize.getWidth();
+      const H = pdf.internal.pageSize.getHeight();
+      const m = 14;
+      let y = 20;
+      const write = (text, { size = 11, bold = false, indent = 0, gap = 2 } = {}) => {
+        pdf.setFont('helvetica', bold ? 'bold' : 'normal');
+        pdf.setFontSize(size);
+        pdf.splitTextToSize(String(text), W - 2 * m - indent).forEach(line => {
+          if (y > H - m) { pdf.addPage(); y = m + 4; }
+          pdf.text(line, m + indent, y);
+          y += size * 0.5 + 1.8;
+        });
+        y += gap;
+      };
+      write(`${folder.name || 'Quiz'} - Quiz Group ${idx + 1}`, { size: 18, bold: true, gap: 4 });
+      write('Name: ____________________    Date: ______________', { gap: 6 });
+      group.quizzes.forEach((q, i) => {
+        write(`${i + 1}. ${q.question}`, { bold: true, gap: 1 });
+        if (q.type === 'fill') write('Answer: ______________________________', { indent: 4, gap: 4 });
+        else { q.options.forEach(o => write(o, { indent: 4, gap: 0.5 })); y += 3; }
+      });
+      pdf.addPage();
+      y = 20;
+      write('Answer key', { size: 16, bold: true, gap: 4 });
+      group.quizzes.forEach((q, i) => write(`${i + 1}. ${q.correctAnswer}`, { gap: 0.5 }));
+      pdf.save(`quiz-group-${idx + 1}.pdf`);
+      toast.success('PDF downloaded!');
+    } catch (err) {
+      toast.error('Could not create the PDF.');
+    }
+  };
+
   const handleNextQuestion = () => {
     setTimeLeft(QUESTION_SECONDS);
     setFillText('');
-    if (selectedQuizGroup && currentQuizIndex + 1 >= selectedQuizGroup.quizzes.length) recordStudy();
+    setExplanation('');
+    if (selectedQuizGroup && currentQuizIndex + 1 >= selectedQuizGroup.quizzes.length) {
+      recordStudy();
+      // Remember the score so progress can be charted.
+      const right = results.filter(r => r.correct).length;
+      const total = selectedQuizGroup.quizzes.length;
+      const entry = { id: Date.now().toString(), date: new Date().toISOString(), pct: total ? Math.round((right / total) * 100) : 0, right, total, name: selectedQuizGroup.name || 'Quiz' };
+      setFolder(f => ({ ...f, quizHistory: [...(f.quizHistory || []), entry] }));
+      updateDoc(doc(db, 'folders', folderId), { quizHistory: arrayUnion(entry) }).catch(() => { });
+    }
     // Moving past the last question shows the score screen.
     setCurrentQuizIndex(prev => prev + 1);
     setSelectedAnswer(null);
@@ -713,6 +778,22 @@ function Quizzes() {
                       </div>
                       )}
 
+                      {selectedAnswer !== null && !isCorrect && (
+                         <div className="mt-5">
+                            {explanation ? (
+                               <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 text-sm leading-relaxed text-slate-200 whitespace-pre-wrap">{explanation}</div>
+                            ) : (
+                               <button
+                                  onClick={explainWrong}
+                                  disabled={explainLoading}
+                                  className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-sm font-semibold text-blue-200 hover:bg-blue-500/20 disabled:opacity-50 transition-colors"
+                               >
+                                  {explainLoading ? 'Thinking...' : 'Explain why'}
+                               </button>
+                            )}
+                         </div>
+                      )}
+
                       <AnimatePresence>
                          {selectedAnswer && (
                             <motion.div 
@@ -779,6 +860,35 @@ function Quizzes() {
                          >
                             Back to List
                          </button>
+                      </div>
+                   </div>
+                   );
+                })()}
+
+                {/* SCORE HISTORY */}
+                {!selectedQuizGroup && (folder.quizHistory || []).length > 0 && (() => {
+                   const hist = folder.quizHistory.slice(-10);
+                   const avg = Math.round(hist.reduce((a, h) => a + h.pct, 0) / hist.length);
+                   return (
+                   <div className="rounded-2xl border border-white/5 bg-slate-800/30 p-4">
+                      <div className="mb-3 flex items-center justify-between">
+                         <h3 className="text-sm font-semibold">Your progress</h3>
+                         <span className="text-xs text-slate-400">Average {avg}% over last {hist.length}</span>
+                      </div>
+                      <div className="flex h-28 items-end gap-1.5 sm:gap-2" role="img" aria-label={`Quiz scores, average ${avg} percent`}>
+                         {hist.map(h => (
+                            <div key={h.id} className="flex h-full flex-1 flex-col items-center justify-end gap-1" title={`${h.name}: ${h.right}/${h.total} on ${new Date(h.date).toLocaleDateString()}`}>
+                               <span className="text-[10px] text-slate-400">{h.pct}</span>
+                               <div
+                                  className={`w-full rounded-t-md ${h.pct >= 70 ? 'bg-green-500' : h.pct >= 40 ? 'bg-amber-400' : 'bg-red-500'}`}
+                                  style={{ height: `${Math.max(h.pct, 4)}%` }}
+                               />
+                            </div>
+                         ))}
+                      </div>
+                      <div className="mt-1 flex justify-between text-[10px] text-slate-500">
+                         <span>{new Date(hist[0].date).toLocaleDateString()}</span>
+                         <span>{new Date(hist[hist.length - 1].date).toLocaleDateString()}</span>
                       </div>
                    </div>
                    );
@@ -884,6 +994,14 @@ function Quizzes() {
                                                     {expandedGroups[group.id] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                                                 </button>
                                                 
+                                                <button
+                                                    onClick={() => exportQuizPdf(group, idx)}
+                                                    className="p-2 hover:bg-blue-500/20 text-slate-400 hover:text-blue-400 rounded-lg transition-colors"
+                                                    title="Print or save as PDF"
+                                                >
+                                                    <Printer size={16} />
+                                                </button>
+
                                                 <button 
                                                     onClick={() => handleDeleteQuizGroup(group.id)}
                                                     className="p-2 hover:bg-red-500/20 text-slate-400 hover:text-red-400 rounded-lg transition-colors"
@@ -906,6 +1024,7 @@ function Quizzes() {
                                                        <div key={q.id} className="bg-slate-800 p-3 rounded-lg border border-white/5">
                                                           <p className="text-sm font-semibold text-slate-300 mb-2">Q{i+1}: {q.question}</p>
                                                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-slate-400">
+                                                             {q.type === 'fill' && <div className="text-green-400 font-bold">Answer: {q.correctAnswer}</div>}
                                                              {q.options.map((opt, oIdx) => (
                                                                 <div key={oIdx} className={opt === q.correctAnswer ? "text-green-400 font-bold" : ""}>
                                                                    {opt}
