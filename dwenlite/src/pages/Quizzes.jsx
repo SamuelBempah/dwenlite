@@ -6,11 +6,12 @@ import toast from 'react-hot-toast';
 import axios from 'axios';
 import { askStudyChat, buildFolderContext } from '../lib/ai';
 import FollowUpChips from '../components/FollowUpChips';
+import { questionKey, weakQuestions } from '../lib/quizStats';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, Zap, Coins, ChevronLeft, ChevronRight, 
   MessageSquare, Send, AlertTriangle, Trash2, Star, ChevronDown, 
-  ChevronUp, Sparkles, FolderOpen, FileQuestion, CheckCircle, XCircle
+  ChevronUp, Sparkles, FolderOpen, FileQuestion, CheckCircle, XCircle, Timer, Target
 } from 'lucide-react';
 
 function Quizzes() {
@@ -24,6 +25,12 @@ function Quizzes() {
   const [currentQuizIndex, setCurrentQuizIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState(null);
   const [isCorrect, setIsCorrect] = useState(null);
+  const QUESTION_SECONDS = 30;
+  const [timedMode, setTimedMode] = useState(() => {
+    try { return localStorage.getItem('dwenliteTimedQuiz') === '1'; } catch { return false; }
+  });
+  const [timeLeft, setTimeLeft] = useState(QUESTION_SECONDS);
+  const [results, setResults] = useState([]); // [{ quiz, correct, timedOut }]
   const [showStoredQuizzes, setShowStoredQuizzes] = useState(true); // Default to true to match Notes style
   const [selectedQuizGroup, setSelectedQuizGroup] = useState(null);
   const [expandedGroups, setExpandedGroups] = useState({});
@@ -414,6 +421,8 @@ function Quizzes() {
     setCurrentQuizIndex(0);
     setSelectedAnswer(null);
     setIsCorrect(null);
+    setResults([]);
+    setTimeLeft(QUESTION_SECONDS);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -421,21 +430,62 @@ function Quizzes() {
     setExpandedGroups(prev => ({ ...prev, [groupId]: !prev[groupId] }));
   };
 
+  // Remember right/wrong per question so weak ones can be practised again.
+  const saveQuestionResult = (quiz, correct) => {
+    const key = questionKey(quiz);
+    const prev = folder?.quizStats?.[key] || { right: 0, wrong: 0 };
+    const stats = { ...(folder?.quizStats || {}), [key]: { right: prev.right + (correct ? 1 : 0), wrong: prev.wrong + (correct ? 0 : 1) } };
+    setFolder(f => ({ ...f, quizStats: stats }));
+    updateDoc(doc(db, 'folders', folderId), { quizStats: stats }).catch(() => { });
+  };
+
   const handleAnswerSelect = (option) => {
     if (selectedAnswer !== null || quizLoading) return;
+    const correct = option === currentQuiz.correctAnswer;
     setSelectedAnswer(option);
-    setIsCorrect(option === currentQuiz.correctAnswer);
+    setIsCorrect(correct);
+    setResults(r => [...r, { quiz: currentQuiz, correct, timedOut: false }]);
+    saveQuestionResult(currentQuiz, correct);
+  };
+
+  const handleTimeUp = () => {
+    if (selectedAnswer !== null || !currentQuiz) return;
+    setSelectedAnswer('__timeout__');
+    setIsCorrect(false);
+    setResults(r => [...r, { quiz: currentQuiz, correct: false, timedOut: true }]);
+    saveQuestionResult(currentQuiz, false);
   };
 
   const handleNextQuestion = () => {
-    if (currentQuizIndex + 1 < selectedQuizGroup.quizzes.length) {
-      setCurrentQuizIndex(prev => prev + 1);
-      setSelectedAnswer(null);
-      setIsCorrect(null);
-    }
+    setTimeLeft(QUESTION_SECONDS);
+    // Moving past the last question shows the score screen.
+    setCurrentQuizIndex(prev => prev + 1);
+    setSelectedAnswer(null);
+    setIsCorrect(null);
+  };
+
+  const toggleTimedMode = () => {
+    setTimedMode(v => {
+      try { localStorage.setItem('dwenliteTimedQuiz', v ? '0' : '1'); } catch { /* ignore */ }
+      return !v;
+    });
+  };
+
+  const startPractice = (name, quizzes) => {
+    if (!quizzes.length) return;
+    handleSelectQuizGroup({ id: '__practice__', name, quizzes });
   };
 
   const currentQuiz = selectedQuizGroup?.quizzes[currentQuizIndex];
+
+  // Countdown for timed mode: one tick per second while a question is open.
+  useEffect(() => {
+    if (!timedMode || !currentQuiz || selectedAnswer !== null) return undefined;
+    if (timeLeft <= 0) { handleTimeUp(); return undefined; }
+    const t = setTimeout(() => setTimeLeft(v => v - 1), 1000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timedMode, currentQuiz, selectedAnswer, timeLeft]);
 
   // --- CHAT LOGIC ---
   const handleChatSubmit = async (e) => {
@@ -577,6 +627,21 @@ function Quizzes() {
                          </button>
                       </div>
 
+                      {timedMode && (
+                         <div className="mb-5">
+                            <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
+                               <span className="flex items-center gap-1"><Timer size={12} /> Timed mode</span>
+                               <span className={timeLeft <= 5 && selectedAnswer === null ? 'text-red-400 font-bold' : ''}>{selectedAnswer === '__timeout__' ? "Time's up!" : `${timeLeft}s`}</span>
+                            </div>
+                            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-700">
+                               <div
+                                  className={`h-full rounded-full transition-[width] duration-1000 ease-linear ${timeLeft <= 5 ? 'bg-red-500' : 'bg-purple-500'}`}
+                                  style={{ width: `${(timeLeft / QUESTION_SECONDS) * 100}%` }}
+                               />
+                            </div>
+                         </div>
+                      )}
+
                       <h2 className="text-xl md:text-2xl font-bold text-white mb-6 leading-relaxed">
                          {currentQuiz.question}
                       </h2>
@@ -623,7 +688,7 @@ function Quizzes() {
                                   onClick={handleNextQuestion}
                                   className="bg-purple-600 hover:bg-purple-500 text-white px-6 py-2 rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg shadow-purple-900/30"
                                >
-                                  Next Question <ChevronRight size={18} />
+                                  {currentQuizIndex + 1 >= selectedQuizGroup.quizzes.length ? 'See Results' : 'Next Question'} <ChevronRight size={18} />
                                </button>
                             </motion.div>
                          )}
@@ -632,21 +697,86 @@ function Quizzes() {
                 )}
                 
                 {/* COMPLETED STATE */}
-                {selectedQuizGroup && currentQuizIndex >= selectedQuizGroup.quizzes.length && (
-                   <div className="bg-slate-800/40 backdrop-blur-md border border-white/10 rounded-2xl p-8 text-center">
-                      <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                         <CheckCircle className="text-green-400" size={32} />
+                {selectedQuizGroup && currentQuizIndex >= selectedQuizGroup.quizzes.length && (() => {
+                   const total = selectedQuizGroup.quizzes.length;
+                   const right = results.filter(r => r.correct).length;
+                   const pct = total ? Math.round((right / total) * 100) : 0;
+                   const missed = results.filter(r => !r.correct);
+                   return (
+                   <div className="bg-slate-800/40 backdrop-blur-md border border-white/10 rounded-2xl p-6 md:p-8">
+                      <div className="text-center">
+                         <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <CheckCircle className="text-green-400" size={32} />
+                         </div>
+                         <h2 className="text-2xl font-bold mb-1">Quiz Completed!</h2>
+                         <p className="text-4xl font-extrabold text-white">{pct}%</p>
+                         <p className="text-slate-400 mb-4">You got {right} of {total} right.</p>
+                         <div className="mx-auto mb-6 h-2.5 w-full max-w-xs overflow-hidden rounded-full bg-slate-700">
+                            <div className={`h-full rounded-full ${pct >= 70 ? 'bg-green-500' : pct >= 40 ? 'bg-amber-400' : 'bg-red-500'}`} style={{ width: `${pct}%` }} />
+                         </div>
                       </div>
-                      <h2 className="text-2xl font-bold mb-2">Quiz Completed!</h2>
-                      <p className="text-slate-400 mb-6">You have finished all questions in this group.</p>
-                      <button 
-                         onClick={() => setSelectedQuizGroup(null)} 
-                         className="px-6 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl transition-colors"
+
+                      {missed.length > 0 && (
+                         <div className="mb-6 space-y-2 text-left">
+                            <p className="text-sm font-semibold text-slate-300">Review what you missed</p>
+                            {missed.map((r, i) => (
+                               <div key={i} className="rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-sm">
+                                  <p className="text-slate-200">{r.quiz.question}</p>
+                                  <p className="mt-1 text-green-300">Answer: {r.quiz.correctAnswer}{r.timedOut ? <span className="text-red-300"> (ran out of time)</span> : null}</p>
+                               </div>
+                            ))}
+                         </div>
+                      )}
+
+                      <div className="flex flex-wrap justify-center gap-3">
+                         {missed.length > 0 && (
+                            <button
+                               onClick={() => startPractice('Missed questions', missed.map(r => r.quiz))}
+                               className="px-5 py-2 bg-purple-600 hover:bg-purple-500 rounded-xl font-semibold transition-colors"
+                            >
+                               Retry missed ({missed.length})
+                            </button>
+                         )}
+                         <button
+                            onClick={() => setSelectedQuizGroup(null)}
+                            className="px-5 py-2 bg-slate-700 hover:bg-slate-600 rounded-xl transition-colors"
+                         >
+                            Back to List
+                         </button>
+                      </div>
+                   </div>
+                   );
+                })()}
+
+                {/* PRACTICE OPTIONS */}
+                {!selectedQuizGroup && folder.quizGroups.length > 0 && (() => {
+                   const weak = weakQuestions(folder.quizGroups, folder.quizStats);
+                   return (
+                   <div className="flex flex-col gap-3 rounded-2xl border border-white/5 bg-slate-800/30 p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <button
+                         onClick={toggleTimedMode}
+                         role="switch"
+                         aria-checked={timedMode}
+                         className="flex items-center gap-3 text-left"
                       >
-                         Back to List
+                         <span className={`relative h-6 w-11 rounded-full transition-colors ${timedMode ? 'bg-purple-600' : 'bg-slate-600'}`}>
+                            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all ${timedMode ? 'left-[22px]' : 'left-0.5'}`} />
+                         </span>
+                         <span>
+                            <span className="flex items-center gap-1 text-sm font-semibold"><Timer size={14} /> Timed mode</span>
+                            <span className="block text-xs text-slate-400">{QUESTION_SECONDS} seconds per question</span>
+                         </span>
+                      </button>
+                      <button
+                         onClick={() => startPractice('Weak questions', weak)}
+                         disabled={weak.length === 0}
+                         className="flex items-center justify-center gap-2 rounded-xl bg-amber-500/15 px-4 py-2.5 text-sm font-semibold text-amber-300 hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
+                      >
+                         <Target size={16} /> Practice weak questions ({weak.length})
                       </button>
                    </div>
-                )}
+                   );
+                })()}
 
                 {/* STORED QUIZZES LIST */}
                 <div className="bg-slate-800/30 backdrop-blur-sm border border-white/5 rounded-2xl p-6">
