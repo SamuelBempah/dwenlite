@@ -113,6 +113,7 @@ const AITeacher = () => {
 
   const audioCtxRef = useRef(null);
   const speakerAnalyserRef = useRef(null);
+  const ttsDownUntilRef = useRef(0);
   const micAnalyserRef = useRef(null);
   const micStreamRef = useRef(null);
 
@@ -439,6 +440,12 @@ const AITeacher = () => {
   }, [isSpeaking]);
 
   const togglePause = () => {
+    const synth = window.speechSynthesis;
+    if (synth && (synth.speaking || synth.paused) && !(audioRef.current && audioRef.current.src && !audioRef.current.paused && !audioRef.current.ended)) {
+      if (isPaused) { synth.resume(); setIsPaused(false); isPausedRef.current = false; setIsSpeaking(true); isSpeakingRef.current = true; }
+      else { synth.pause(); setIsPaused(true); isPausedRef.current = true; setIsSpeaking(false); isSpeakingRef.current = false; }
+      return;
+    }
     if (audioRef.current) {
       if (isPaused) {
         audioRef.current.play().then(() => {
@@ -461,6 +468,7 @@ const AITeacher = () => {
   const raiseHand = () => {
     setIsRaisingHand(true);
     currentAudioSessionRef.current += 1; // abort current queue
+    try { window.speechSynthesis?.cancel(); } catch { /* ignore */ }
     if (audioRef.current) {
       audioRef.current.pause();
     }
@@ -833,11 +841,23 @@ const AITeacher = () => {
     }
     setEstimatedTime(estSeconds);
 
+    // Mid-session upload: the student is already being taught, so add to what we have.
+    const isAppend = stepRef.current === 3 && !!studyMaterialRef.current;
+
     setShowUploadDrawer(false);
     setUploadLoading(true);
     uploadLoadingRef.current = true;
-    setEyeEmotion('sleep');
-    await speakAndAdvance("Checking out your materials, please wait a moment while I process them.", 2);
+    if (isAppend) {
+      currentAudioSessionRef.current += 1; // stop whatever the teacher is saying
+      try { window.speechSynthesis?.cancel(); } catch { /* ignore */ }
+      if (audioRef.current) audioRef.current.pause();
+      setIsSpeaking(false);
+      isSpeakingRef.current = false;
+      setIsTimerActive(true);
+    } else {
+      setEyeEmotion('sleep');
+      await speakAndAdvance("Checking out your materials, please wait a moment while I process them.", 2);
+    }
 
     try {
       let combinedText = '';
@@ -895,15 +915,37 @@ const AITeacher = () => {
 
       // Step 2: Generate detailed notes
       setUploadStatus('Getting ready, please wait...');
-      const notesPrompt = `You are an expert teacher. Restructure the following raw material into a strictly ordered, numbered list of distinct, comprehensive study concepts (e.g., "1. [Concept]", "2. [Concept]"). You MUST include EVERY single piece of important information, as this will be the AI Teacher's entire knowledge base. Do not skip or summarize too heavily. Material: "${combinedText}"`;
+      const lastConceptNumber = (t) => {
+        let m = 0;
+        for (const x of t.matchAll(/^\s*(\d+)\.\s/gm)) m = Math.max(m, parseInt(x[1], 10));
+        return m;
+      };
+      const previousCount = isAppend ? lastConceptNumber(studyMaterialRef.current) : 0;
+      const notesPrompt = `Number the concepts starting at ${previousCount + 1}.\n\nSource material:\n${combinedText}`;
       const functionUrl = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
 
-      const notesResponse = await axios.post(functionUrl, { prompt: notesPrompt });
+      const notesResponse = await axios.post(functionUrl, { prompt: notesPrompt, task: 'concepts' })
+        .catch(err => { throw new Error(err.response?.data?.error || err.message); });
       let generatedNotes = combinedText;
       if (notesResponse.data.choices?.[0]?.message?.content) {
         generatedNotes = notesResponse.data.choices[0].message.content.trim();
       } else if (notesResponse.data.choices?.[0]?.text) {
         generatedNotes = notesResponse.data.choices[0].text.trim();
+      }
+
+      if (isAppend) {
+        studyMaterialRef.current = `${studyMaterialRef.current}\n\n${generatedNotes}`;
+        const newTotal = lastConceptNumber(studyMaterialRef.current);
+        setFiles([]);
+        setUploadLoading(false);
+        uploadLoadingRef.current = false;
+        setUploadStatus('');
+        const note = `[NEW MATERIAL ADDED: The student just uploaded more files. ${Math.max(newTotal - previousCount, 1)} new concepts (numbers ${previousCount + 1} to ${newTotal}) were appended to the end of the study material. Acknowledge this warmly in one or two sentences, mention what the new material covers in a few words, and ask if they want to finish the current concept first and then cover the new ones, or switch to the new material right away. Do not advance concepts until they answer.]`;
+        messagesRef.current.push({ role: 'system', content: note });
+        saveSessionState();
+        toast.success('New material added to your session!');
+        await generateAIResponse(note, toTeacherHistory(messagesRef.current));
+        return;
       }
 
       studyMaterialRef.current = generatedNotes;
@@ -917,11 +959,9 @@ const AITeacher = () => {
       uploadLoadingRef.current = false;
       setUploadStatus('');
 
-      const aiPrompt = `The user ${userNameRef.current} has provided study materials. You synthesized them into these numbered notes: "${generatedNotes}". Acknowledge that the notes are ready. Then, teach ONLY Concept #1 from the notes in 2-3 short, friendly sentences. Finally, ask a single question to test their understanding of Concept #1. ALWAYS end your turn after the question so the student can answer. Remember to track your progress strictly and use the Adaptive Analogy Engine if they struggle.`;
+      const aiPrompt = `The user ${userNameRef.current} has provided study materials. Their numbered notes are ready in the study material. Acknowledge that the notes are ready. Then, teach ONLY Concept #1 from the notes in 2-3 short, friendly sentences. Finally, ask a single question to test their understanding of Concept #1. ALWAYS end your turn after the question so the student can answer. Remember to track your progress strictly and use the Adaptive Analogy Engine if they struggle.`;
 
-      await generateAIResponse(aiPrompt, [
-        { role: 'system', content: `You are an incredibly friendly, empathetic, and human-like personal AI teacher for ${userNameRef.current}. You are the absolute best at teaching, especially for students with ADHD. You make learning highly engaging, memorable, and easy to digest. You use an Adaptive Analogy Engine (if a student struggles, you switch your teaching style drastically using pop-culture or real-world examples). Your goal is to cover ALL of the study materials comprehensively. Express emotions naturally using your words. NEVER use emojis, asterisks (like *smiles*), brackets for actions, markdown formatting, or underscores (like __bold__) as the text-to-speech engine will read them out loud. Keep your responses relatively short, conversational and encouraging. IMPORTANT STT RULE: The student's input is from a Speech-to-Text engine. If a sentence contains words that sound similar but make no contextual sense (e.g., 'eye sea' instead of 'I see'), you MUST infer their true phonetic meaning and respond to what they actually meant. Don't point out the typo, just answer naturally. BACKGROUND NOISE & ECHO FILTER: If the student's transcript contains random background chatter, or looks like an echo of what you just said, ignore it completely. NEVER complain about an audio problem or echo. If you feel the need to try a different approach because the student is confused, say "Let me try explaining this differently..." instead of repeating yourself.` }
-      ]);
+      await generateAIResponse(aiPrompt, []);
 
     } catch (err) {
       console.error(err);
@@ -935,8 +975,11 @@ const AITeacher = () => {
     }
   };
 
+  // Convert stored messages to chat turns; system notices (e.g. raised hand) become notes to the teacher.
+  const toTeacherHistory = (msgs) => msgs.map(m => ({ role: m.role === 'user' || m.role === 'system' ? 'user' : 'assistant', content: m.content }));
+
   const handleUserSpeech = async (text) => {
-    if (stepRef.current === 2 || isThinking || isSpeakingRef.current || isPausedRef.current) return;
+    if (stepRef.current === 2 || uploadLoadingRef.current || isThinking || isSpeakingRef.current || isPausedRef.current) return;
 
     messagesRef.current.push({ role: 'user', content: text });
     saveSessionState();
@@ -968,25 +1011,7 @@ const AITeacher = () => {
       }
     }
     else if (stepRef.current === 3) {
-      await generateAIResponse(text, [
-        {
-          role: 'system', content: `You are an incredibly friendly, empathetic, and human-like personal AI teacher for ${userNameRef.current}. 
-You are the absolute best at teaching, especially for students with ADHD. You make learning highly engaging, memorable, and easy to digest.
-Your goal is to teach ALL of the following study material strictly chronologically, one numbered segment at a time.
-STUDY MATERIAL: ${studyMaterialRef.current}
-
-RULES (STRICT STATE GATES):
-1. ALWAYS wait for the student to speak. NEVER answer your own questions.
-2. Evaluate the student's answer. Be encouraging!
-3. ADAPTIVE ANALOGY ENGINE: If the student struggles or answers incorrectly, correct them and drastically simplify the concept. Use vivid real-world examples, pop-culture, or funny mnemonics. DO NOT move to the next concept. Stay on the current concept and ask a new test question for it.
-4. INTERRUPTION HANDLING: If the student asks a clarifying question, answer it. DO NOT move to the next concept. Stay on the current concept until they explicitly show they understand it and answer the test question correctly.
-5. PROGRESSION GATE: ONLY move to the NEXT core concept (e.g., from Concept 1 to Concept 2) IF AND ONLY IF the student has correctly answered your test question for the CURRENT concept. When moving to the next concept, teach it in 2-3 short, punchy, conversational sentences. Keep their attention! DO NOT skip any numbered concepts. Praise their progress occasionally (e.g., "You nailed that! Moving on to...").
-6. Immediately after teaching a concept, ask ONE question to test their understanding. Stop speaking immediately after asking.
-7. LIGHTNING REVIEW ROUND: When ALL numbered concepts from the notes are fully covered and understood, DO NOT conclude the session yet. Trigger a "Lightning Review Round" where you ask 2-3 rapid-fire questions that combine multiple concepts from the notes to test long-term retention.
-8. SESSION COMPLETE GATE: ONLY after the student successfully completes the Lightning Review Round, conclude by saying exactly "[SESSION COMPLETE]". Do not say this prematurely.
-9. STT TRANSLATOR & BACKGROUND NOISE FILTER: The student is speaking via a Speech-to-Text engine. Infer phonetic typos (e.g. "eye sea" -> "I see"). Ignore background chatter or echoes completely without complaining. Express emotions naturally in your speech but NEVER use emojis, asterisks, brackets, markdown, or underscores.` },
-        ...messagesRef.current.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content }))
-      ]);
+      await generateAIResponse(text, toTeacherHistory(messagesRef.current));
     }
   };
 
@@ -1079,18 +1104,55 @@ RULES (STRICT STATE GATES):
     updateSpeakerVol();
   };
 
+  // If the voice server is down or slow, fall back to the device's built-in voice so the
+  // teacher always speaks. After a failure we skip the server for 2 minutes.
   const fetchAudioForSentence = async (sentence) => {
-    const response = await fetch('https://dwenlite-backend.fly.dev/api/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: sentence })
-    });
-    if (!response.ok) throw new Error('TTS failed');
-    const blob = await response.blob();
-    return URL.createObjectURL(blob);
+    if (Date.now() < ttsDownUntilRef.current) return 'browser';
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    try {
+      const response = await fetch('https://dwenlite-backend.fly.dev/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: sentence }),
+        signal: ctrl.signal
+      });
+      if (!response.ok) throw new Error('TTS failed: ' + response.status);
+      const blob = await response.blob();
+      if (!blob.size) throw new Error('TTS returned empty audio');
+      return URL.createObjectURL(blob);
+    } catch (err) {
+      console.warn('Voice server unavailable, using device voice:', err.message);
+      ttsDownUntilRef.current = Date.now() + 120000;
+      return 'browser';
+    } finally {
+      clearTimeout(timer);
+    }
   };
 
-  const playAudioUrl = (url, sessionId) => {
+  const speakWithBrowserVoice = (text, sessionId) => new Promise((resolve) => {
+    const synth = window.speechSynthesis;
+    if (!synth) { resolve(); return; }
+    const u = new SpeechSynthesisUtterance(text);
+    const voices = synth.getVoices();
+    const voice =
+      voices.find(v => /^en[-_](US|GB)/i.test(v.lang) && /(aria|jenny|ava|samantha|google us english|female)/i.test(v.name)) ||
+      voices.find(v => /^en/i.test(v.lang));
+    if (voice) u.voice = voice;
+    u.rate = 1.0;
+    u.pitch = 1.05;
+    const timer = setInterval(() => {
+      if (currentAudioSessionRef.current !== sessionId) synth.cancel();
+      setSpeakerVolume(isSpeakingRef.current && !synth.paused ? 50 + Math.random() * 90 : 0);
+    }, 120);
+    const done = () => { clearInterval(timer); setSpeakerVolume(0); resolve(); };
+    u.onend = done;
+    u.onerror = done;
+    synth.speak(u);
+  });
+
+  const playAudioUrl = (url, sessionId, sentence = '') => {
+    if (url === 'browser') return speakWithBrowserVoice(sentence, sessionId);
     return new Promise((resolve, reject) => {
       initAudioContext();
       if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
@@ -1139,13 +1201,14 @@ RULES (STRICT STATE GATES):
         if (!url || currentAudioSessionRef.current !== sessionId) break;
 
         setCurrentCaption(currentSentence);
+        const spokenSentence = currentSentence;
 
         let nextSentence = sentences.shift();
         nextAudioPromise = nextSentence ? fetchAudioForSentence(nextSentence) : null;
         currentSentence = nextSentence;
 
-        await playAudioUrl(url, sessionId);
-        URL.revokeObjectURL(url);
+        await playAudioUrl(url, sessionId, spokenSentence);
+        if (url !== 'browser') URL.revokeObjectURL(url);
 
       } catch (err) {
         console.error("Audio queue error", err);
@@ -1175,6 +1238,7 @@ RULES (STRICT STATE GATES):
 
     currentAudioSessionRef.current += 1;
     const sessionId = currentAudioSessionRef.current;
+    try { window.speechSynthesis?.cancel(); } catch { /* ignore */ }
 
     if (recognitionRef.current && isListening) {
       recognitionRef.current.abort();
@@ -1248,11 +1312,23 @@ RULES (STRICT STATE GATES):
     }
 
     try {
-      const formattedHistory = history.map(h => `${h.role === 'system' ? 'System' : h.role === 'user' ? 'Student' : 'Teacher'}: ${h.content}`).join('\n');
-      const finalPrompt = `${formattedHistory}\nStudent: ${prompt}\nTeacher:`;
+      // The teacher's rules live on the server. We only send the conversation; the server keeps
+      // [rules][study material] identical every turn (cheap, cached) and trims old turns.
+      const convo = history
+        .filter(h => h.role !== 'system')
+        .map(h => ({ role: h.role === 'user' ? 'user' : 'assistant', content: h.content }));
+      const lastTurn = convo[convo.length - 1];
+      if (!(lastTurn && lastTurn.role === 'user' && lastTurn.content === prompt)) {
+        convo.push({ role: 'user', content: prompt });
+      }
 
       const functionUrl = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
-      const response = await axios.post(functionUrl, { prompt: finalPrompt });
+      const response = await axios.post(functionUrl, {
+        task: 'teacher',
+        messages: convo,
+        material: studyMaterialRef.current || 'No study material yet.',
+        userName: userNameRef.current,
+      });
 
       let aiText;
       if (response.data.choices?.[0]?.message?.content) {
@@ -1261,6 +1337,12 @@ RULES (STRICT STATE GATES):
         aiText = response.data.choices[0].text.trim();
       } else {
         throw new Error('Invalid API response');
+      }
+
+      let wantsUpload = false;
+      if (aiText.includes('[OPEN_UPLOAD]')) {
+        wantsUpload = true;
+        aiText = aiText.replace(/\[OPEN_UPLOAD\]/g, '').trim();
       }
 
       // Stop the AI from hallucinating both sides of the conversation
@@ -1291,6 +1373,7 @@ RULES (STRICT STATE GATES):
       setIsThinking(false);
 
       await speakAndAdvance(aiText);
+      if (wantsUpload) setShowUploadDrawer(true);
 
       if (stepRef.current === 4) {
         setEyeEmotion('sleep');
@@ -1298,7 +1381,7 @@ RULES (STRICT STATE GATES):
 
     } catch (error) {
       console.error('Dwenlite Cognitive Engine error:', error);
-      toast.error('Our Dwenlite Cognitive Engine is currently busy. Please try again.');
+      toast.error(error.response?.data?.error || 'Our Dwenlite Cognitive Engine is currently busy. Please try again.');
       setIsThinking(false);
       setIsSpeaking(false);
       isSpeakingRef.current = false;
@@ -1747,6 +1830,17 @@ RULES (STRICT STATE GATES):
                   <Hand size={24} />
                 </button>
                 <span className="text-[11px] text-gray-400 font-medium tracking-wide whitespace-nowrap">Raise Hand</span>
+              </div>
+
+              {/* Add more files mid-session */}
+              <div className="flex flex-col items-center gap-1.5 w-16">
+                <button
+                  onClick={() => setShowUploadDrawer(!showUploadDrawer)}
+                  className="w-14 h-14 rounded-full bg-gray-800 text-gray-300 hover:bg-gray-700 flex items-center justify-center transition-all shadow-lg"
+                >
+                  <Upload size={24} />
+                </button>
+                <span className="text-[11px] text-gray-400 font-medium tracking-wide whitespace-nowrap">Add Files</span>
               </div>
 
               <div className="w-px h-10 bg-gray-700 mx-1"></div>
