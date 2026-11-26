@@ -2327,8 +2327,8 @@ const AITeacher = () => {
                       <motion.span
                         key={i}
                         className="inline-block"
-                        initial={{ opacity: 0, y: 6, filter: 'blur(6px)' }}
-                        animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                        initial={{ opacity: 0, y: 6, filter: 'blur(6px) drop-shadow(0 0 8px rgba(253, 230, 138, 0.95))' }}
+                        animate={{ opacity: 1, y: 0, filter: 'blur(0px) drop-shadow(0 0 0px rgba(253, 230, 138, 0))' }}
                         transition={{ duration: 0.45, delay: Math.min(i * 0.05, 1.2), ease: 'easeOut' }}
                       >
                         {w}&nbsp;

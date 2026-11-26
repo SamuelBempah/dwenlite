@@ -1,11 +1,16 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { renderMarkdown } from '../lib/markdown';
 import { fadeTail } from '../lib/magic';
+import Sparkle from './Sparkle';
 
-// An AI answer in a chat bubble. Magical by design: glowing orbs while it thinks, letters that
-// fade in like ink as it writes, a sparkling cursor, and a soft glow that settles when it is done.
+const TWINKLES = [[8, 14], [24, 70], [41, 28], [58, 82], [72, 40], [86, 12], [15, 52], [64, 60]];
+
+// An AI answer in a chat bubble, with glitter: a sparkle that thinks, golden letters that settle as
+// they are written, a star that sheds sparks at the writing position, and a shimmer when it is done.
 export default function ChatAnswer({ content, typing, html }) {
   const wasTyping = useRef(false);
+  const box = useRef(null);
+  const cursor = useRef(null);
   useEffect(() => { if (typing) wasTyping.current = true; }, [typing]);
 
   const base = useMemo(() => (html !== undefined ? html : renderMarkdown(content)), [html, content]);
@@ -14,22 +19,36 @@ export default function ChatAnswer({ content, typing, html }) {
     [typing, content, base]
   );
 
+  // Keep the sparkle on the last written letter (moved directly, so its animation never restarts).
+  useLayoutEffect(() => {
+    const c = cursor.current;
+    const b = box.current;
+    if (!c || !b) return;
+    const a = b.querySelector('.magic-anchor');
+    if (!a) { c.style.opacity = '0'; return; }
+    const ar = a.getBoundingClientRect();
+    const br = b.getBoundingClientRect();
+    c.style.opacity = '1';
+    c.style.transform = `translate3d(${ar.left - br.left}px, ${ar.top - br.top + ar.height * 0.55}px, 0)`;
+  });
+
   if (typing && !content) {
     return (
-      <div className="flex items-center gap-2.5 py-1" aria-label="DwenLite AI is thinking">
-        <span className="magic-orb" />
-        <span className="magic-orb [animation-delay:160ms]" />
-        <span className="magic-orb [animation-delay:320ms]" />
-        <span className="magic-shimmer-text text-xs font-medium tracking-wide">Thinking</span>
+      <div className="flex items-center gap-3 py-1" aria-label="DwenLite AI is thinking">
+        <span className="spark-cursor spark-cursor-static"><Sparkle /></span>
+        <span className="magic-shimmer-text ml-3 text-xs font-medium tracking-wide">Thinking</span>
       </div>
     );
   }
 
   const settle = !typing && wasTyping.current;
   return (
-    <div className={settle ? 'magic-settle' : ''}>
+    <div ref={box} className={`relative ${settle ? 'magic-settle' : ''}`}>
       <div className="md" dangerouslySetInnerHTML={{ __html: shown }} />
-      {typing && content && content.length >= 20000 && <span className="typing-caret" aria-hidden="true" />}
+      {typing && <span ref={cursor} className="spark-cursor" aria-hidden="true"><Sparkle /></span>}
+      {settle && TWINKLES.map(([top, left], i) => (
+        <span key={i} className="twinkle" style={{ top: `${top}%`, left: `${left}%`, animationDelay: `${i * 0.09}s` }} aria-hidden="true" />
+      ))}
     </div>
   );
 }
