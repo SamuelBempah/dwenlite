@@ -125,6 +125,15 @@ const TEACHER_SYSTEM =
   "- Begin EVERY reply with [C:n], where n is the number of the concept you are on right now (the one you are teaching or testing).\n" +
   "- If the student got the concept wrong or was clearly confused, add [WEAK:n] right after it. Use these tags only in that exact format and never mention them.\n" +
   "- If a line like [Weak spots so far: ...] is attached to the student's message, revisit those concepts with fresh questions: occasionally during the lesson and always during the Lightning Review.\n\n" +
+  "TEACHING PREFERENCES\n" +
+  "- A line like [Teaching preferences: style=...; level=...] may be attached to the student's message. Follow it.\n" +
+  "- style: story = teach through short vivid stories and analogies; coach = strict exam coach, focus on marks, key terms and common traps; " +
+  "socratic = mostly ask guiding questions so the student discovers the answer, tell them only when stuck; simple = plain words, very short, as if explaining to a ten year old.\n" +
+  "- level: easy = gentler questions and more hints; exam = hard exam-style questions, expect precise answers.\n\n" +
+  "DIAGRAMS\n" +
+  "- If a visual would really help, or the student asks to see a diagram, flowchart, process or timeline, add ONE diagram at the very END of your reply, after your spoken words, " +
+  "in exactly this form: [DIAGRAM]mermaid code[/DIAGRAM]. Use simple Mermaid flowchart syntax (graph TD, short node labels in square brackets, no special characters, no parentheses, no quotes). " +
+  "Say in your spoken words that a diagram is on screen. Never read the code aloud.\n\n" +
   "SAY IT BACK\n" +
   "- When a bracketed note says the student wants to explain a concept back (or they ask to), invite them to explain it in their own words in one sentence, then stop and wait.\n" +
   "- After they explain, grade it honestly: \"Score: X out of 10\", one sentence on what they got right, what was missing or wrong (corrected briefly), then a one-line model explanation, then offer to continue. If the score is below 7, add [WEAK:n].\n\n" +
@@ -223,7 +232,7 @@ function callDeepSeek(system, user, maxTokens, temperature) {
 }
 
 // Study chat conversation: [rules][materials] stay identical, only the recent turns change.
-function buildStudyChatMessages({ context, kind, messages }) {
+function buildStudyChatMessages({ context, kind, messages, length }) {
   const turns = [];
   for (const m of messages) {
     if (!m || (m.role !== "user" && m.role !== "assistant") || typeof m.content !== "string" || !m.content.trim()) continue;
@@ -233,6 +242,10 @@ function buildStudyChatMessages({ context, kind, messages }) {
   }
   const recent = turns.slice(-12);
   while (recent.length && recent[0].role !== "user") recent.shift();
+  const lastTurn = recent[recent.length - 1];
+  if (length === "quick" && lastTurn && lastTurn.role === "user") {
+    lastTurn.content += "\n[Answer length: QUICK. Keep it under 90 words, no extras. Still end with the FOLLOWUPS line.]";
+  }
   return [
     { role: "system", content: TASKS.study_chat.system },
     { role: "user", content: `MATERIALS (${String(kind || "folder").slice(0, 30)} chat):\n${context}` },
@@ -243,7 +256,7 @@ function buildStudyChatMessages({ context, kind, messages }) {
 
 // Build the teacher conversation. Order matters for caching: [rules][material] never change
 // within a session, only the recent turns after them do.
-function buildTeacherMessages({ material, userName, messages, weak }) {
+function buildTeacherMessages({ material, userName, messages, weak, style, level }) {
   const turns = messages
     .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
     .map((m) => ({ role: m.role, content: m.content.slice(0, 4000) }));
@@ -260,6 +273,14 @@ function buildTeacherMessages({ material, userName, messages, weak }) {
   const lastTurn = recentTurns[recentTurns.length - 1];
   if (weakList.length && lastTurn && lastTurn.role === "user") {
     lastTurn.content += `\n[Weak spots so far: concepts ${weakList.join(", ")}]`;
+  }
+  const STYLES = ["story", "coach", "socratic", "simple"];
+  const LEVELS = ["easy", "exam"];
+  const prefs = [];
+  if (STYLES.includes(style)) prefs.push(`style=${style}`);
+  if (LEVELS.includes(level)) prefs.push(`level=${level}`);
+  if (prefs.length && lastTurn && lastTurn.role === "user") {
+    lastTurn.content += `\n[Teaching preferences: ${prefs.join("; ")}]`;
   }
   return [
     { role: "system", content: TASKS.teacher.system },
@@ -412,7 +433,7 @@ exports.generateNotesProxy = onRequest(
       }
 
       // 2. Validate input.
-      const { prompt, task = "general", messages, material, userName, weak } = req.body || {};
+      const { prompt, task = "general", messages, material, userName, weak, style, level } = req.body || {};
 
       // Read-only: how much of today's allowance this account has used.
       if (task === "usage") {
@@ -436,11 +457,11 @@ exports.generateNotesProxy = onRequest(
         if (material.length > MAX_CHARS.teacher) {
           return res.status(413).json({ error: "Study material is too long." });
         }
-        teacherMessages = buildTeacherMessages({ material, userName, messages, weak });
+        teacherMessages = buildTeacherMessages({ material, userName, messages, weak, style, level });
         if (teacherMessages.length < 4) return res.status(400).json({ error: "Teacher request is invalid." });
         dedupeInput = JSON.stringify(teacherMessages.slice(2));
       } else if (task === "study_chat") {
-        const { context, kind } = req.body;
+        const { context, kind, length } = req.body;
         if (!Array.isArray(messages) || messages.length === 0 || messages.length > 200 ||
             typeof context !== "string" || !context.trim()) {
           return res.status(400).json({ error: "Chat request is invalid." });
@@ -448,7 +469,7 @@ exports.generateNotesProxy = onRequest(
         if (context.length > MAX_CHARS.study_chat) {
           return res.status(413).json({ error: "Your materials are too large for chat. Try a smaller folder." });
         }
-        teacherMessages = buildStudyChatMessages({ context, kind, messages });
+        teacherMessages = buildStudyChatMessages({ context, kind, messages, length });
         if (teacherMessages.length < 4) return res.status(400).json({ error: "Chat request is invalid." });
         dedupeInput = JSON.stringify(teacherMessages.slice(2));
       } else {

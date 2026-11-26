@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import axios from 'axios';
 import { askStudyChat, buildFolderContext, askAI } from '../lib/ai';
 import FollowUpChips from '../components/FollowUpChips';
+import AnswerLengthToggle from '../components/AnswerLengthToggle';
 import { useChatMemory } from '../lib/chatMemory';
 import jsPDF from 'jspdf';
 import { marked } from 'marked';
@@ -834,8 +835,9 @@ function Notes() {
                     <div className="p-4 border-b border-white/5 bg-slate-800/50 rounded-t-2xl flex items-center gap-2">
                         <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
                         <h3 className="font-bold flex items-center gap-2">DwenLite AI <span className="text-xs font-normal text-slate-400 px-2 py-0.5 bg-slate-700 rounded">Notes</span></h3>
+                        <div className="ml-auto flex items-center gap-3"><AnswerLengthToggle /></div>
                         {chatHistory.length > 0 && (
-                            <button onClick={clearChat} disabled={chatLoading} className="ml-auto text-xs text-slate-400 hover:text-white disabled:opacity-40 transition-colors">New chat</button>
+                            <button onClick={clearChat} disabled={chatLoading} className="text-xs text-slate-400 hover:text-white disabled:opacity-40 transition-colors">New chat</button>
                         )}
                     </div>
 

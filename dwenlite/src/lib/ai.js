@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { auth } from '../firebase';
+import { getAnswerLength } from '../components/AnswerLengthToggle';
 
 export const AI_URL =
   'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
@@ -59,7 +60,7 @@ export async function askStudyChat({ context, history = [], question, kind = 'fo
   if (!(last && last.role === 'user' && last.content === question)) messages.push({ role: 'user', content: question });
 
   try {
-    const res = await axios.post(AI_URL, { task: 'study_chat', messages, context: context || 'No materials yet.', kind });
+    const res = await axios.post(AI_URL, { task: 'study_chat', messages, context: context || 'No materials yet.', kind, length: getAnswerLength() });
     const text = res.data?.choices?.[0]?.message?.content?.trim();
     if (!text) throw new Error('No answer found.');
     // Split off the trailing "FOLLOWUPS: a | b | c" line into tappable suggestions.

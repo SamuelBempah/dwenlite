@@ -4,6 +4,7 @@ import { Brain, Volume2, User, ArrowLeft, Upload, X, Mic, Pause, Play, Edit2, Ch
 import { Link } from 'react-router-dom';
 import TeacherSidebar from '../components/TeacherSidebar';
 import UsageMeter from '../components/UsageMeter';
+import DiagramModal from '../components/DiagramModal';
 import VoiceSettings, { loadVoicePrefs } from '../components/VoiceSettings';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -105,14 +106,21 @@ const AITeacher = () => {
   const [voiceUsage, setVoiceUsage] = useState({ used: 0, limit: 0 });
   const [voicePrefs, setVoicePrefs] = useState(loadVoicePrefs);
   const voicePrefsRef = useRef(voicePrefs);
+  const handsFreeRef = useRef(voicePrefs.handsFree);
   useEffect(() => {
     voicePrefsRef.current = voicePrefs;
+    handsFreeRef.current = voicePrefs.handsFree;
+    // Turned on while the mic is waiting for the student: open it right away.
+    if (voicePrefs.handsFree && isListeningRef.current && !isSpeakingRef.current) {
+      try { recognitionRef.current?.start(); } catch { /* already running */ }
+    }
     if (audioRef.current) {
       audioRef.current.defaultPlaybackRate = voicePrefs.speed;
       audioRef.current.playbackRate = voicePrefs.speed;
     }
   }, [voicePrefs]);
   const [topicText, setTopicText] = useState('');
+  const [diagramCode, setDiagramCode] = useState('');
   const [showRecap, setShowRecap] = useState(false);
   const [recapText, setRecapText] = useState('');
   const [recapLoading, setRecapLoading] = useState(false);
@@ -315,6 +323,13 @@ const AITeacher = () => {
     }
     return () => clearInterval(interval);
   }, [isTimerActive]);
+
+  // Gentle study-break reminder every 25 minutes of lesson time.
+  useEffect(() => {
+    if (sessionTime > 0 && sessionTime % 1500 === 0) {
+      toast("You've studied for " + (sessionTime / 60) + " minutes. A 5 minute break helps it stick!", { icon: '\u2615', duration: 12000 });
+    }
+  }, [sessionTime]);
 
   // Estimated Processing Timer Effect
   useEffect(() => {
@@ -635,8 +650,14 @@ const AITeacher = () => {
           finalTranscriptRef.current = '';
           interimTranscriptRef.current = '';
 
-          // If we are on desktop, and not holding mic, we should still stop "listening" to force them to hold spacebar again if they want to speak
-          // Actually, isListening is the "ready to speak" state. We keep it ready.
+          // Hands-free: nobody spoke, keep the mic open for the next try.
+          if (handsFreeRef.current && isListeningRef.current && !isSpeakingRef.current) {
+            setTimeout(() => {
+              if (handsFreeRef.current && isListeningRef.current && !isSpeakingRef.current) {
+                try { recognition.start(); } catch { /* already running */ }
+              }
+            }, 300);
+          }
         }
       };
 
@@ -1184,6 +1205,9 @@ const AITeacher = () => {
     isListeningRef.current = true;
     finalTranscriptRef.current = '';
     clearTimeout(silenceTimerRef.current);
+    if (handsFreeRef.current && recognitionRef.current) {
+      try { recognitionRef.current.start(); } catch { /* already running */ }
+    }
   };
 
   const stopSpeakerVisualizer = () => {
@@ -1559,6 +1583,9 @@ const AITeacher = () => {
     // Turns the finished reply into app state (tags, history, session end).
     const finishReply = (rawText) => {
       let aiText = rawText.trim();
+      const diagram = aiText.match(/\[DIAGRAM\]([\s\S]*?)\[\/DIAGRAM\]/);
+      if (diagram) setDiagramCode(diagram[1].replace(/```(?:mermaid)?/g, '').trim());
+      aiText = aiText.replace(/\[DIAGRAM\][\s\S]*?(\[\/DIAGRAM\]|$)/, '').trim();
       const conceptTag = aiText.match(/\[C:(\d+)\]/);
       if (conceptTag) setCurrentConcept(parseInt(conceptTag[1], 10));
       for (const w of aiText.matchAll(/\[WEAK:(\d+)\]/g)) {
@@ -1604,11 +1631,14 @@ const AITeacher = () => {
         material: studyMaterialRef.current || 'No study material yet.',
         userName: userNameRef.current,
         weak: weakRef.current,
+        style: voicePrefsRef.current.style,
+        level: voicePrefsRef.current.level,
       };
 
       // ---- Fast path: stream the reply and start talking after the first sentence ----
       const speech = createSpeechStream(stopThinking);
       let raw = '';
+      let diagramSeen = false;
       let buffer = '';
       let carry = '';
 
@@ -1636,7 +1666,12 @@ const AITeacher = () => {
         await streamTeacherReply(payload, (t) => {
           if (currentAudioSessionRef.current !== speech.sessionId) return 'stop'; // interrupted
           raw += t;
-          buffer += t;
+          if (!diagramSeen) {
+            // Never speak the diagram: stop feeding the speech buffer once its tag shows up.
+            buffer += t;
+            const at = buffer.indexOf('[DIAGRAM]');
+            if (at >= 0) { buffer = buffer.slice(0, at); diagramSeen = true; }
+          }
           if (raw.length < 40) {
             const ct = raw.match(/\[C:(\d+)\]/);
             if (ct) setCurrentConcept(parseInt(ct[1], 10));
@@ -2303,6 +2338,8 @@ const AITeacher = () => {
 
         </div>
       </div>
+
+      {diagramCode && <DiagramModal code={diagramCode} onClose={() => setDiagramCode('')} />}
 
       {/* Session recap */}
       <AnimatePresence>
