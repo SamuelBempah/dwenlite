@@ -35,6 +35,9 @@ function Notes() {
   const [exportOpenId, setExportOpenId] = useState(null);
   const [readerId, setReaderId] = useState(null);      // note open in the full-screen reader
   const [outline, setOutline] = useState([]);
+  const [paperMode, setPaperMode] = useState(() => {
+    try { return localStorage.getItem('dwenliteReaderTheme') === 'paper'; } catch { return false; }
+  });
   const [readerScale, setReaderScale] = useState(() => {
     try { return parseFloat(localStorage.getItem('dwenliteReaderScale')) || 1; } catch { return 1; }
   });
@@ -734,13 +737,14 @@ function Notes() {
 
   const readerIdx = readerId ? folder.notes.findIndex(n => n.id === readerId) : -1;
   const readerNote = readerIdx >= 0 ? folder.notes[readerIdx] : null;
+  const togglePaper = () => setPaperMode(v => { try { localStorage.setItem('dwenliteReaderTheme', v ? 'dark' : 'paper'); } catch { /* ignore */ } return !v; });
   const setScale = (v) => { setReaderScale(v); try { localStorage.setItem('dwenliteReaderScale', String(v)); } catch { /* ignore */ } };
   const jumpTo = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   // Everything shown inside the reader: tools, editor or the formatted note.
   const renderNoteBody = (note, idx) => (
     <>
-      <div className="mb-6 flex gap-2 overflow-x-auto pb-2 [&>button]:shrink-0 [&>button]:whitespace-nowrap">
+      <div className="mb-6 flex gap-2 overflow-x-auto rounded-xl bg-slate-900 p-2 [&>button]:shrink-0 [&>button]:whitespace-nowrap">
                      {Object.entries(NOTE_TOOLS).map(([mode, t]) => (
                         <button
                            key={mode}
@@ -798,7 +802,7 @@ function Notes() {
                   <div 
                      data-note-content={note.id}
                      id="reader-content"
-                     className="md md-reader"
+                     className={`md md-reader${paperMode ? ' md-paper' : ''}`}
                      dangerouslySetInnerHTML={{ __html: renderMarkdown(note.content) }}
                   />
                   )}
@@ -819,6 +823,7 @@ function Notes() {
               <p className="truncate text-xs text-slate-500">{new Date(readerNote.createdAt).toLocaleDateString()}{readerNote.label ? ` · ${readerNote.label}` : ''}</p>
             </div>
             <div className="flex items-center gap-1">
+              <button onClick={togglePaper} aria-pressed={paperMode} className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${paperMode ? 'bg-white text-slate-900' : 'text-slate-300 hover:bg-white/10'}`}>Paper</button>
               <button onClick={() => setScale(Math.max(0.9, +(readerScale - 0.15).toFixed(2)))} aria-label="Smaller text" className="rounded-lg px-2.5 py-1.5 text-sm font-semibold text-slate-300 hover:bg-white/10">A-</button>
               <button onClick={() => setScale(Math.min(1.5, +(readerScale + 0.15).toFixed(2)))} aria-label="Larger text" className="rounded-lg px-2.5 py-1.5 text-base font-semibold text-slate-300 hover:bg-white/10">A+</button>
               <div className="relative" data-export-menu>
@@ -834,8 +839,8 @@ function Notes() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
-            <div className="mx-auto flex max-w-6xl gap-10 px-4 py-6 md:px-8 md:py-10">
+          <div className={`flex-1 overflow-y-auto ${paperMode ? 'bg-slate-300' : ''}`}>
+            <div className={`mx-auto flex max-w-6xl gap-10 ${paperMode ? 'px-2 py-3 md:px-8 md:py-8' : 'px-4 py-6 md:px-8 md:py-10'}`}>
               {outline.length > 2 && (
                 <aside className="sticky top-2 hidden h-fit max-h-[80vh] w-60 shrink-0 overflow-y-auto lg:block">
                   <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">On this page</p>
@@ -848,7 +853,7 @@ function Notes() {
                   </ul>
                 </aside>
               )}
-              <article className="mx-auto min-w-0 max-w-3xl flex-1 lg:mx-0" style={{ '--md-scale': readerScale }}>
+              <article className={`mx-auto min-w-0 max-w-3xl flex-1 lg:mx-0 ${paperMode ? 'rounded-md bg-white px-4 py-6 shadow-2xl md:px-14 md:py-12' : ''}`} style={{ '--md-scale': readerScale }}>
                 {outline.length > 2 && (
                   <select
                     onChange={(e) => { if (e.target.value) jumpTo(e.target.value); e.target.value = ''; }}

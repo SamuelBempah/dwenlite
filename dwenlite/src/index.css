@@ -65,3 +65,19 @@ img, video, canvas, svg { max-width: 100%; }
 .md-reader table { font-size: .95em; }
 .md-reader th, .md-reader td { padding: .7em 1em; }
 @media (max-width: 640px) { .md-reader { line-height: 1.75; } .md-reader h1 { font-size: 1.6em; } .md-reader h2 { font-size: 1.28em; } }
+
+/* Paper mode: a white A4-style sheet with dark text, for reading or printing */
+.md-reader.md-paper { color: #1e293b; }
+.md-paper h1 { color: #0f172a; }
+.md-paper h2 { color: #4c1d95; border-top-color: #e2e8f0; }
+.md-paper h3 { color: #6d28d9; }
+.md-paper strong { color: #0f172a; }
+.md-paper a { color: #6d28d9; }
+.md-paper li::marker { color: #7c3aed; }
+.md-paper blockquote { background: #f5f3ff; color: #334155; }
+.md-paper code { background: #ede9fe; color: #4c1d95; }
+.md-paper .md-table-wrap { border-color: #cbd5e1; }
+.md-paper th { background: #ede9fe; color: #4c1d95; }
+.md-paper th, .md-paper td { border-bottom-color: #e2e8f0; border-left-color: #e2e8f0; }
+.md-paper tbody tr:nth-child(even) { background: #f8fafc; }
+.md-paper hr { border-top-color: #e2e8f0; }
