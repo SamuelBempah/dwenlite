@@ -7,6 +7,7 @@ import axios from 'axios';
 import { askStudyChat, buildFolderContext, askAI } from '../lib/ai';
 import FollowUpChips from '../components/FollowUpChips';
 import AnswerLengthToggle from '../components/AnswerLengthToggle';
+import { loadVoicePrefs, LANGUAGES } from '../components/VoiceSettings';
 import { useChatMemory } from '../lib/chatMemory';
 import jsPDF from 'jspdf';
 import { marked } from 'marked';
@@ -30,6 +31,7 @@ function Notes() {
   const [expandedGroups, setExpandedGroups] = useState({});
   const [noteQuery, setNoteQuery] = useState('');
   const [exportOpenId, setExportOpenId] = useState(null);
+  const [noteLang, setNoteLang] = useState(() => loadVoicePrefs().language);
   const [noteTemplate, setNoteTemplate] = useState(() => {
     try { return localStorage.getItem('dwenliteNoteTemplate') || 'auto'; } catch { return 'auto'; }
   });
@@ -315,7 +317,9 @@ function Notes() {
 
       // Formatting rules (and meeting/lecture templates) live in the backend system prompt.
       const templateLine = noteTemplate !== 'auto' ? `Template: ${noteTemplate}\n\n` : '';
-      const prompt = `${templateLine}Create notes from the following source material:\n\n${context}`;
+      const lang = LANGUAGES.find(l => l.id === loadVoicePrefs().language);
+      const langLine = lang && lang.id !== 'en' ? `Write the notes in ${lang.name}.\n\n` : '';
+      const prompt = `${templateLine}${langLine}Create notes from the following source material:\n\n${context}`;
 
       const response = await axios.post(functionUrl, { prompt, task: 'notes' })
         .catch(err => {
@@ -748,6 +752,18 @@ function Notes() {
               </div>
            </div>
            <div className="flex w-full flex-col gap-3 md:w-auto md:flex-row md:items-center">
+           <select
+              value={noteLang}
+              onChange={(e) => {
+                setNoteLang(e.target.value);
+                // shared with the AI Teacher setting, so chat answers follow it too
+                try { localStorage.setItem('dwenliteVoicePrefs', JSON.stringify({ ...loadVoicePrefs(), language: e.target.value })); } catch { /* ignore */ }
+              }}
+              aria-label="Language"
+              className="rounded-xl border border-white/20 bg-slate-900/60 px-3 py-3 text-sm text-white outline-none focus:border-purple-400"
+           >
+              {LANGUAGES.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+           </select>
            <select
               value={noteTemplate}
               onChange={(e) => { setNoteTemplate(e.target.value); try { localStorage.setItem('dwenliteNoteTemplate', e.target.value); } catch { /* ignore */ } }}

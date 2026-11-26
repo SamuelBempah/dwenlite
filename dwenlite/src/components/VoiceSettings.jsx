@@ -14,6 +14,14 @@ export const LEVELS = [
   { id: 'normal', label: 'Normal' },
   { id: 'exam', label: 'Exam' },
 ];
+export const LANGUAGES = [
+  { id: 'en', label: 'English', name: 'English', stt: 'en-US' },
+  { id: 'fr', label: 'Fran\u00e7ais', name: 'French', stt: 'fr-FR' },
+  { id: 'es', label: 'Espa\u00f1ol', name: 'Spanish', stt: 'es-ES' },
+  { id: 'pt', label: 'Portugu\u00eas', name: 'Portuguese', stt: 'pt-BR' },
+  { id: 'de', label: 'Deutsch', name: 'German', stt: 'de-DE' },
+  { id: 'it', label: 'Italiano', name: 'Italian', stt: 'it-IT' },
+];
 const KEY = 'dwenliteVoicePrefs';
 
 export function loadVoicePrefs() {
@@ -24,8 +32,9 @@ export function loadVoicePrefs() {
       style: STYLES.some(s => s.id === p.style) ? p.style : 'default',
       level: LEVELS.some(l => l.id === p.level) ? p.level : 'normal',
       handsFree: p.handsFree === true,
+      language: LANGUAGES.some(l => l.id === p.language) ? p.language : 'en',
     };
-  } catch { return { speed: 1, style: 'default', level: 'normal', handsFree: false }; }
+  } catch { return { speed: 1, style: 'default', level: 'normal', handsFree: false, language: 'en' }; }
 }
 
 // Lesson settings for the AI Teacher: speaking speed, teaching style, difficulty, hands-free mic.
@@ -69,7 +78,18 @@ export default function VoiceSettings({ prefs, onChange, className = '' }) {
           aria-label="Lesson settings"
           className="fixed left-4 right-4 top-[4.5rem] z-[70] max-h-[75dvh] overflow-y-auto sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-80 rounded-2xl border border-gray-700 bg-[#17171c] p-4 shadow-2xl"
         >
-          <p className="text-sm font-semibold text-gray-200">Teaching style</p>
+          <p className="text-sm font-semibold text-gray-200">Language</p>
+          <select
+            value={prefs.language}
+            onChange={(e) => update({ language: e.target.value })}
+            aria-label="Language"
+            className="mt-2 w-full rounded-lg border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 outline-none focus:border-blue-500"
+          >
+            {LANGUAGES.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
+          </select>
+          <p className="mt-1 text-xs text-gray-500">The teacher speaks it, and notes and chat answers follow it.</p>
+
+          <p className="mt-4 text-sm font-semibold text-gray-200">Teaching style</p>
           <div className="mt-2 grid grid-cols-3 gap-2">
             {STYLES.map(s => (
               <button key={s.id} type="button" onClick={() => update({ style: s.id })} className={pill(prefs.style === s.id)}>{s.label}</button>

@@ -1,5 +1,5 @@
 const { onRequest } = require("firebase-functions/v2/https");
-const { defineSecret } = require("firebase-functions/params");
+const { defineSecret, defineString } = require("firebase-functions/params");
 const logger = require("firebase-functions/logger");
 const admin = require("firebase-admin");
 const axios = require("axios");
@@ -11,6 +11,9 @@ const db = admin.firestore();
 
 // Set with: firebase functions:secrets:set DEEPSEEK_API_KEY
 const DEEPSEEK_API_KEY = defineSecret("DEEPSEEK_API_KEY");
+// Comma separated emails allowed to open the usage dashboard. Put ADMIN_EMAILS=you@example.com in functions/.env
+const ADMIN_EMAILS = defineString("ADMIN_EMAILS", { default: "" });
+const LANG_NAMES = { fr: "French", es: "Spanish", pt: "Portuguese", de: "German", it: "Italian" };
 
 // ---------------------------------------------------------------------------
 // Limits (tune freely). They exist so a leaked URL or a runaway client loop
@@ -135,7 +138,8 @@ const TEACHER_SYSTEM =
   "- A line like [Teaching preferences: style=...; level=...] may be attached to the student's message. Follow it.\n" +
   "- style: story = teach through short vivid stories and analogies; coach = strict exam coach, focus on marks, key terms and common traps; " +
   "socratic = mostly ask guiding questions so the student discovers the answer, tell them only when stuck; simple = plain words, very short, as if explaining to a ten year old.\n" +
-  "- level: easy = gentler questions and more hints; exam = hard exam-style questions, expect precise answers.\n\n" +
+  "- level: easy = gentler questions and more hints; exam = hard exam-style questions, expect precise answers.\n" +
+  "- language=X: speak and write ONLY in language X for everything the student hears (the tags like [C:n] stay exactly as specified). Keep sentences simple and clear.\n\n" +
   "DIAGRAMS\n" +
   "- If a visual would really help, or the student asks to see a diagram, flowchart, process or timeline, add ONE diagram at the very END of your reply, after your spoken words, " +
   "in exactly this form: [DIAGRAM]mermaid code[/DIAGRAM]. Use simple Mermaid flowchart syntax (graph TD, short node labels in square brackets, no special characters, no parentheses, no quotes). " +
@@ -239,7 +243,7 @@ function callDeepSeek(system, user, maxTokens, temperature) {
 }
 
 // Study chat conversation: [rules][materials] stay identical, only the recent turns change.
-function buildStudyChatMessages({ context, kind, messages, length }) {
+function buildStudyChatMessages({ context, kind, messages, length, language }) {
   const turns = [];
   for (const m of messages) {
     if (!m || (m.role !== "user" && m.role !== "assistant") || typeof m.content !== "string" || !m.content.trim()) continue;
@@ -250,6 +254,9 @@ function buildStudyChatMessages({ context, kind, messages, length }) {
   const recent = turns.slice(-12);
   while (recent.length && recent[0].role !== "user") recent.shift();
   const lastTurn = recent[recent.length - 1];
+  if (LANG_NAMES[language] && lastTurn && lastTurn.role === "user") {
+    lastTurn.content += `\n[Reply in ${LANG_NAMES[language]}.]`;
+  }
   if (length === "quick" && lastTurn && lastTurn.role === "user") {
     lastTurn.content += "\n[Answer length: QUICK. Keep it under 90 words, no extras. Still end with the FOLLOWUPS line.]";
   }
@@ -263,7 +270,7 @@ function buildStudyChatMessages({ context, kind, messages, length }) {
 
 // Build the teacher conversation. Order matters for caching: [rules][material] never change
 // within a session, only the recent turns after them do.
-function buildTeacherMessages({ material, userName, messages, weak, style, level }) {
+function buildTeacherMessages({ material, userName, messages, weak, style, level, language }) {
   const turns = messages
     .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
     .map((m) => ({ role: m.role, content: m.content.slice(0, 4000) }));
@@ -286,6 +293,7 @@ function buildTeacherMessages({ material, userName, messages, weak, style, level
   const prefs = [];
   if (STYLES.includes(style)) prefs.push(`style=${style}`);
   if (LEVELS.includes(level)) prefs.push(`level=${level}`);
+  if (LANG_NAMES[language]) prefs.push(`language=${LANG_NAMES[language]}`);
   if (prefs.length && lastTurn && lastTurn.role === "user") {
     lastTurn.content += `\n[Teaching preferences: ${prefs.join("; ")}]`;
   }
@@ -357,7 +365,7 @@ function addVoiceChars(uid, n) {
 async function streamDeepSeek(messages, maxTokens, temperature, onDelta) {
   const r = await axios.post(
     "https://api.deepseek.com/chat/completions",
-    { model: "deepseek-chat", messages, max_tokens: maxTokens, temperature, stream: true },
+    { model: "deepseek-chat", messages, max_tokens: maxTokens, temperature, stream: true, stream_options: { include_usage: true } },
     {
       headers: {
         Authorization: `Bearer ${DEEPSEEK_API_KEY.value()}`,
@@ -367,6 +375,7 @@ async function streamDeepSeek(messages, maxTokens, temperature, onDelta) {
       timeout: 200000,
     }
   );
+  let usage = null;
   await new Promise((resolve, reject) => {
     let buf = "";
     r.data.on("data", (chunk) => {
@@ -379,7 +388,9 @@ async function streamDeepSeek(messages, maxTokens, temperature, onDelta) {
         const payload = line.slice(5).trim();
         if (payload === "[DONE]") continue;
         try {
-          const t = JSON.parse(payload).choices?.[0]?.delta?.content;
+          const j = JSON.parse(payload);
+          if (j.usage) usage = j.usage;
+          const t = j.choices?.[0]?.delta?.content;
           if (t) onDelta(t);
         } catch (e) { /* ignore partial line */ }
       }
@@ -387,6 +398,19 @@ async function streamDeepSeek(messages, maxTokens, temperature, onDelta) {
     r.data.on("end", resolve);
     r.data.on("error", reject);
   });
+  return usage;
+}
+
+function recordStats(task, usage = {}) {
+  const day = new Date().toISOString().slice(0, 10);
+  const inc = admin.firestore.FieldValue.increment;
+  return db.collection("aiStats").doc(day).set({
+    [`${task}_req`]: inc(1),
+    [`${task}_prompt`]: inc(usage.prompt_tokens || 0),
+    [`${task}_hit`]: inc(usage.prompt_cache_hit_tokens || 0),
+    [`${task}_miss`]: inc(usage.prompt_cache_miss_tokens || 0),
+    [`${task}_out`]: inc(usage.completion_tokens || 0),
+  }, { merge: true });
 }
 
 function hintFor(error) {
@@ -433,14 +457,30 @@ exports.generateNotesProxy = onRequest(
       const m = (req.get("Authorization") || "").match(/^Bearer (.+)$/);
       if (!m) return res.status(401).json({ error: "Please sign in." });
       let uid;
+      let decoded;
       try {
-        uid = (await admin.auth().verifyIdToken(m[1])).uid;
+        decoded = await admin.auth().verifyIdToken(m[1]);
+        uid = decoded.uid;
       } catch (e) {
         return res.status(401).json({ error: "Session expired. Please sign in again." });
       }
 
       // 2. Validate input.
-      const { prompt, task = "general", messages, material, userName, weak, style, level } = req.body || {};
+      const { prompt, task = "general", messages, material, userName, weak, style, level, language } = req.body || {};
+
+      // Admin only: daily token usage, for the usage dashboard.
+      if (task === "admin_stats") {
+        const allowed = ADMIN_EMAILS.value().split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
+        if (!decoded.email || !decoded.email_verified || !allowed.includes(decoded.email.toLowerCase())) {
+          return res.status(403).json({ error: "Not allowed." });
+        }
+        try {
+          const snaps = await db.collection("aiStats").orderBy(admin.firestore.FieldPath.documentId(), "desc").limit(14).get();
+          return res.status(200).json({ days: snaps.docs.map((d) => ({ day: d.id, ...d.data() })) });
+        } catch (e) {
+          return res.status(500).json({ error: "Could not load stats." });
+        }
+      }
 
       // Read-only: how much of today's allowance this account has used.
       if (task === "usage") {
@@ -464,11 +504,11 @@ exports.generateNotesProxy = onRequest(
         if (material.length > MAX_CHARS.teacher) {
           return res.status(413).json({ error: "Study material is too long." });
         }
-        teacherMessages = buildTeacherMessages({ material, userName, messages, weak, style, level });
+        teacherMessages = buildTeacherMessages({ material, userName, messages, weak, style, level, language });
         if (teacherMessages.length < 4) return res.status(400).json({ error: "Teacher request is invalid." });
         dedupeInput = JSON.stringify(teacherMessages.slice(2));
       } else if (task === "study_chat") {
-        const { context, kind, length } = req.body;
+        const { context, kind, length, language: chatLang } = req.body;
         if (!Array.isArray(messages) || messages.length === 0 || messages.length > 200 ||
             typeof context !== "string" || !context.trim()) {
           return res.status(400).json({ error: "Chat request is invalid." });
@@ -476,7 +516,7 @@ exports.generateNotesProxy = onRequest(
         if (context.length > MAX_CHARS.study_chat) {
           return res.status(413).json({ error: "Your materials are too large for chat. Try a smaller folder." });
         }
-        teacherMessages = buildStudyChatMessages({ context, kind, messages, length });
+        teacherMessages = buildStudyChatMessages({ context, kind, messages, length, language: chatLang });
         if (teacherMessages.length < 4) return res.status(400).json({ error: "Chat request is invalid." });
         dedupeInput = JSON.stringify(teacherMessages.slice(2));
       } else {
@@ -531,8 +571,9 @@ exports.generateNotesProxy = onRequest(
         });
         if (res.flushHeaders) res.flushHeaders();
         let total = "";
+        let streamUsage = null;
         try {
-          await streamDeepSeek(teacherMessages, cfg.maxTokens, cfg.temperature, (t) => {
+          streamUsage = await streamDeepSeek(teacherMessages, cfg.maxTokens, cfg.temperature, (t) => {
             total += t;
             res.write(`data: ${JSON.stringify({ t })}\n\n`);
           });
@@ -541,6 +582,7 @@ exports.generateNotesProxy = onRequest(
           res.write(`data: ${JSON.stringify({ error: hintFor(error) })}\n\n`);
         }
         try { await addVoiceChars(uid, total.length); } catch (e) { logger.warn("voice count failed", e.message); }
+        try { await recordStats("teacher", streamUsage || {}); } catch (e) { /* stats are optional */ }
         logger.info("ai_usage", { uid, task, streamed: true, chars: total.length });
         res.write(`data: ${JSON.stringify({ done: true, voice: { used: (usage.voiceUsed || 0) + total.length, limit: VOICE_DAILY_CHARS } })}\n\n`);
         return res.end();
@@ -563,6 +605,7 @@ exports.generateNotesProxy = onRequest(
           completion: u.completion_tokens,
         });
 
+        try { await recordStats(task, u); } catch (e) { /* stats are optional */ }
         if (task === "teacher") {
           const spoken = (response.data.choices?.[0]?.message?.content || "").length;
           try { await addVoiceChars(uid, spoken); } catch (e) { /* ignore */ }

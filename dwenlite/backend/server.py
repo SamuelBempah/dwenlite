@@ -9,6 +9,9 @@ from aiohttp import web
 
 PORT = int(os.environ.get("PORT", "3001"))
 VOICE = os.environ.get("TTS_VOICE", "en-US-AvaNeural")
+# Same voice identity speaking other languages (only used when the student picks a language).
+MULTI_VOICE = "en-US-AvaMultilingualNeural"
+LANGS = {"fr", "es", "pt", "de", "it"}
 MAX_TEXT = 700            # characters per request (the app sends one sentence at a time)
 RATE_PER_MIN = 120        # per IP
 CACHE_MAX = 400           # identical sentences are served from memory
@@ -40,9 +43,9 @@ def client_ip(request):
     return request.headers.get("Fly-Client-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote
 
 
-async def synth(text: str) -> bytes:
+async def synth(text: str, voice: str) -> bytes:
     chunks = []
-    async for ch in edge_tts.Communicate(text, VOICE).stream():
+    async for ch in edge_tts.Communicate(text, voice).stream():
         if ch["type"] == "audio":
             chunks.append(ch["data"])
     audio = b"".join(chunks)
@@ -73,7 +76,8 @@ async def tts(request):
     if len(text) > MAX_TEXT:
         return web.Response(status=413, text="Text too long")
 
-    key = text
+    voice = MULTI_VOICE if body.get("lang") in LANGS else VOICE
+    key = f"{voice}|{text}"
 
     headers = {"Content-Type": "audio/mpeg", "Cache-Control": "public, max-age=86400"}
     audio = cache.get(key)
@@ -86,7 +90,7 @@ async def tts(request):
     waiting += 1
     try:
         async with sem:
-            audio = await asyncio.wait_for(synth(text), timeout=30)
+            audio = await asyncio.wait_for(synth(text, voice), timeout=30)
     except Exception as e:  # noqa: BLE001
         print("TTS error:", repr(e), flush=True)
         return web.Response(status=500, text="Error generating TTS")

@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 import TeacherSidebar from '../components/TeacherSidebar';
 import UsageMeter from '../components/UsageMeter';
 import DiagramModal from '../components/DiagramModal';
-import VoiceSettings, { loadVoicePrefs } from '../components/VoiceSettings';
+import VoiceSettings, { loadVoicePrefs, LANGUAGES } from '../components/VoiceSettings';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { auth, db, storage } from '../firebase';
@@ -110,6 +110,7 @@ const AITeacher = () => {
   useEffect(() => {
     voicePrefsRef.current = voicePrefs;
     handsFreeRef.current = voicePrefs.handsFree;
+    if (recognitionRef.current) recognitionRef.current.lang = (LANGUAGES.find(l => l.id === voicePrefs.language) || LANGUAGES[0]).stt;
     // Turned on while the mic is waiting for the student: open it right away.
     if (voicePrefs.handsFree && isListeningRef.current && !isSpeakingRef.current) {
       try { recognitionRef.current?.start(); } catch { /* already running */ }
@@ -607,7 +608,7 @@ const AITeacher = () => {
       const recognition = new SpeechRecognition();
       recognition.continuous = !isMobileRef.current;
       recognition.interimResults = true;
-      recognition.lang = 'en-US';
+      recognition.lang = (LANGUAGES.find(l => l.id === voicePrefsRef.current.language) || LANGUAGES[0]).stt;
 
       recognition.onresult = (event) => {
         let interimTranscript = '';
@@ -1288,7 +1289,7 @@ const AITeacher = () => {
       const response = await fetch('https://dwenlite-backend.fly.dev/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: sentence }),
+        body: JSON.stringify({ text: sentence, lang: voicePrefsRef.current.language }),
         signal: ctrl.signal
       });
       if (!response.ok) throw new Error('TTS failed: ' + response.status);
@@ -1633,6 +1634,7 @@ const AITeacher = () => {
         weak: weakRef.current,
         style: voicePrefsRef.current.style,
         level: voicePrefsRef.current.level,
+        language: voicePrefsRef.current.language,
       };
 
       // ---- Fast path: stream the reply and start talking after the first sentence ----
