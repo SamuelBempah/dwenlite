@@ -28,6 +28,14 @@ function Notes() {
   const [showStoredNotes, setShowStoredNotes] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState({});
   const [noteQuery, setNoteQuery] = useState('');
+  const [exportOpenId, setExportOpenId] = useState(null);
+
+  useEffect(() => {
+    if (!exportOpenId) return undefined;
+    const close = (e) => { if (!e.target.closest?.('[data-export-menu]')) setExportOpenId(null); };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, [exportOpenId]);
   const [toolBusy, setToolBusy] = useState(null); // `${noteId}:${mode}` while a tool runs
   const [chatInput, setChatInput] = useState('');
   const [selectedNoteId, setSelectedNoteId] = useState('');
@@ -400,35 +408,70 @@ function Notes() {
     setExpandedGroups(prev => ({ ...prev, [noteId]: !prev[noteId] }));
   };
 
-  const handleDownloadPDF = (note) => {
+  // ---- Export: PDF (with headings and bullets), Word and Markdown ----
+  const exportName = (idx) => `${(folder?.name || 'notes').replace(/[^\w\- ]+/g, '').trim().slice(0, 40) || 'notes'}-note-${idx + 1}`;
+
+  const saveBlob = (blob, filename) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  };
+
+  const handleDownloadPDF = (note, idx) => {
     try {
-      const doc = new jsPDF();
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const margin = 10;
-      const maxWidth = pageWidth - 2 * margin;
+      const pdf = new jsPDF();
+      const pageW = pdf.internal.pageSize.getWidth();
+      const pageH = pdf.internal.pageSize.getHeight();
+      const margin = 14;
+      let y = 20;
+      const write = (text, { size = 11, bold = false, italic = false, indent = 0, gap = 2 } = {}) => {
+        pdf.setFont('helvetica', bold && italic ? 'bolditalic' : bold ? 'bold' : italic ? 'italic' : 'normal');
+        pdf.setFontSize(size);
+        const lineH = size * 0.5 + 1.6;
+        pdf.splitTextToSize(text, pageW - 2 * margin - indent).forEach(line => {
+          if (y > pageH - margin) { pdf.addPage(); y = margin + 4; }
+          pdf.text(line, margin + indent, y);
+          y += lineH;
+        });
+        y += gap;
+      };
+      const clean = (t) => t.replace(/\*\*(.+?)\*\*/g, '$1').replace(/[*_`]/g, '').trim();
 
-      doc.setFontSize(16);
-      doc.text(`Notes (Created: ${new Date(note.createdAt).toLocaleDateString()})`, margin, 20);
-
-      doc.setFontSize(12);
-      const cleanContent = note.content.replace(/[*#`>]/g, '');
-      const splitText = doc.splitTextToSize(cleanContent, maxWidth);
-      let y = 30;
-      splitText.forEach(line => {
-        if (y > doc.internal.pageSize.getHeight() - margin) {
-          doc.addPage();
-          y = margin;
-        }
-        doc.text(line, margin, y);
-        y += 7;
-      });
-
-      doc.save(`notes_${note.id}.pdf`);
-      toast.success('PDF downloaded successfully!');
+      for (const raw of (note.content || '').split('\n')) {
+        const line = raw.trimEnd();
+        if (!line.trim()) { y += 2; continue; }
+        if (/^\|[\s:|-]+\|?$/.test(line.trim())) continue; // table separator row
+        if (line.startsWith('### ')) write(clean(line.slice(4)), { size: 13, bold: true, gap: 1 });
+        else if (line.startsWith('## ')) write(clean(line.slice(3)), { size: 15, bold: true, gap: 2 });
+        else if (line.startsWith('# ')) write(clean(line.slice(2)), { size: 19, bold: true, gap: 4 });
+        else if (line.startsWith('>')) write(clean(line.replace(/^>\s*/, '')), { italic: true, indent: 6 });
+        else if (/^\s*[-*]\s+/.test(line)) write('\u2022 ' + clean(line.replace(/^\s*[-*]\s+/, '')), { indent: 4, gap: 0.5 });
+        else if (line.trim().startsWith('|')) write(clean(line.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()).join('   |   ')), { size: 10 });
+        else write(clean(line));
+      }
+      pdf.save(`${exportName(idx)}.pdf`);
+      toast.success('PDF downloaded!');
     } catch (err) {
       console.error('PDF generation error:', err);
       toast.error('Failed to generate PDF. Please try again.');
     }
+  };
+
+  const handleDownloadWord = (note, idx) => {
+    const html = DOMPurify.sanitize(marked.parse(note.content || ''));
+    const doc = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>${exportName(idx)}</title></head><body style="font-family:Calibri,Arial,sans-serif">${html}</body></html>`;
+    saveBlob(new Blob(['\ufeff', doc], { type: 'application/msword' }), `${exportName(idx)}.doc`);
+    toast.success('Word file downloaded!');
+  };
+
+  const handleDownloadMarkdown = (note, idx) => {
+    saveBlob(new Blob([note.content || ''], { type: 'text/markdown;charset=utf-8' }), `${exportName(idx)}.md`);
+    toast.success('Markdown file downloaded!');
   };
 
   const handleReportContent = async (messageIndex, reason) => {
@@ -696,13 +739,35 @@ function Notes() {
                                                     ))}
                                                 </div>
                                                 
-                                                <button 
-                                                    onClick={() => handleDownloadPDF(note)}
-                                                    className="p-2 hover:bg-blue-500/20 text-slate-400 hover:text-blue-400 rounded-lg transition-colors"
-                                                    title="Download PDF"
-                                                >
-                                                    <Download size={16} />
-                                                </button>
+                                                <div className="relative" data-export-menu>
+                                                    <button
+                                                        onClick={() => setExportOpenId(exportOpenId === note.id ? null : note.id)}
+                                                        className="p-2 hover:bg-blue-500/20 text-slate-400 hover:text-blue-400 rounded-lg transition-colors"
+                                                        title="Export"
+                                                        aria-haspopup="menu"
+                                                        aria-expanded={exportOpenId === note.id}
+                                                    >
+                                                        <Download size={16} />
+                                                    </button>
+                                                    {exportOpenId === note.id && (
+                                                        <div role="menu" className="absolute right-0 top-full z-30 mt-1 w-44 overflow-hidden rounded-xl border border-white/10 bg-slate-900 shadow-2xl">
+                                                            {[
+                                                                ['PDF (.pdf)', () => handleDownloadPDF(note, idx)],
+                                                                ['Word (.doc)', () => handleDownloadWord(note, idx)],
+                                                                ['Markdown (.md)', () => handleDownloadMarkdown(note, idx)],
+                                                            ].map(([label, fn]) => (
+                                                                <button
+                                                                    key={label}
+                                                                    role="menuitem"
+                                                                    onClick={() => { fn(); setExportOpenId(null); }}
+                                                                    className="block w-full px-4 py-2.5 text-left text-sm text-slate-200 hover:bg-white/10"
+                                                                >
+                                                                    {label}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
 
                                                 <button 
                                                     onClick={() => handleToggleGroup(note.id)}
