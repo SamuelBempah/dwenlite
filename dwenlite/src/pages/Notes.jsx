@@ -35,9 +35,6 @@ function Notes() {
   const [exportOpenId, setExportOpenId] = useState(null);
   const [readerId, setReaderId] = useState(null);      // note open in the full-screen reader
   const [outline, setOutline] = useState([]);
-  const [paperMode, setPaperMode] = useState(() => {
-    try { return localStorage.getItem('dwenliteReaderTheme') === 'paper'; } catch { return false; }
-  });
   const [readerScale, setReaderScale] = useState(() => {
     try { return parseFloat(localStorage.getItem('dwenliteReaderScale')) || 1; } catch { return 1; }
   });
@@ -478,29 +475,85 @@ function Notes() {
       const pageH = pdf.internal.pageSize.getHeight();
       const margin = 14;
       let y = 20;
+      const clean = (t) => t.replace(/\*\*(.+?)\*\*/g, '$1').replace(/[*_`]/g, '').trim();
+      const ensure = (need) => { if (y + need > pageH - margin) { pdf.addPage(); y = margin + 4; return true; } return false; };
       const write = (text, { size = 11, bold = false, italic = false, indent = 0, gap = 2 } = {}) => {
         pdf.setFont('helvetica', bold && italic ? 'bolditalic' : bold ? 'bold' : italic ? 'italic' : 'normal');
         pdf.setFontSize(size);
         const lineH = size * 0.5 + 1.6;
         pdf.splitTextToSize(text, pageW - 2 * margin - indent).forEach(line => {
-          if (y > pageH - margin) { pdf.addPage(); y = margin + 4; }
+          ensure(lineH);
           pdf.text(line, margin + indent, y);
           y += lineH;
         });
         y += gap;
       };
-      const clean = (t) => t.replace(/\*\*(.+?)\*\*/g, '$1').replace(/[*_`]/g, '').trim();
 
-      for (const raw of (note.content || '').split('\n')) {
-        const line = raw.trimEnd();
+      // Real table: borders, shaded header, wrapped cells, header repeated on a new page.
+      const isSep = (l) => /^[\s|:-]+$/.test(l) && l.includes('-') && l.includes('|');
+      const cellsOf = (l) => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => clean(c));
+      const drawTable = (rows) => {
+        const cols = Math.max(...rows.map(r => r.length));
+        const norm = rows.map(r => Array.from({ length: cols }, (_, i) => r[i] || ''));
+        const total = pageW - 2 * margin;
+        const weight = Array.from({ length: cols }, (_, c) => Math.min(38, Math.max(8, ...norm.map(r => r[c].length))));
+        const wsum = weight.reduce((a, b) => a + b, 0);
+        const widths = weight.map(w => (total * w) / wsum);
+        const pad = 2;
+        const size = 9.5;
+        const lineH = size * 0.5 + 1.2;
+        const rowHeight = (r, bold) => {
+          pdf.setFont('helvetica', bold ? 'bold' : 'normal');
+          pdf.setFontSize(size);
+          return Math.max(...r.map((c, i) => pdf.splitTextToSize(c, widths[i] - 2 * pad).length)) * lineH + 2 * pad;
+        };
+        const drawRow = (r, header, zebra) => {
+          const h = rowHeight(r, header);
+          let x = margin;
+          pdf.setDrawColor(150, 150, 165);
+          pdf.setLineWidth(0.2);
+          r.forEach((c, i) => {
+            if (header) pdf.setFillColor(237, 233, 254);
+            else if (zebra) pdf.setFillColor(246, 246, 250);
+            else pdf.setFillColor(255, 255, 255);
+            pdf.rect(x, y, widths[i], h, 'FD');
+            pdf.setFont('helvetica', header ? 'bold' : 'normal');
+            pdf.setFontSize(size);
+            pdf.setTextColor(header ? 60 : 30, header ? 30 : 30, header ? 120 : 40);
+            pdf.splitTextToSize(c, widths[i] - 2 * pad).forEach((line, k) => pdf.text(line, x + pad, y + pad + lineH * (k + 0.8)));
+            x += widths[i];
+          });
+          pdf.setTextColor(0, 0, 0);
+          y += h;
+        };
+        y += 1;
+        norm.forEach((r, ri) => {
+          const header = ri === 0;
+          const h = rowHeight(r, header);
+          if (ensure(h)) { if (!header) drawRow(norm[0], true, false); }
+          drawRow(r, header, !header && ri % 2 === 0);
+        });
+        y += 4;
+      };
+
+      const lines = (note.content || '').split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trimEnd();
         if (!line.trim()) { y += 2; continue; }
-        if (/^\|[\s:|-]+\|?$/.test(line.trim())) continue; // table separator row
+        // a table starts with a row that is followed by a separator row
+        if (line.includes('|') && i + 1 < lines.length && isSep(lines[i + 1].trim())) {
+          const rows = [cellsOf(line)];
+          i += 2;
+          while (i < lines.length && lines[i].includes('|') && lines[i].trim()) { rows.push(cellsOf(lines[i])); i++; }
+          i--;
+          drawTable(rows);
+          continue;
+        }
         if (line.startsWith('### ')) write(clean(line.slice(4)), { size: 13, bold: true, gap: 1 });
         else if (line.startsWith('## ')) write(clean(line.slice(3)), { size: 15, bold: true, gap: 2 });
         else if (line.startsWith('# ')) write(clean(line.slice(2)), { size: 19, bold: true, gap: 4 });
         else if (line.startsWith('>')) write(clean(line.replace(/^>\s*/, '')), { italic: true, indent: 6 });
         else if (/^\s*[-*]\s+/.test(line)) write('\u2022 ' + clean(line.replace(/^\s*[-*]\s+/, '')), { indent: 4, gap: 0.5 });
-        else if (line.trim().startsWith('|')) write(clean(line.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim()).join('   |   ')), { size: 10 });
         else write(clean(line));
       }
       pdf.save(`${exportName(idx)}.pdf`);
@@ -513,7 +566,7 @@ function Notes() {
 
   const handleDownloadWord = (note, idx) => {
     const html = DOMPurify.sanitize(marked.parse(note.content || ''));
-    const doc = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>${exportName(idx)}</title></head><body style="font-family:Calibri,Arial,sans-serif">${html}</body></html>`;
+    const doc = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>${exportName(idx)}</title><style>table{border-collapse:collapse;width:100%}td,th{border:1px solid #888;padding:5px 8px;vertical-align:top}th{background:#ede9fe}</style></head><body style="font-family:Calibri,Arial,sans-serif">${html}</body></html>`;
     saveBlob(new Blob(['\ufeff', doc], { type: 'application/msword' }), `${exportName(idx)}.doc`);
     toast.success('Word file downloaded!');
   };
@@ -737,14 +790,13 @@ function Notes() {
 
   const readerIdx = readerId ? folder.notes.findIndex(n => n.id === readerId) : -1;
   const readerNote = readerIdx >= 0 ? folder.notes[readerIdx] : null;
-  const togglePaper = () => setPaperMode(v => { try { localStorage.setItem('dwenliteReaderTheme', v ? 'dark' : 'paper'); } catch { /* ignore */ } return !v; });
   const setScale = (v) => { setReaderScale(v); try { localStorage.setItem('dwenliteReaderScale', String(v)); } catch { /* ignore */ } };
   const jumpTo = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   // Everything shown inside the reader: tools, editor or the formatted note.
   const renderNoteBody = (note, idx) => (
     <>
-      <div className="mb-6 flex gap-2 overflow-x-auto rounded-xl bg-slate-900 p-2 [&>button]:shrink-0 [&>button]:whitespace-nowrap">
+      <div className="mb-6 flex gap-2 overflow-x-auto rounded-xl bg-slate-800/70 p-2 [&>button]:shrink-0 [&>button]:whitespace-nowrap">
                      {Object.entries(NOTE_TOOLS).map(([mode, t]) => (
                         <button
                            key={mode}
@@ -802,7 +854,7 @@ function Notes() {
                   <div 
                      data-note-content={note.id}
                      id="reader-content"
-                     className={`md md-reader${paperMode ? ' md-paper' : ''}`}
+                     className="md md-reader"
                      dangerouslySetInnerHTML={{ __html: renderMarkdown(note.content) }}
                   />
                   )}
@@ -823,7 +875,6 @@ function Notes() {
               <p className="truncate text-xs text-slate-500">{new Date(readerNote.createdAt).toLocaleDateString()}{readerNote.label ? ` · ${readerNote.label}` : ''}</p>
             </div>
             <div className="flex items-center gap-1">
-              <button onClick={togglePaper} aria-pressed={paperMode} className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${paperMode ? 'bg-white text-slate-900' : 'text-slate-300 hover:bg-white/10'}`}>Paper</button>
               <button onClick={() => setScale(Math.max(0.9, +(readerScale - 0.15).toFixed(2)))} aria-label="Smaller text" className="rounded-lg px-2.5 py-1.5 text-sm font-semibold text-slate-300 hover:bg-white/10">A-</button>
               <button onClick={() => setScale(Math.min(1.5, +(readerScale + 0.15).toFixed(2)))} aria-label="Larger text" className="rounded-lg px-2.5 py-1.5 text-base font-semibold text-slate-300 hover:bg-white/10">A+</button>
               <div className="relative" data-export-menu>
@@ -839,8 +890,8 @@ function Notes() {
             </div>
           </div>
 
-          <div className={`flex-1 overflow-y-auto ${paperMode ? 'bg-slate-300' : ''}`}>
-            <div className={`mx-auto flex max-w-6xl gap-10 ${paperMode ? 'px-2 py-3 md:px-8 md:py-8' : 'px-4 py-6 md:px-8 md:py-10'}`}>
+          <div className="flex-1 overflow-y-auto bg-black/40">
+            <div className="mx-auto flex max-w-6xl gap-10 px-1.5 py-2 md:px-8 md:py-8">
               {outline.length > 2 && (
                 <aside className="sticky top-2 hidden h-fit max-h-[80vh] w-60 shrink-0 overflow-y-auto lg:block">
                   <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">On this page</p>
@@ -853,7 +904,7 @@ function Notes() {
                   </ul>
                 </aside>
               )}
-              <article className={`mx-auto min-w-0 max-w-3xl flex-1 lg:mx-0 ${paperMode ? 'rounded-md bg-white px-4 py-6 shadow-2xl md:px-14 md:py-12' : ''}`} style={{ '--md-scale': readerScale }}>
+              <article className={`mx-auto min-w-0 max-w-[794px] flex-1 rounded-lg border border-white/10 bg-slate-900 px-4 py-6 shadow-2xl md:min-h-[1123px] md:px-14 md:py-12 ${outline.length > 2 ? 'lg:mx-0' : ''}`} style={{ '--md-scale': readerScale }}>
                 {outline.length > 2 && (
                   <select
                     onChange={(e) => { if (e.target.value) jumpTo(e.target.value); e.target.value = ''; }}
