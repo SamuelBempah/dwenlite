@@ -1104,10 +1104,24 @@ const AITeacher = () => {
     updateSpeakerVol();
   };
 
+  // Cost guard: each device gets ~20,000 characters (~25 min of speech) of the premium voice per
+  // day; after that the teacher keeps talking with the free built-in voice.
+  const spendVoiceBudget = (chars) => {
+    try {
+      const day = new Date().toDateString();
+      const saved = JSON.parse(localStorage.getItem('dwenliteVoiceBudget') || '{}');
+      const used = saved.day === day ? saved.used : 0;
+      if (used + chars > 20000) return false;
+      localStorage.setItem('dwenliteVoiceBudget', JSON.stringify({ day, used: used + chars }));
+      return true;
+    } catch { return true; }
+  };
+
   // If the voice server is down or slow, fall back to the device's built-in voice so the
   // teacher always speaks. After a failure we skip the server for 2 minutes.
   const fetchAudioForSentence = async (sentence) => {
     if (Date.now() < ttsDownUntilRef.current) return 'browser';
+    if (!spendVoiceBudget(sentence.length)) return 'browser'; // daily cap on the paid voice server
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 15000);
     try {

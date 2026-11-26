@@ -1,11 +1,10 @@
 # Use an official Node runtime as a parent image
 FROM node:20-bullseye-slim
 
-# Install Python, pip, and ffmpeg (edge-tts sometimes needs ffmpeg)
+# Install Python and pip (edge-tts needs no ffmpeg)
 RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
-    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory to /app
@@ -20,7 +19,7 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 COPY package*.json ./
 
 # Install Node dependencies
-RUN npm install
+RUN npm install --omit=dev
 
 # Copy the rest of the application code
 COPY . .
