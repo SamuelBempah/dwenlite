@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { db, auth } from '../firebase';
+import { db, auth, storage } from '../firebase';
+import { ref as storageRef, getDownloadURL } from 'firebase/storage';
+import { uploadWithProgress } from '../lib/uploadManager';
 import { doc, getDoc, updateDoc, addDoc, collection, setDoc, query, where, getDocs } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
@@ -28,6 +30,8 @@ function Flashcards() {
   const [currentFlashcardIndex, setCurrentFlashcardIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
   const [dueOnly, setDueOnly] = useState(false);
+  const [imageBusy, setImageBusy] = useState(false);
+  const imageInputRef = useRef(null);
   const [reverseCards, setReverseCards] = useState(() => {
     try { return localStorage.getItem('dwenliteReverseCards') === '1'; } catch { return false; }
   });
@@ -490,13 +494,10 @@ function Flashcards() {
   };
 
   // Save how well the student knew this card; spaced repetition schedules the next review.
-  const handleRateCard = (grade) => {
+  // Save changes to the card on screen (schedule, image...) in the right group, also in the mixed deck.
+  const persistCardPatch = (patch) => {
     if (!currentFlashcard || !selectedFlashcardGroup) return;
-    recordStudy();
-    const srs = nextSrs(currentFlashcard.srs, grade);
     const isMixed = selectedFlashcardGroup.id === '__due__';
-
-    // The real group this card lives in (a mixed deck keeps the group id on each card).
     const realGroupId = isMixed ? currentFlashcard._g : selectedFlashcardGroup.id;
     const realGroup = folder.flashcardGroups.find(g => g.id === realGroupId);
     if (!realGroup) return;
@@ -505,7 +506,7 @@ function Flashcards() {
       : realGroup.flashcards.indexOf(currentFlashcard);
     const updatedReal = {
       ...realGroup,
-      flashcards: realGroup.flashcards.map((c, i) => (i === realIdx ? { ...c, srs } : c)),
+      flashcards: realGroup.flashcards.map((c, i) => (i === realIdx ? { ...c, ...patch } : c)),
     };
     const groups = folder.flashcardGroups.map(g => (g.id === updatedReal.id ? updatedReal : g));
     setFolder(prev => ({ ...prev, flashcardGroups: groups }));
@@ -514,16 +515,58 @@ function Flashcards() {
       const cardIdx = allCards.indexOf(currentFlashcard);
       setSelectedFlashcardGroup({
         ...selectedFlashcardGroup,
-        flashcards: allCards.map((c, i) => (i === cardIdx ? { ...c, srs } : c)),
+        flashcards: allCards.map((c, i) => (i === cardIdx ? { ...c, ...patch } : c)),
       });
     } else {
       setSelectedFlashcardGroup(updatedReal);
     }
     updateDoc(doc(db, 'folders', folderId), { flashcardGroups: groups })
-      .catch(() => toast.error('Could not save your progress.'));
+      .catch(() => toast.error('Could not save your changes.'));
+  };
+
+  const handleRateCard = (grade) => {
+    if (!currentFlashcard || !selectedFlashcardGroup) return;
+    recordStudy();
+    persistCardPatch({ srs: nextSrs(currentFlashcard.srs, grade) });
     setShowAnswer(false);
     // In "due only" mode the rated card leaves the list, so the next card slides into this spot.
     if (!dueOnly) setCurrentFlashcardIndex(i => i + 1);
+  };
+
+  // Shrinks a photo to about 900px so it loads fast and costs almost nothing to store.
+  const compressImage = (file) => new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const scale = Math.min(1, 900 / Math.max(img.width, img.height));
+      const c = document.createElement('canvas');
+      c.width = Math.round(img.width * scale);
+      c.height = Math.round(img.height * scale);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      c.toBlob(b => (b ? resolve(b) : reject(new Error('Could not process the image.'))), 'image/jpeg', 0.8);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not read that image. Try a JPG or PNG.')); };
+    img.src = url;
+  });
+
+  const handleCardImage = async (file) => {
+    if (!file || imageBusy) return;
+    if (!file.type.startsWith('image/')) { toast.error('Please choose an image.'); return; }
+    if (file.size > 15 * 1024 * 1024) { toast.error('That image is too large (15 MB max).'); return; }
+    setImageBusy(true);
+    try {
+      const blob = await compressImage(file);
+      const r = storageRef(storage, `documents/${folderId}/card_${Date.now()}.jpg`);
+      await uploadWithProgress(r, blob, { name: file.name || 'card image' });
+      persistCardPatch({ imageUrl: await getDownloadURL(r) });
+      toast.success('Image added to the card');
+    } catch (err) {
+      toast.error(err.message || 'Could not add the image.');
+    } finally {
+      setImageBusy(false);
+      if (imageInputRef.current) imageInputRef.current.value = '';
+    }
   };
 
   return (
@@ -682,6 +725,9 @@ function Flashcards() {
                                     style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
                                 >
                                     <h3 className="text-sm text-purple-400 font-bold uppercase tracking-wider mb-4">{reverseCards ? 'Answer' : 'Question'}</h3>
+                                    {currentFlashcard.imageUrl && (
+                                        <img src={currentFlashcard.imageUrl} alt="" className="mb-3 max-h-28 md:max-h-40 rounded-xl object-contain" />
+                                    )}
                                     <p className="text-xl md:text-3xl font-medium leading-relaxed overflow-y-auto max-h-[80%] scrollbar-hide">{frontText}</p>
                                     <div className="absolute bottom-6 text-xs text-slate-500 flex items-center gap-1 opacity-50 group-hover:opacity-100 transition-opacity">
                                         <RotateCw size={12} /> Click to flip
@@ -727,6 +773,31 @@ function Flashcards() {
                             >
                                 <ChevronRight size={24} />
                             </button>
+                        </div>
+
+                        <div className="mt-4 flex items-center justify-center gap-4 text-xs">
+                            <input
+                                ref={imageInputRef}
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(e) => handleCardImage(e.target.files?.[0])}
+                            />
+                            <button
+                                onClick={(e) => { e.stopPropagation(); imageInputRef.current?.click(); }}
+                                disabled={imageBusy}
+                                className="text-slate-400 hover:text-white disabled:opacity-50 transition-colors"
+                            >
+                                {imageBusy ? 'Adding image...' : currentFlashcard.imageUrl ? 'Change image' : 'Add image'}
+                            </button>
+                            {currentFlashcard.imageUrl && (
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); persistCardPatch({ imageUrl: null }); }}
+                                    className="text-slate-500 hover:text-red-400 transition-colors"
+                                >
+                                    Remove image
+                                </button>
+                            )}
                         </div>
 
                         {/* How well did you know it? */}

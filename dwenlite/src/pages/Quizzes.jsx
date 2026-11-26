@@ -913,13 +913,26 @@ function Quizzes() {
                             <span className="block text-xs text-slate-400">{QUESTION_SECONDS} seconds per question</span>
                          </span>
                       </button>
-                      <button
-                         onClick={() => startPractice('Weak questions', weak)}
-                         disabled={weak.length === 0}
-                         className="flex items-center justify-center gap-2 rounded-xl bg-amber-500/15 px-4 py-2.5 text-sm font-semibold text-amber-300 hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
-                      >
-                         <Target size={16} /> Practice weak questions ({weak.length})
-                      </button>
+                      <div className="flex flex-col gap-2 sm:flex-row">
+                         <button
+                            onClick={() => {
+                               // Free: reshuffle questions you already have instead of generating new ones.
+                               const all = folder.quizGroups.flatMap(g => g.quizzes || []);
+                               const mix = [...all].sort(() => Math.random() - 0.5).slice(0, 15);
+                               startPractice('Random mix', mix);
+                            }}
+                            className="flex items-center justify-center gap-2 rounded-xl bg-purple-500/15 px-4 py-2.5 text-sm font-semibold text-purple-200 hover:bg-purple-500/25 transition-colors"
+                         >
+                            <Zap size={16} /> Random mix
+                         </button>
+                         <button
+                            onClick={() => startPractice('Weak questions', weak)}
+                            disabled={weak.length === 0}
+                            className="flex items-center justify-center gap-2 rounded-xl bg-amber-500/15 px-4 py-2.5 text-sm font-semibold text-amber-300 hover:bg-amber-500/25 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
+                         >
+                            <Target size={16} /> Weak questions ({weak.length})
+                         </button>
+                      </div>
                    </div>
                    );
                 })()}
