@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { db, auth } from '../firebase';
-import { doc, getDoc, updateDoc, addDoc, collection, setDoc, query, where, getDocs, arrayUnion } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, addDoc, collection, setDoc, query, where, getDocs, arrayUnion, arrayRemove } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import { askStudyChat, buildFolderContext, askAI } from '../lib/ai';
@@ -30,6 +30,10 @@ function Notes() {
   const [expandedGroups, setExpandedGroups] = useState({});
   const [noteQuery, setNoteQuery] = useState('');
   const [exportOpenId, setExportOpenId] = useState(null);
+  const [noteTemplate, setNoteTemplate] = useState(() => {
+    try { return localStorage.getItem('dwenliteNoteTemplate') || 'auto'; } catch { return 'auto'; }
+  });
+  const [showHighlights, setShowHighlights] = useState(true);
 
   useEffect(() => {
     if (!exportOpenId) return undefined;
@@ -303,7 +307,8 @@ function Notes() {
       }
 
       // Formatting rules (and meeting/lecture templates) live in the backend system prompt.
-      const prompt = `Create notes from the following source material:\n\n${context}`;
+      const templateLine = noteTemplate !== 'auto' ? `Template: ${noteTemplate}\n\n` : '';
+      const prompt = `${templateLine}Create notes from the following source material:\n\n${context}`;
 
       const response = await axios.post(functionUrl, { prompt, task: 'notes' })
         .catch(err => {
@@ -504,6 +509,29 @@ function Notes() {
     }
   };
 
+  // ---- Highlights: select text inside a note, tap Save highlight ----
+  const saveHighlight = async (note, idx) => {
+    const sel = window.getSelection();
+    const text = (sel?.toString() || '').replace(/\s+/g, ' ').trim();
+    const owner = sel?.anchorNode?.parentElement?.closest?.('[data-note-content]')?.dataset?.noteContent;
+    if (!text || owner !== note.id) { toast('Select some text inside the note first.', { icon: '\u261D\uFE0F' }); return; }
+    if (text.length < 3) { toast.error('Select a little more text.'); return; }
+    const highlight = { id: Date.now().toString(), noteId: note.id, noteLabel: `Note ${idx + 1}`, text: text.slice(0, 500), createdAt: new Date().toISOString() };
+    try {
+      await updateDoc(doc(db, 'folders', folderId), { highlights: arrayUnion(highlight) });
+      setFolder(prev => ({ ...prev, highlights: [...(prev.highlights || []), highlight] }));
+      sel.removeAllRanges();
+      toast.success('Highlight saved');
+    } catch (err) { toast.error('Could not save the highlight.'); }
+  };
+
+  const removeHighlight = async (h) => {
+    try {
+      await updateDoc(doc(db, 'folders', folderId), { highlights: arrayRemove(h) });
+      setFolder(prev => ({ ...prev, highlights: (prev.highlights || []).filter(x => x.id !== h.id) }));
+    } catch (err) { toast.error('Could not remove the highlight.'); }
+  };
+
   // Shorter / longer / action items / key terms: creates a NEW note and keeps the original.
   const NOTE_TOOLS = {
     shorter: { label: 'Shorter', tag: 'shorter' },
@@ -633,6 +661,20 @@ function Notes() {
                  </p>
               </div>
            </div>
+           <div className="flex w-full flex-col gap-3 md:w-auto md:flex-row md:items-center">
+           <select
+              value={noteTemplate}
+              onChange={(e) => { setNoteTemplate(e.target.value); try { localStorage.setItem('dwenliteNoteTemplate', e.target.value); } catch { /* ignore */ } }}
+              aria-label="Notes template"
+              className="rounded-xl border border-white/20 bg-slate-900/60 px-3 py-3 text-sm text-white outline-none focus:border-purple-400"
+           >
+              <option value="auto">Auto-detect</option>
+              <option value="meeting">Meeting or gathering</option>
+              <option value="lecture">Lecture or study</option>
+              <option value="sermon">Sermon or talk</option>
+              <option value="interview">Interview</option>
+              <option value="brief">Brief bullets</option>
+           </select>
            <button
               onClick={handleGenerateNotes}
               disabled={notesLoading}
@@ -644,6 +686,7 @@ function Notes() {
                  <> <Zap size={18} fill="currentColor" /> Generate Notes </>
               )}
            </button>
+           </div>
         </motion.div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -651,6 +694,28 @@ function Notes() {
             {/* LEFT COLUMN: Notes List */}
             <div className="lg:col-span-2 space-y-6">
                 
+                {(folder.highlights || []).length > 0 && (
+                <div className="mb-6 rounded-2xl border border-yellow-500/20 bg-yellow-500/5 p-6">
+                    <div className="flex cursor-pointer items-center justify-between" onClick={() => setShowHighlights(v => !v)}>
+                        <h3 className="flex items-center gap-2 text-lg font-semibold"><Highlighter size={20} className="text-yellow-400" /> Highlights ({folder.highlights.length})</h3>
+                        {showHighlights ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                    </div>
+                    {showHighlights && (
+                        <ul className="mt-4 space-y-3">
+                            {folder.highlights.map(h => (
+                                <li key={h.id} className="flex items-start gap-3 rounded-xl border border-yellow-500/20 bg-slate-900/60 p-3">
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-sm text-slate-200">"{h.text}"</p>
+                                        <p className="mt-1 text-xs text-slate-500">{h.noteLabel}</p>
+                                    </div>
+                                    <button onClick={() => removeHighlight(h)} aria-label="Remove highlight" className="shrink-0 text-slate-500 hover:text-red-400"><Trash2 size={16} /></button>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+                )}
+
                 <div className="bg-slate-800/30 backdrop-blur-sm border border-white/5 rounded-2xl p-6">
                     <div 
                         className="flex items-center justify-between cursor-pointer mb-6"
@@ -806,9 +871,17 @@ function Notes() {
                                                              {toolBusy === `${note.id}:${mode}` ? 'Working...' : t.label}
                                                           </button>
                                                        ))}
+                                                       <button
+                                                          onMouseDown={(e) => e.preventDefault()}
+                                                          onClick={() => saveHighlight(note, idx)}
+                                                          className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-3 py-1.5 text-xs font-medium text-yellow-200 hover:bg-yellow-500/20 transition-colors"
+                                                       >
+                                                          Save highlight
+                                                       </button>
                                                     </div>
                                                     {/* STYLED CONTENT VIEWER */}
                                                     <div 
+                                                       data-note-content={note.id}
                                                        className="prose prose-invert prose-sm max-w-none 
                                                        prose-headings:text-purple-300 prose-headings:font-bold prose-headings:mb-2 prose-headings:mt-4
                                                        prose-h3:text-lg 

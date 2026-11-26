@@ -73,6 +73,12 @@ const NOTES_SYSTEM =
   "## Open Questions / Risks\n" +
   "## Next Steps  (next meeting date, follow-ups)\n" +
   "Omit a section only if the source has nothing for it.\n\n" +
+  "IF IT IS A SERMON / TALK / DEVOTIONAL USE THIS:\n" +
+  "# <Title>\n> **Summary:** ...\n## Main Message\n## Scripture / Key Text (only what was actually quoted)\n## Key Points (### per point, with the speaker's illustrations)\n" +
+  "## Quotable Lines\n## Applications (what to do this week)\n## Prayer / Closing\n\n" +
+  "IF IT IS AN INTERVIEW / CONVERSATION USE THIS:\n" +
+  "# <Title>\n> **Summary:** ...\n## Participants\n## Key Questions and Answers (### per question)\n## Notable Quotes\n## Takeaways\n\n" +
+  "IF THE USER MESSAGE SAYS \"Template: brief\", ignore the structures and write only a title, a one-line summary and at most 10 bullets.\n\n" +
   "IF IT IS A LECTURE / TEXTBOOK / STUDY MATERIAL USE THIS:\n" +
   "# <Title>\n> **Summary:** ...\n## Key Concepts (definitions)\n" +
   "## Detailed Explanation (### per topic, with examples)\n" +
@@ -482,6 +488,19 @@ exports.generateNotesProxy = onRequest(
       }
 
       // 3. Duplicate request? Return the earlier answer for free.
+      let cfgToUse = cfg;
+      let promptToUse = prompt;
+      if (task === "notes" && typeof prompt === "string") {
+        const tm = prompt.match(/^Template: ([a-z_]+)\n\n/);
+        if (tm) {
+          const TEMPLATES = { meeting: "meeting / gathering", lecture: "lecture / study material", sermon: "sermon / talk", interview: "interview / conversation", brief: "brief" };
+          if (TEMPLATES[tm[1]]) {
+            cfgToUse = { ...cfg, system: cfg.system + `\n\nThe student explicitly chose the "${TEMPLATES[tm[1]]}" template. Use that structure regardless of what you would have detected.` };
+          }
+          promptToUse = prompt.slice(tm[0].length);
+        }
+      }
+
       const key = uid + ":" + task + ":" + crypto.createHash("sha256").update(dedupeInput).digest("hex");
       const cached = dedupeGet(key);
       if (cached) return res.status(200).json(cached);
@@ -529,9 +548,9 @@ exports.generateNotesProxy = onRequest(
       try {
         const data = (task === "teacher" || task === "study_chat")
           ? await callDeepSeekMessages(teacherMessages, cfg.maxTokens, cfg.temperature)
-          : task === "notes" && prompt.length > SINGLE_PASS_MAX
-            ? await longNotes(prompt, cfg)
-            : await callDeepSeek(cfg.system, prompt, cfg.maxTokens, cfg.temperature);
+          : task === "notes" && promptToUse.length > SINGLE_PASS_MAX
+            ? await longNotes(promptToUse, cfgToUse)
+            : await callDeepSeek(cfgToUse.system, promptToUse, cfg.maxTokens, cfg.temperature);
         const response = { data };
 
         const u = response.data.usage || {};
