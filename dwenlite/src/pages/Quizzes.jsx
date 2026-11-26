@@ -5,7 +5,9 @@ import { db, auth } from '../firebase';
 import { doc, getDoc, updateDoc, addDoc, collection, setDoc, query, where, getDocs } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
-import { askStudyChat, buildFolderContext, askAI } from '../lib/ai';
+import { buildFolderContext, askAI } from '../lib/ai';
+import { runStudyChat } from '../lib/chatRun';
+import ChatAnswer from '../components/ChatAnswer';
 import jsPDF from 'jspdf';
 import FollowUpChips from '../components/FollowUpChips';
 import Markdown from '../components/Markdown';
@@ -630,14 +632,12 @@ function Quizzes() {
   // The AI reads every quiz group, note and document in the folder and may go beyond them.
   const processQuestion = async (question) => {
     const priorHistory = chatHistory;
-    setChatHistory(prev => [...prev, { type: 'user', content: question }, { type: 'system', content: 'DwenLite AI is typing...' }]);
     setChatLoading(true);
     try {
-      const { text: answer, followups } = await askStudyChat({ context: buildFolderContext(folder), history: priorHistory, question, kind: 'quizzes' });
-      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...').concat({ type: 'ai', content: answer, followups }));
+      await runStudyChat({ context: buildFolderContext(folder), history: priorHistory, question, kind: 'quizzes', setChatHistory });
     } catch (err) {
+      console.error('Error processing question:', err);
       toast.error(err.message);
-      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...'));
     } finally {
       setChatLoading(false);
     }
@@ -1136,10 +1136,10 @@ function Quizzes() {
                                                 : 'bg-slate-700 text-slate-200 rounded-bl-none'
                                     }`}
                                 >
-                                    {msg.type === 'ai' ? <Markdown content={msg.content} /> : msg.content}
+                                    {msg.type === 'ai' ? <ChatAnswer content={msg.content} typing={msg.typing} /> : msg.content}
                                 </div>
                                 
-                                {msg.type === 'ai' && !msg.content.includes('typing') && (
+                                {msg.type === 'ai' && !msg.typing && !msg.content.includes('typing') && (
                                     <button 
                                         onClick={() => setShowReportForm(showReportForm === idx ? null : idx)}
                                         className="text-[10px] text-slate-500 mt-1 hover:text-red-400 flex items-center gap-1"

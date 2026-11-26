@@ -11,7 +11,9 @@ import GenerationProgress from '../components/GenerationProgress';
 import { doc, getDoc, updateDoc, addDoc, collection, setDoc, query, where, getDocs } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
-import { askStudyChat, buildFolderContext } from '../lib/ai';
+import { buildFolderContext } from '../lib/ai';
+import { runStudyChat } from '../lib/chatRun';
+import ChatAnswer from '../components/ChatAnswer';
 import FollowUpChips from '../components/FollowUpChips';
 import Markdown from '../components/Markdown';
 import AnswerLengthToggle from '../components/AnswerLengthToggle';
@@ -493,15 +495,12 @@ function Flashcards() {
   // The AI reads every flashcard group, note and document in the folder and may go beyond them.
   const processQuestion = async (question) => {
     const priorHistory = chatHistory;
-    setChatHistory(prev => [...prev, { type: 'user', content: question }, { type: 'system', content: 'DwenLite AI is typing...' }]);
     setChatLoading(true);
     try {
-      const { text: answer, followups } = await askStudyChat({ context: buildFolderContext(folder), history: priorHistory, question, kind: 'flashcards' });
-      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...').concat({ type: 'ai', content: answer, followups }));
+      await runStudyChat({ context: buildFolderContext(folder), history: priorHistory, question, kind: 'flashcards', setChatHistory });
     } catch (err) {
       console.error('Error processing question:', err);
       toast.error(err.message);
-      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...'));
     } finally {
       setChatLoading(false);
     }
@@ -1098,11 +1097,11 @@ function Flashcards() {
                                             <span className="animate-bounce delay-200">.</span>
                                         </div>
                                       ) : (
-                                        msg.type === 'ai' ? <Markdown content={msg.content} /> : msg.content
+                                        msg.type === 'ai' ? <ChatAnswer content={msg.content} typing={msg.typing} /> : msg.content
                                       )}
                                 </div>
                                 
-                                {msg.type === 'ai' && !msg.content.includes('typing') && (
+                                {msg.type === 'ai' && !msg.typing && !msg.content.includes('typing') && (
                                     <button 
                                         onClick={() => setShowReportForm(showReportForm === idx ? null : idx)}
                                         className="text-[10px] text-slate-500 mt-1 hover:text-red-400 flex items-center gap-1"

@@ -203,15 +203,15 @@ const NOTE_TOOLS_SYSTEM =
   "- MODE: key_terms -> a glossary table of the important terms with short definitions taken from the notes.";
 
 const TASKS = {
-  general: { system: BASE_SYSTEM, maxTokens: 4000, temperature: 0.4 },
-  notes: { system: NOTES_SYSTEM, maxTokens: 4000, temperature: 0.2 },
+  general: { system: BASE_SYSTEM, maxTokens: 8000, temperature: 0.4 },
+  notes: { system: NOTES_SYSTEM, maxTokens: 8000, temperature: 0.2 },
   support: { system: SUPPORT_SYSTEM, maxTokens: 400, temperature: 0.5 },
   rewrite: { system: REWRITE_SYSTEM, maxTokens: 250, temperature: 0.4 },
   concepts: { system: CONCEPTS_SYSTEM, maxTokens: 8000, temperature: 0.2 },
   teacher: { system: TEACHER_SYSTEM, maxTokens: 450, temperature: 0.6 },
-  study_chat: { system: STUDY_CHAT_SYSTEM, maxTokens: 1500, temperature: 0.5 },
+  study_chat: { system: STUDY_CHAT_SYSTEM, maxTokens: 8000, temperature: 0.5 },
   recap: { system: RECAP_SYSTEM, maxTokens: 700, temperature: 0.3 },
-  note_tools: { system: NOTE_TOOLS_SYSTEM, maxTokens: 4000, temperature: 0.3 },
+  note_tools: { system: NOTE_TOOLS_SYSTEM, maxTokens: 8000, temperature: 0.3 },
 };
 
 // ---------------------------------------------------------------------------
@@ -235,19 +235,39 @@ async function checkAndCountUsage(uid, weight = 1, { voice = false } = {}) {
 }
 
 
+const CONTINUE_PROMPT = "Your last message was cut off by the length limit. Continue EXACTLY where you stopped, even mid-sentence or mid-table. Do not repeat anything, do not apologise, and do not add an introduction.";
+const zeroUsage = () => ({ prompt_tokens: 0, completion_tokens: 0, prompt_cache_hit_tokens: 0, prompt_cache_miss_tokens: 0 });
+const addUsage = (total, u) => { for (const k in total) total[k] += (u && u[k]) || 0; };
+
+// One answer, however long: if the model stops because of the length limit, ask it to carry on (up to 3 times).
 async function callDeepSeekMessages(messages, maxTokens, temperature) {
-  const r = await axios.post(
-    "https://api.deepseek.com/chat/completions",
-    { model: "deepseek-chat", messages, max_tokens: maxTokens, temperature },
-    {
-      headers: {
-        Authorization: `Bearer ${DEEPSEEK_API_KEY.value()}`,
-        "Content-Type": "application/json",
-      },
-      timeout: 200000,
-    }
-  );
-  return r.data;
+  const extra = maxTokens >= 1500 ? 3 : 0; // short replies (teacher, support) never need it
+  let full = "";
+  let data = null;
+  const usage = zeroUsage();
+  let msgs = messages;
+  for (let i = 0; i <= extra; i++) {
+    const r = await axios.post(
+      "https://api.deepseek.com/chat/completions",
+      { model: "deepseek-chat", messages: msgs, max_tokens: maxTokens, temperature },
+      {
+        headers: {
+          Authorization: `Bearer ${DEEPSEEK_API_KEY.value()}`,
+          "Content-Type": "application/json",
+        },
+        timeout: 200000,
+      }
+    );
+    data = r.data;
+    const choice = data.choices && data.choices[0];
+    full += (choice && choice.message && choice.message.content) || "";
+    addUsage(usage, data.usage);
+    if (!choice || choice.finish_reason !== "length" || i === extra) break;
+    msgs = [...messages, { role: "assistant", content: full }, { role: "user", content: CONTINUE_PROMPT }];
+  }
+  if (data && data.choices && data.choices[0]) data.choices[0].message.content = full;
+  if (data) data.usage = usage;
+  return data;
 }
 
 function callDeepSeek(system, user, maxTokens, temperature) {
@@ -396,6 +416,7 @@ async function streamDeepSeek(messages, maxTokens, temperature, onDelta) {
     }
   );
   let usage = null;
+  let finish = null;
   await new Promise((resolve, reject) => {
     let buf = "";
     r.data.on("data", (chunk) => {
@@ -410,6 +431,7 @@ async function streamDeepSeek(messages, maxTokens, temperature, onDelta) {
         try {
           const j = JSON.parse(payload);
           if (j.usage) usage = j.usage;
+          if (j.choices && j.choices[0] && j.choices[0].finish_reason) finish = j.choices[0].finish_reason;
           const t = j.choices?.[0]?.delta?.content;
           if (t) onDelta(t);
         } catch (e) { /* ignore partial line */ }
@@ -418,6 +440,21 @@ async function streamDeepSeek(messages, maxTokens, temperature, onDelta) {
     r.data.on("end", resolve);
     r.data.on("error", reject);
   });
+  return { usage, finish };
+}
+
+// Streams a whole answer; when it stops at the length limit, keeps going in a new request (up to 3 times).
+async function streamWithContinuation(messages, maxTokens, temperature, onDelta) {
+  const extra = maxTokens >= 1500 ? 3 : 0;
+  const usage = zeroUsage();
+  let full = "";
+  let msgs = messages;
+  for (let i = 0; i <= extra; i++) {
+    const r = await streamDeepSeek(msgs, maxTokens, temperature, (t) => { full += t; onDelta(t); });
+    addUsage(usage, r.usage);
+    if (r.finish !== "length" || i === extra) break;
+    msgs = [...messages, { role: "assistant", content: full }, { role: "user", content: CONTINUE_PROMPT }];
+  }
   return usage;
 }
 
@@ -586,7 +623,7 @@ exports.generateNotesProxy = onRequest(
       }
 
       // Streaming: teacher replies (so speech can start at once) and generation jobs (so the app can show real progress).
-      const STREAM_TASKS = new Set(["teacher", "notes", "general", "concepts"]);
+      const STREAM_TASKS = new Set(["teacher", "study_chat", "notes", "general", "concepts"]);
       if (STREAM_TASKS.has(task) && req.body.stream === true) {
         res.set({
           "Content-Type": "text/event-stream; charset=utf-8",
@@ -605,10 +642,10 @@ exports.generateNotesProxy = onRequest(
             streamUsage = d.usage;
             send({ t: total });
           } else {
-            const msgs = task === "teacher"
+            const msgs = (task === "teacher" || task === "study_chat")
               ? teacherMessages
               : [{ role: "system", content: cfgToUse.system }, { role: "user", content: promptToUse }];
-            streamUsage = await streamDeepSeek(msgs, cfg.maxTokens, cfg.temperature, (t) => {
+            streamUsage = await streamWithContinuation(msgs, cfg.maxTokens, cfg.temperature, (t) => {
               total += t;
               send({ t });
             });

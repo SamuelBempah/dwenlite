@@ -6,7 +6,8 @@ import { uploadWithProgress, primeUploadNotifications } from '../lib/uploadManag
 import { addDoc, collection } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
-import { askStudyChat } from '../lib/ai';
+import { runStudyChat } from '../lib/chatRun';
+import ChatAnswer from '../components/ChatAnswer';
 import Markdown from '../components/Markdown';
 import mammoth from 'mammoth';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -788,35 +789,21 @@ function ExamsPreparation() {
 
   const handleChatSubmit = async (e) => {
     e.preventDefault();
-    if (!chatInput.trim()) return;
+    if (!chatInput.trim() || chatLoading) return;
 
     const question = chatInput.trim();
     setChatInput('');
     setChatLoading(true);
-
-    setChatHistory(prev => [
-      ...prev,
-      { type: 'user', content: question },
-      { type: 'loading', content: 'Thinking...' },
-    ]);
-
     try {
-      const context = reviewContent || 'No review content available.';
-      const { text: answer } = await askStudyChat({
-        context,
+      await runStudyChat({
+        context: reviewContent || 'No review content available.',
         history: chatHistory.filter(m => m.type === 'user' || m.type === 'ai'),
         question,
         kind: 'exam',
+        setChatHistory,
       });
-
-      setChatHistory(prev => prev.filter(m => m.type !== 'loading').concat({
-        type: 'ai',
-        content: answer,
-      }));
-
     } catch (err) {
-      toast.error('Chat failed');
-      setChatHistory(prev => prev.filter(m => m.type !== 'loading'));
+      toast.error(err.message || 'Chat failed');
     } finally {
       setChatLoading(false);
     }
@@ -1557,9 +1544,9 @@ function ExamsPreparation() {
                                 ? 'bg-purple-600 text-white rounded-br-none' 
                                 : 'bg-slate-700 text-slate-200 rounded-bl-none relative group border border-white/5'
                             }`}>
-                              {msg.type === 'ai' ? <Markdown content={msg.content} /> : msg.content}
+                              {msg.type === 'ai' ? <ChatAnswer content={msg.content} typing={msg.typing} /> : msg.content}
                               
-                              {msg.type === 'ai' && (
+                              {msg.type === 'ai' && !msg.typing && (
                                 <button 
                                   onClick={() => setShowReportForm(i)} 
                                   className="absolute -right-8 top-1 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition-all p-1"

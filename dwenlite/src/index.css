@@ -106,3 +106,14 @@ img, video, canvas, svg { max-width: 100%; }
 @keyframes gen-stripe { 0% { left: -25%; } 100% { left: 100%; } }
 .gen-stripe { animation: gen-stripe 1.4s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .gen-sheen, .gen-stripe { animation: none; } }
+
+/* ---- Magic: streamed AI answers (DwenLite AI theme) ---- */
+@keyframes magic-orb { 0%, 100% { transform: translateY(0) scale(.8); opacity: .5; } 50% { transform: translateY(-5px) scale(1.15); opacity: 1; } }
+.magic-orb { display: inline-block; width: .6rem; height: .6rem; border-radius: 9999px; background: radial-gradient(circle at 35% 30%, #fff, #c4b5fd 40%, #8b5cf6 78%); box-shadow: 0 0 12px 3px rgba(167, 139, 250, .6); animation: magic-orb 1.3s ease-in-out infinite; }
+@keyframes magic-shimmer { to { background-position: -200% 0; } }
+.magic-shimmer-text { background: linear-gradient(90deg, #94a3b8 20%, #f3e8ff 42%, #94a3b8 64%); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: magic-shimmer 2.2s linear infinite; }
+@keyframes magic-pulse { 0%, 100% { transform: scale(.8); opacity: .75; } 50% { transform: scale(1.2); opacity: 1; } }
+.typing-caret { display: inline-block; width: .6em; height: .6em; margin-left: 5px; vertical-align: .08em; border-radius: 9999px; background: radial-gradient(circle at 35% 30%, #fff, #c4b5fd 45%, #8b5cf6 80%); box-shadow: 0 0 10px 3px rgba(167, 139, 250, .7); animation: magic-pulse 1.1s ease-in-out infinite; }
+@keyframes magic-settle { from { text-shadow: 0 0 16px rgba(167, 139, 250, .85); } to { text-shadow: 0 0 0 rgba(167, 139, 250, 0); } }
+.magic-settle { animation: magic-settle 1.1s ease-out; }
+@media (prefers-reduced-motion: reduce) { .magic-orb, .typing-caret, .magic-shimmer-text, .magic-settle { animation: none; } }

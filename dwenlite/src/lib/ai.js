@@ -75,3 +75,67 @@ export async function askStudyChat({ context, history = [], question, kind = 'fo
     throw new Error(err.response?.data?.error || err.message);
   }
 }
+
+function splitFollowups(text) {
+  const m = text.match(/\n?\s*FOLLOWUPS:\s*(.+)\s*$/i);
+  if (!m) return { text: text.trim(), followups: [] };
+  return {
+    text: text.slice(0, m.index).trim(),
+    followups: m[1].split('|').map((q) => q.trim()).filter(Boolean).slice(0, 3),
+  };
+}
+
+// Same as askStudyChat, but the answer streams in. onText(textSoFar) is called as it grows.
+// If streaming is not possible the whole answer arrives at once through the same callback.
+export async function askStudyChatStream({ context, history = [], question, kind = 'folder', onText }) {
+  const messages = history
+    .filter((m) => m.type === 'user' || m.type === 'ai')
+    .map((m) => ({ role: m.type === 'user' ? 'user' : 'assistant', content: m.content }));
+  const last = messages[messages.length - 1];
+  if (!(last && last.role === 'user' && last.content === question)) messages.push({ role: 'user', content: question });
+
+  const body = { task: 'study_chat', messages, context: context || 'No materials yet.', kind, length: getAnswerLength(), language: loadVoicePrefs().language };
+  let res;
+  try {
+    const token = await auth.currentUser?.getIdToken();
+    res = await fetch(AI_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ ...body, stream: true }),
+    });
+  } catch {
+    res = null;
+  }
+
+  if (!res || !res.body?.getReader) {
+    const out = await askStudyChat({ context, history, question, kind });
+    onText?.(out.text + (out.followups.length ? `\nFOLLOWUPS: ${out.followups.join(' | ')}` : ''));
+    return out;
+  }
+  if (!res.ok) {
+    const j = await res.json().catch(() => ({}));
+    throw new Error(j.error || `Request failed (${res.status})`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  let text = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf('\n\n')) >= 0) {
+      const ev = buf.slice(0, i);
+      buf = buf.slice(i + 2);
+      if (!ev.startsWith('data:')) continue;
+      let j;
+      try { j = JSON.parse(ev.slice(5)); } catch { continue; }
+      if (j.error) throw new Error(j.error);
+      if (j.t) { text += j.t; onText?.(text); }
+    }
+  }
+  if (!text.trim()) throw new Error('No answer found.');
+  return splitFollowups(text);
+}

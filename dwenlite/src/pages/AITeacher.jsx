@@ -2323,7 +2323,17 @@ const AITeacher = () => {
                   className="inline-block"
                 >
                   <p className="text-sm md:text-base font-medium tracking-wide bg-gradient-to-r from-blue-200 via-gray-100 to-purple-200 bg-clip-text text-transparent drop-shadow-md leading-relaxed pb-2 opacity-80">
-                    {currentCaption}
+                    {currentCaption.split(' ').map((w, i) => (
+                      <motion.span
+                        key={i}
+                        className="inline-block"
+                        initial={{ opacity: 0, y: 6, filter: 'blur(6px)' }}
+                        animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                        transition={{ duration: 0.45, delay: Math.min(i * 0.05, 1.2), ease: 'easeOut' }}
+                      >
+                        {w}&nbsp;
+                      </motion.span>
+                    ))}
                   </p>
                 </motion.div>
               )}
