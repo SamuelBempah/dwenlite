@@ -6,7 +6,8 @@ import TeacherSidebar from '../components/TeacherSidebar';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { auth, storage } from '../firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, getDownloadURL } from 'firebase/storage';
+import { uploadWithProgress, primeUploadNotifications } from '../lib/uploadManager';
 import axios from 'axios';
 import mammoth from 'mammoth';
 import Loader1 from '../components/loaders/Loader1';
@@ -817,6 +818,7 @@ const AITeacher = () => {
 
   const handleFileUpload = async () => {
     if (files.length === 0) return;
+    primeUploadNotifications();
 
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen().catch(() => { });
@@ -862,7 +864,7 @@ const AITeacher = () => {
 
         const userUid = auth.currentUser?.uid || 'guest';
         const storageRef = ref(storage, `ai_teacher/${userUid}/${Date.now()}_${file.name}`);
-        await uploadBytes(storageRef, file);
+        await uploadWithProgress(storageRef, file);
         const downloadURL = await getDownloadURL(storageRef);
 
         if (isImage) {

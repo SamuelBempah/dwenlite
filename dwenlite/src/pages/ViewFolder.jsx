@@ -4,6 +4,7 @@ import { db, auth, storage } from '../firebase';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import toast from 'react-hot-toast';
+import { uploadWithProgress, primeUploadNotifications, formatBytes, useUploads } from '../lib/uploadManager';
 import axios from 'axios';
 import JSZip from 'jszip';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -23,6 +24,12 @@ function ViewFolder() {
   const [loading, setLoading] = useState(true);
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const liveUploads = useUploads();
+  const uploadPct = (() => {
+    const t = liveUploads.filter(u => u.state === 'uploading' || u.state === 'paused');
+    const size = t.reduce((a, u) => a + u.size, 0);
+    return size ? Math.floor(t.reduce((a, u) => a + u.transferred, 0) / size * 100) : null;
+  })();
   const [showTutorial, setShowTutorial] = useState(false);
   const [tutorialStep, setTutorialStep] = useState(0);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
@@ -269,6 +276,7 @@ function ViewFolder() {
   };
 
   const handleUpload = async () => {
+    primeUploadNotifications();
     if (!file) { toast.error('Please select a file to upload.'); return; }
     if (folder.documents.length >= 1) { toast.error('Limit reached: 1 document per folder.'); setFile(null); return; }
 
@@ -312,7 +320,7 @@ function ViewFolder() {
       }
 
       const storageRef = ref(storage, `documents/${folderId}/${file.name}`);
-      await uploadBytes(storageRef, file);
+      await uploadWithProgress(storageRef, file);
       const downloadURL = await getDownloadURL(storageRef);
 
       const documentData = {
@@ -374,7 +382,7 @@ function ViewFolder() {
     setUploading(true);
     try {
       const storageRef = ref(storage, `documents/${folderId}/${fileName}`);
-      await uploadBytes(storageRef, blob);
+      await uploadWithProgress(storageRef, blob, { name: fileName });
       const downloadURL = await getDownloadURL(storageRef);
       const documentData = {
         id: Date.now().toString(), name: fileName, url: downloadURL,
@@ -543,6 +551,7 @@ function ViewFolder() {
                           <>
                              <File className="text-purple-400 mb-2" size={32} />
                              <span className="font-semibold text-white text-center break-all">{file.name}</span>
+                             <span className="text-sm text-slate-300 mt-1 font-medium">{formatBytes(file.size)}</span>
                              <span className="text-xs text-purple-300 mt-1">Click to change</span>
                           </>
                        ) : (
@@ -563,7 +572,7 @@ function ViewFolder() {
                        className="w-full py-4 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg shadow-purple-900/20"
                     >
                        {uploading ? (
-                          <><Loader2 className="animate-spin" size={20} /> Uploading...</>
+                          <><Loader2 className="animate-spin" size={20} /> {uploadPct !== null ? `Uploading ${uploadPct}%` : 'Preparing...'}</>
                        ) : (
                           <><UploadCloud size={20} /> Upload Selected File</>
                        )}

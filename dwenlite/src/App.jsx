@@ -30,6 +30,7 @@ import AppLayout from './components/layout/AppLayout';
 import PwaInstallPrompt from './components/PwaInstallPrompt';
 import ReleaseNotesModal from './components/ReleaseNotesModal';
 import PwaUpdater from './components/PwaUpdater';
+import UploadTray from './components/UploadTray';
 
 const isMaintenanceWindow = () => {
   const now = new Date();
@@ -178,6 +179,7 @@ function AppContent() {
       <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
       <BanPopup isOpen={showBanPopup} onClose={() => setShowBanPopup(false)} />
       <PwaUpdater />
+      <UploadTray />
       <PwaInstallPrompt />
       <ReleaseNotesModal />
       <style jsx global>{`

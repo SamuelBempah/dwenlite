@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { auth, storage, db } from '../firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, getDownloadURL } from 'firebase/storage';
+import { uploadWithProgress, primeUploadNotifications } from '../lib/uploadManager';
 import { addDoc, collection } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
@@ -289,6 +290,7 @@ function ExamsPreparation() {
   const handleFileUpload = async (e) => {
     const selectedFiles = Array.from(e.target.files);
     if (selectedFiles.length === 0) return;
+    primeUploadNotifications();
 
     if (uploadedNotes.length + selectedFiles.length > 50) {
       toast.error('You can only upload up to 50 files maximum.');
@@ -329,7 +331,7 @@ function ExamsPreparation() {
           }
 
           const storageRef = ref(storage, `exam_notes/${currentUser.uid}/${Date.now()}_${selectedFile.name}`);
-          await uploadBytes(storageRef, selectedFile);
+          await uploadWithProgress(storageRef, selectedFile);
           const downloadURL = await getDownloadURL(storageRef);
 
           let extractedText = '';
@@ -372,7 +374,7 @@ function ExamsPreparation() {
         try {
           const imageStoragePromises = imageFiles.map(async (selectedFile) => {
             const storageRef = ref(storage, `exam_notes/${currentUser.uid}/${Date.now()}_${selectedFile.name}`);
-            await uploadBytes(storageRef, selectedFile);
+            await uploadWithProgress(storageRef, selectedFile);
             const downloadURL = await getDownloadURL(storageRef);
             return downloadURL;
           });
