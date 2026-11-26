@@ -9,6 +9,10 @@ from aiohttp import web
 
 PORT = int(os.environ.get("PORT", "3001"))
 VOICE = os.environ.get("TTS_VOICE", "en-US-AvaNeural")
+VOICES = {
+    "en-US-AvaNeural", "en-US-JennyNeural", "en-US-EmmaNeural", "en-US-AndrewNeural",
+    "en-US-BrianNeural", "en-US-GuyNeural", "en-GB-SoniaNeural", "en-GB-RyanNeural",
+}
 MAX_TEXT = 700            # characters per request (the app sends one sentence at a time)
 RATE_PER_MIN = 120        # per IP
 CACHE_MAX = 400           # identical sentences are served from memory
@@ -40,9 +44,9 @@ def client_ip(request):
     return request.headers.get("Fly-Client-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote
 
 
-async def synth(text: str) -> bytes:
+async def synth(text: str, voice: str) -> bytes:
     chunks = []
-    async for ch in edge_tts.Communicate(text, VOICE).stream():
+    async for ch in edge_tts.Communicate(text, voice).stream():
         if ch["type"] == "audio":
             chunks.append(ch["data"])
     audio = b"".join(chunks)
@@ -73,10 +77,15 @@ async def tts(request):
     if len(text) > MAX_TEXT:
         return web.Response(status=413, text="Text too long")
 
+    voice = body.get("voice")
+    if voice not in VOICES:
+        voice = VOICE
+    key = f"{voice}|{text}"
+
     headers = {"Content-Type": "audio/mpeg", "Cache-Control": "public, max-age=86400"}
-    audio = cache.get(text)
+    audio = cache.get(key)
     if audio is not None:
-        cache.move_to_end(text)
+        cache.move_to_end(key)
         return web.Response(body=audio, headers=headers)
 
     if waiting >= 30:
@@ -84,14 +93,14 @@ async def tts(request):
     waiting += 1
     try:
         async with sem:
-            audio = await asyncio.wait_for(synth(text), timeout=30)
+            audio = await asyncio.wait_for(synth(text, voice), timeout=30)
     except Exception as e:  # noqa: BLE001
         print("TTS error:", repr(e), flush=True)
         return web.Response(status=500, text="Error generating TTS")
     finally:
         waiting -= 1
 
-    cache[text] = audio
+    cache[key] = audio
     if len(cache) > CACHE_MAX:
         cache.popitem(last=False)
     return web.Response(body=audio, headers=headers)

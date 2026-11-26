@@ -4,6 +4,7 @@ import { Volume2, User, ArrowLeft, Upload, X, Mic, Pause, Play, Edit2, Check, Ph
 import { Link } from 'react-router-dom';
 import TeacherSidebar from '../components/TeacherSidebar';
 import UsageMeter from '../components/UsageMeter';
+import VoiceSettings, { loadVoicePrefs } from '../components/VoiceSettings';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { auth, storage } from '../firebase';
@@ -97,6 +98,15 @@ const AITeacher = () => {
   const [showUploadDrawer, setShowUploadDrawer] = useState(false);
   const [showVoiceLimit, setShowVoiceLimit] = useState(false);
   const [voiceUsage, setVoiceUsage] = useState({ used: 0, limit: 0 });
+  const [voicePrefs, setVoicePrefs] = useState(loadVoicePrefs);
+  const voicePrefsRef = useRef(voicePrefs);
+  useEffect(() => {
+    voicePrefsRef.current = voicePrefs;
+    if (audioRef.current) {
+      audioRef.current.defaultPlaybackRate = voicePrefs.speed;
+      audioRef.current.playbackRate = voicePrefs.speed;
+    }
+  }, [voicePrefs]);
   const [currentConcept, setCurrentConcept] = useState(0);
   const [conceptTotal, setConceptTotal] = useState(0);
   const [weakConcepts, setWeakConcepts] = useState([]);
@@ -1161,7 +1171,7 @@ const AITeacher = () => {
       const response = await fetch('https://dwenlite-backend.fly.dev/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: sentence }),
+        body: JSON.stringify({ text: sentence, voice: voicePrefsRef.current.voice }),
         signal: ctrl.signal
       });
       if (!response.ok) throw new Error('TTS failed: ' + response.status);
@@ -1181,6 +1191,8 @@ const AITeacher = () => {
       }
 
       audioRef.current.src = url;
+      audioRef.current.defaultPlaybackRate = voicePrefsRef.current.speed;
+      audioRef.current.playbackRate = voicePrefsRef.current.speed;
       startSpeakerVisualizer();
 
       const onEnded = () => {
@@ -1670,7 +1682,10 @@ const AITeacher = () => {
         <button onClick={() => setIsSidebarOpen(true)} className="absolute top-6 left-6 text-gray-500 hover:text-white transition-colors z-20">
           <Menu size={32} />
         </button>
-        <UsageMeter used={voiceUsage.used} limit={voiceUsage.limit} className="absolute top-5 right-5 z-20" />
+        <div className="absolute top-5 right-5 z-20 flex items-center gap-2">
+          <VoiceSettings prefs={voicePrefs} onChange={setVoicePrefs} />
+          <UsageMeter used={voiceUsage.used} limit={voiceUsage.limit} />
+        </div>
         <TeacherSidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
         <div className="max-w-md w-full flex flex-col items-center gap-8 z-10">
           <motion.div
@@ -1719,6 +1734,7 @@ const AITeacher = () => {
 
         {/* Top Right Controls */}
         <div className="flex items-center gap-3 sm:gap-4">
+          <VoiceSettings prefs={voicePrefs} onChange={setVoicePrefs} />
           <UsageMeter used={voiceUsage.used} limit={voiceUsage.limit} />
           <button onClick={toggleFullscreen} className="text-gray-400 hover:text-white transition-colors">
             {isFullscreen ? <Minimize size={24} /> : <Maximize size={24} />}
