@@ -20,7 +20,7 @@ export default function AdminUsage() {
           body: JSON.stringify({ task: 'admin_stats' })
         });
         const j = await res.json();
-        if (!res.ok) throw new Error(res.status === 403 ? 'This page is only for admins.' : (j.error || 'Could not load usage.'));
+        if (!res.ok) throw new Error(res.status === 403 ? 'This page is only for admins.' : `${j.error || 'Could not load usage.'}${j.detail ? ' (' + j.detail + ')' : ''}`);
         setState({ loading: false, days: j.days || [], error: '' });
       } catch (err) {
         setState({ loading: false, days: [], error: err.message });

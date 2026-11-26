@@ -495,10 +495,13 @@ exports.generateNotesProxy = onRequest(
           return res.status(403).json({ error: "Not allowed." });
         }
         try {
-          const snaps = await db.collection("aiStats").orderBy(admin.firestore.FieldPath.documentId(), "desc").limit(14).get();
-          return res.status(200).json({ days: snaps.docs.map((d) => ({ day: d.id, ...d.data() })) });
+          // Plain read, newest day first (sorted here, so no database index is involved).
+          const snaps = await db.collection("aiStats").limit(120).get();
+          const days = snaps.docs.map((d) => ({ day: d.id, ...d.data() })).sort((a, b) => (a.day < b.day ? 1 : -1)).slice(0, 14);
+          return res.status(200).json({ days });
         } catch (e) {
-          return res.status(500).json({ error: "Could not load stats." });
+          logger.error("admin_stats failed", e.code, e.message);
+          return res.status(500).json({ error: "Could not load stats.", detail: `${e.code || ""} ${e.message || ""}`.trim().slice(0, 300) });
         }
       }
 
