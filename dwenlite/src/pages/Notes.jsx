@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import axios from 'axios';
 import { askStudyChat, buildFolderContext } from '../lib/ai';
 import FollowUpChips from '../components/FollowUpChips';
+import { useChatMemory } from '../lib/chatMemory';
 import jsPDF from 'jspdf';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
@@ -13,7 +14,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, Zap, Coins, ChevronLeft, ChevronRight, 
   MessageSquare, Send, AlertTriangle, Trash2, Star, ChevronDown, 
-  ChevronUp, Sparkles, FolderOpen, FileText, Download, File, Highlighter
+  ChevronUp, Sparkles, FolderOpen, FileText, Download, File, Highlighter, Search, X
 } from 'lucide-react';
 
 function Notes() {
@@ -26,6 +27,7 @@ function Notes() {
   const [notesLoading, setNotesLoading] = useState(false);
   const [showStoredNotes, setShowStoredNotes] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState({});
+  const [noteQuery, setNoteQuery] = useState('');
   const [chatInput, setChatInput] = useState('');
   const [selectedNoteId, setSelectedNoteId] = useState('');
   const [chatHistory, setChatHistory] = useState([]);
@@ -41,6 +43,7 @@ function Notes() {
   const [hasRated, setHasRated] = useState({});
   
   const chatEndRef = useRef(null);
+  const { clearChat } = useChatMemory({ folder, folderId, kind: 'notes', chatHistory, setChatHistory });
 
   // Configure marked for GFM (GitHub Flavored Markdown)
   marked.setOptions({ 
@@ -489,6 +492,25 @@ function Notes() {
 
   if (!folder) return null;
 
+  // Search across every note: keep the ones that contain the text and show where it appears.
+  const q = noteQuery.trim().toLowerCase();
+  const visibleNotes = folder.notes
+    .map((note, idx) => {
+      if (!q) return { note, idx, snippet: null };
+      const text = (note.content || '').replace(/[#>*_`]/g, '');
+      const at = text.toLowerCase().indexOf(q);
+      if (at < 0) return null;
+      return {
+        note, idx,
+        snippet: {
+          before: (at > 40 ? '...' : '') + text.slice(Math.max(0, at - 40), at),
+          match: text.slice(at, at + q.length),
+          after: text.slice(at + q.length, at + q.length + 80) + '...',
+        },
+      };
+    })
+    .filter(Boolean);
+
   return (
     <>
 
@@ -579,8 +601,35 @@ function Notes() {
                                       <p>No notes generated yet.</p>
                                    </div>
                                 )}
-                                
-                                {folder.notes.map((note, idx) => (
+
+                                {folder.notes.length > 0 && (
+                                   <div className="relative">
+                                      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                                      <input
+                                         value={noteQuery}
+                                         onChange={(e) => setNoteQuery(e.target.value)}
+                                         placeholder="Search all your notes..."
+                                         className="w-full rounded-xl border border-slate-700 bg-slate-900 py-2.5 pl-9 pr-9 text-sm outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+                                      />
+                                      {noteQuery && (
+                                         <button onClick={() => setNoteQuery('')} aria-label="Clear search" className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white">
+                                            <X size={16} />
+                                         </button>
+                                      )}
+                                   </div>
+                                )}
+                                {noteQuery.trim() && (
+                                   <p className="text-xs text-slate-500">
+                                      {visibleNotes.length} of {folder.notes.length} notes match "{noteQuery.trim()}"
+                                   </p>
+                                )}
+                                {noteQuery.trim() && visibleNotes.length === 0 && (
+                                   <div className="rounded-xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-500">
+                                      No notes contain that. Try the AI chat: it can answer beyond your notes.
+                                   </div>
+                                )}
+
+                                {visibleNotes.map(({ note, idx, snippet }) => (
                                     <motion.div 
                                       key={note.id}
                                       layout
@@ -597,6 +646,11 @@ function Notes() {
                                                    Note {idx + 1}
                                                 </h4>
                                                 <p className="text-xs text-slate-500 mt-1">Created: {new Date(note.createdAt).toLocaleDateString()}</p>
+                                                {snippet && (
+                                                   <p className="mt-2 text-xs text-slate-400 line-clamp-2">
+                                                      {snippet.before}<mark className="rounded bg-yellow-400/30 px-0.5 text-yellow-100">{snippet.match}</mark>{snippet.after}
+                                                   </p>
+                                                )}
                                             </div>
                                             
                                             <div className="flex items-center gap-3">
@@ -672,6 +726,9 @@ function Notes() {
                     <div className="p-4 border-b border-white/5 bg-slate-800/50 rounded-t-2xl flex items-center gap-2">
                         <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
                         <h3 className="font-bold flex items-center gap-2">DwenLite AI <span className="text-xs font-normal text-slate-400 px-2 py-0.5 bg-slate-700 rounded">Notes</span></h3>
+                        {chatHistory.length > 0 && (
+                            <button onClick={clearChat} disabled={chatLoading} className="ml-auto text-xs text-slate-400 hover:text-white disabled:opacity-40 transition-colors">New chat</button>
+                        )}
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">

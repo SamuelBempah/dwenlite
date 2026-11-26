@@ -6,6 +6,7 @@ import toast from 'react-hot-toast';
 import axios from 'axios';
 import { askStudyChat, buildFolderContext } from '../lib/ai';
 import FollowUpChips from '../components/FollowUpChips';
+import { useChatMemory } from '../lib/chatMemory';
 import { isDue, nextSrs, intervalLabel } from '../lib/srs';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -43,6 +44,7 @@ function Flashcards() {
   const [hasRated, setHasRated] = useState({});
   
   const chatEndRef = useRef(null);
+  const { clearChat } = useChatMemory({ folder, folderId, kind: 'flashcards', chatHistory, setChatHistory });
 
   // Scroll to bottom of chat
   useEffect(() => {
@@ -783,6 +785,9 @@ function Flashcards() {
                     <div className="p-4 border-b border-white/5 bg-slate-800/50 rounded-t-2xl flex items-center gap-2">
                         <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
                         <h3 className="font-bold flex items-center gap-2">DwenLite AI <span className="text-xs font-normal text-slate-400 px-2 py-0.5 bg-slate-700 rounded">Flash Cards</span></h3>
+                        {chatHistory.length > 0 && (
+                            <button onClick={clearChat} disabled={chatLoading} className="ml-auto text-xs text-slate-400 hover:text-white disabled:opacity-40 transition-colors">New chat</button>
+                        )}
                     </div>
 
                     <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
