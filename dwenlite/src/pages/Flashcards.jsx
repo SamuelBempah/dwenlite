@@ -471,19 +471,47 @@ function Flashcards() {
   const cards = dueOnly ? allCards.filter(c => isDue(c)) : allCards;
   const currentFlashcard = cards[currentFlashcardIndex];
 
+  // One deck with every card that is due today, from all groups in this folder.
+  const dueAcrossGroups = (folder.flashcardGroups || []).flatMap(g => (g.flashcards || []).filter(c => isDue(c)).map(c => ({ ...c, _g: g.id })));
+  const startDailyReview = () => {
+    if (!dueAcrossGroups.length) return;
+    setSelectedFlashcardGroup({ id: '__due__', name: 'Daily review', flashcards: dueAcrossGroups });
+    setDueOnly(true);
+    setCurrentFlashcardIndex(0);
+    setShowAnswer(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   // Save how well the student knew this card; spaced repetition schedules the next review.
   const handleRateCard = (grade) => {
     if (!currentFlashcard || !selectedFlashcardGroup) return;
     recordStudy();
     const srs = nextSrs(currentFlashcard.srs, grade);
-    const cardIdx = allCards.indexOf(currentFlashcard);
-    const updatedGroup = {
-      ...selectedFlashcardGroup,
-      flashcards: allCards.map((c, i) => (i === cardIdx ? { ...c, srs } : c)),
+    const isMixed = selectedFlashcardGroup.id === '__due__';
+
+    // The real group this card lives in (a mixed deck keeps the group id on each card).
+    const realGroupId = isMixed ? currentFlashcard._g : selectedFlashcardGroup.id;
+    const realGroup = folder.flashcardGroups.find(g => g.id === realGroupId);
+    if (!realGroup) return;
+    const realIdx = isMixed
+      ? realGroup.flashcards.findIndex(c => c.question === currentFlashcard.question && c.answer === currentFlashcard.answer)
+      : realGroup.flashcards.indexOf(currentFlashcard);
+    const updatedReal = {
+      ...realGroup,
+      flashcards: realGroup.flashcards.map((c, i) => (i === realIdx ? { ...c, srs } : c)),
     };
-    const groups = folder.flashcardGroups.map(g => (g.id === updatedGroup.id ? updatedGroup : g));
+    const groups = folder.flashcardGroups.map(g => (g.id === updatedReal.id ? updatedReal : g));
     setFolder(prev => ({ ...prev, flashcardGroups: groups }));
-    setSelectedFlashcardGroup(updatedGroup);
+
+    if (isMixed) {
+      const cardIdx = allCards.indexOf(currentFlashcard);
+      setSelectedFlashcardGroup({
+        ...selectedFlashcardGroup,
+        flashcards: allCards.map((c, i) => (i === cardIdx ? { ...c, srs } : c)),
+      });
+    } else {
+      setSelectedFlashcardGroup(updatedReal);
+    }
     updateDoc(doc(db, 'folders', folderId), { flashcardGroups: groups })
       .catch(() => toast.error('Could not save your progress.'));
     setShowAnswer(false);
@@ -556,6 +584,23 @@ function Flashcards() {
             {/* LEFT COLUMN: Study Area */}
             <div className="lg:col-span-2 space-y-6">
                 
+                {/* Daily review across every group in this folder */}
+                {folder.flashcardGroups.length > 0 && (
+                   <button
+                      onClick={startDailyReview}
+                      disabled={dueAcrossGroups.length === 0}
+                      className="flex w-full items-center justify-between rounded-2xl border border-purple-500/30 bg-purple-500/10 px-5 py-4 text-left hover:bg-purple-500/20 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
+                   >
+                      <span>
+                         <span className="block font-bold">Daily review</span>
+                         <span className="block text-xs text-slate-400">
+                            {dueAcrossGroups.length > 0 ? 'Cards due today from all your groups in one deck' : 'Nothing due right now. Nice work!'}
+                         </span>
+                      </span>
+                      <span className="rounded-full bg-purple-600 px-3 py-1 text-sm font-bold">{dueAcrossGroups.length}</span>
+                   </button>
+                )}
+
                 {/* Active Flashcard Stage */}
                 <div className="relative">
                    {!selectedFlashcardGroup ? (
