@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Volume2 } from 'lucide-react';
+import { Gauge } from 'lucide-react';
 
 const CHARS_PER_SECOND = 14; // rough speaking rate, used to turn characters into minutes
 
@@ -35,11 +35,13 @@ export default function UsageMeter({ used = 0, limit = 0, className = '' }) {
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
+        title="Daily usage"
         aria-expanded={open}
         aria-label={known ? `Daily voice usage, ${pct}% used` : 'Daily voice usage'}
         className="flex items-center gap-2 rounded-full border border-gray-700 bg-gray-800/80 px-3 py-2 hover:bg-gray-700/80 transition-colors"
       >
-        <Volume2 size={14} className="text-gray-400 shrink-0" />
+        <Gauge size={16} className="text-gray-300 shrink-0" />
+        <span className="hidden md:inline text-xs font-medium text-gray-300">Usage</span>
         <span className="block h-2 w-14 sm:w-24 overflow-hidden rounded-full bg-gray-700">
           <span
             className={`block h-full rounded-full transition-[width] duration-500 ${color}`}
