@@ -11,6 +11,9 @@ import { auth, storage } from '../firebase';
 import { ref, getDownloadURL } from 'firebase/storage';
 import { uploadWithProgress, primeUploadNotifications } from '../lib/uploadManager';
 import axios from 'axios';
+import { askAI } from '../lib/ai';
+import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import mammoth from 'mammoth';
 import Loader1 from '../components/loaders/Loader1';
 import Loader2 from '../components/loaders/Loader2';
@@ -107,6 +110,10 @@ const AITeacher = () => {
       audioRef.current.playbackRate = voicePrefs.speed;
     }
   }, [voicePrefs]);
+  const [showRecap, setShowRecap] = useState(false);
+  const [recapText, setRecapText] = useState('');
+  const [recapLoading, setRecapLoading] = useState(false);
+  const recapDoneRef = useRef(false);
   const [currentConcept, setCurrentConcept] = useState(0);
   const [conceptTotal, setConceptTotal] = useState(0);
   const [weakConcepts, setWeakConcepts] = useState([]);
@@ -989,6 +996,7 @@ const AITeacher = () => {
       studyMaterialRef.current = generatedNotes;
       setConceptTotal(countConcepts(generatedNotes));
       setCurrentConcept(1);
+      recapDoneRef.current = false;
       weakRef.current = [];
       setWeakConcepts([]);
       setFiles([]);
@@ -1579,7 +1587,7 @@ const AITeacher = () => {
         }
         await speech.done;
         if (wantsUpload) setShowUploadDrawer(true);
-        if (stepRef.current === 4) setEyeEmotion('sleep');
+        if (stepRef.current === 4) { setEyeEmotion('sleep'); openRecap(); }
         return;
       }
       speech.end();
@@ -1593,7 +1601,7 @@ const AITeacher = () => {
       stopThinking();
       await speakAndAdvance(aiText);
       if (wantsUpload) setShowUploadDrawer(true);
-      if (stepRef.current === 4) setEyeEmotion('sleep');
+      if (stepRef.current === 4) { setEyeEmotion('sleep'); openRecap(); }
 
     } catch (error) {
       console.error('Dwenlite Cognitive Engine error:', error);
@@ -1607,6 +1615,31 @@ const AITeacher = () => {
     }
   };
 
+  // Short written summary of the lesson: covered, strengths, weak spots, next steps.
+  const openRecap = async () => {
+    if (recapDoneRef.current) return;
+    const turns = messagesRef.current.filter(m => m.role === 'user' || m.role === 'ai');
+    if (turns.length < 4) return; // nothing worth summarising yet
+    recapDoneRef.current = true;
+    setRecapText('');
+    setRecapLoading(true);
+    setShowRecap(true);
+    try {
+      const transcript = turns.slice(-40)
+        .map(m => `${m.role === 'user' ? 'Student' : 'Teacher'}: ${String(m.content).slice(0, 400)}`)
+        .join('\n');
+      const prompt =
+        `Session length: ${formatTime(sessionTime)}. Reached concept ${Math.max(currentConcept, 1)} of ${conceptTotal || '?'}.\n` +
+        `Weak concepts (numbers): ${weakRef.current.length ? weakRef.current.join(', ') : 'none flagged'}.\n` +
+        `Concept list:\n${(studyMaterialRef.current || '').slice(0, 6000)}\n\nTRANSCRIPT:\n${transcript}`;
+      setRecapText(await askAI(prompt, 'recap'));
+    } catch (err) {
+      setRecapText(`Could not create the recap: ${err.message}`);
+    } finally {
+      setRecapLoading(false);
+    }
+  };
+
   const endSession = async () => {
     clearSessionState();
     stepRef.current = 4;
@@ -1614,6 +1647,7 @@ const AITeacher = () => {
     setShowEndSessionModal(false);
     await speakAndAdvance("Session ended. Great job studying today!", 4);
     setEyeEmotion('sleep');
+    openRecap();
   };
 
   // Map 0-255 volume to a visual scale/size
@@ -2132,6 +2166,47 @@ const AITeacher = () => {
 
         </div>
       </div>
+
+      {/* Session recap */}
+      <AnimatePresence>
+        {showRecap && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          >
+            <div className="flex max-h-[85dvh] w-full max-w-lg flex-col rounded-2xl border border-white/10 bg-[#121217] text-white shadow-2xl">
+              <div className="border-b border-white/10 px-5 py-4">
+                <h2 className="text-lg font-bold">Session recap</h2>
+              </div>
+              <div className="flex-1 overflow-y-auto px-5 py-4">
+                {recapLoading ? (
+                  <p className="animate-pulse text-sm text-slate-400">Writing your recap...</p>
+                ) : (
+                  <div
+                    className="prose prose-invert prose-sm max-w-none prose-headings:text-blue-300 prose-headings:mb-1 prose-headings:mt-4 prose-li:text-slate-300 prose-p:text-slate-300"
+                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(marked.parse(recapText || '')) }}
+                  />
+                )}
+              </div>
+              <div className="flex gap-3 border-t border-white/10 px-5 py-4">
+                <button
+                  disabled={recapLoading || !recapText}
+                  onClick={() => { navigator.clipboard?.writeText(recapText).then(() => toast.success('Recap copied')).catch(() => { }); }}
+                  className="flex-1 rounded-xl bg-slate-700 py-2.5 font-semibold hover:bg-slate-600 disabled:opacity-40 transition-colors"
+                >
+                  Copy
+                </button>
+                <button
+                  onClick={() => setShowRecap(false)}
+                  className="flex-1 rounded-xl bg-purple-600 py-2.5 font-bold hover:bg-purple-500 transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Daily voice limit reached */}
       <AnimatePresence>

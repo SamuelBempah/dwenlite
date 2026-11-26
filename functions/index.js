@@ -17,7 +17,7 @@ const DEEPSEEK_API_KEY = defineSecret("DEEPSEEK_API_KEY");
 // can never burn through your balance.
 // ---------------------------------------------------------------------------
 // Max input per task (characters). A 1-hour meeting transcript is ~50-60k characters.
-const MAX_CHARS = { general: 120000, notes: 400000, concepts: 300000, teacher: 160000, study_chat: 220000, support: 3000, rewrite: 5000 };
+const MAX_CHARS = { general: 120000, notes: 400000, concepts: 300000, teacher: 160000, study_chat: 220000, recap: 60000, support: 3000, rewrite: 5000 };
 // Teacher turns are tiny, so they count for less against the hourly/daily limits.
 const WEIGHTS = { teacher: 0.25, study_chat: 0.5 };
 // Free spoken-voice allowance per ACCOUNT per day, counted in characters of teacher replies
@@ -148,6 +148,14 @@ const STUDY_CHAT_SYSTEM =
   "7. The VERY LAST line of every answer must be exactly: FOLLOWUPS: first short question | second short question | third short question " +
   "(three different things the student might want to ask next, each under 10 words, written as the student would say them).";
 
+const RECAP_SYSTEM =
+  BASE_SYSTEM + "\n\n" +
+  "You write a short end-of-session recap for a student, from the transcript of their voice lesson with an AI teacher. " +
+  "Address the student as 'you'. Markdown only, under 220 words, exactly these sections:\n" +
+  "## What we covered\n(3-6 bullets)\n## What you did well\n(2-3 bullets, specific)\n" +
+  "## Needs more practice\n(use the weak concepts given; name each topic in words, not just the number; if none, say so)\n" +
+  "## Next steps\n(3 short, concrete actions)";
+
 const TASKS = {
   general: { system: BASE_SYSTEM, maxTokens: 4000, temperature: 0.4 },
   notes: { system: NOTES_SYSTEM, maxTokens: 4000, temperature: 0.2 },
@@ -156,6 +164,7 @@ const TASKS = {
   concepts: { system: CONCEPTS_SYSTEM, maxTokens: 8000, temperature: 0.2 },
   teacher: { system: TEACHER_SYSTEM, maxTokens: 450, temperature: 0.6 },
   study_chat: { system: STUDY_CHAT_SYSTEM, maxTokens: 1500, temperature: 0.5 },
+  recap: { system: RECAP_SYSTEM, maxTokens: 700, temperature: 0.3 },
 };
 
 // ---------------------------------------------------------------------------
