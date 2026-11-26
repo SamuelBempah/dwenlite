@@ -69,7 +69,7 @@ function Quizzes() {
 
   // Scroll to bottom of chat
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    chatEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
   }, [chatHistory, showReportForm]);
 
   useEffect(() => {
@@ -1136,7 +1136,7 @@ function Quizzes() {
                                                 : 'bg-slate-700 text-slate-200 rounded-bl-none'
                                     }`}
                                 >
-                                    {msg.type === 'ai' ? <ChatAnswer content={msg.content} typing={msg.typing} /> : msg.content}
+                                    {msg.type === 'ai' ? <ChatAnswer content={msg.content} typing={msg.typing} live={msg.live} /> : msg.content}
                                 </div>
                                 
                                 {msg.type === 'ai' && !msg.typing && !msg.content.includes('typing') && (

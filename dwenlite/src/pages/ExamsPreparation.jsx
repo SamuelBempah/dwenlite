@@ -1544,7 +1544,7 @@ function ExamsPreparation() {
                                 ? 'bg-purple-600 text-white rounded-br-none' 
                                 : 'bg-slate-700 text-slate-200 rounded-bl-none relative group border border-white/5'
                             }`}>
-                              {msg.type === 'ai' ? <ChatAnswer content={msg.content} typing={msg.typing} /> : msg.content}
+                              {msg.type === 'ai' ? <ChatAnswer content={msg.content} typing={msg.typing} live={msg.live} /> : msg.content}
                               
                               {msg.type === 'ai' && !msg.typing && (
                                 <button 

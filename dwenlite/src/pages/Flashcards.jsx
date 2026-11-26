@@ -81,7 +81,7 @@ function Flashcards() {
 
   // Scroll to bottom of chat
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    chatEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
   }, [chatHistory, showReportForm]);
 
   // --- ORIGINAL LOGIC & EFFECTS ---
@@ -1097,7 +1097,7 @@ function Flashcards() {
                                             <span className="animate-bounce delay-200">.</span>
                                         </div>
                                       ) : (
-                                        msg.type === 'ai' ? <ChatAnswer content={msg.content} typing={msg.typing} /> : msg.content
+                                        msg.type === 'ai' ? <ChatAnswer content={msg.content} typing={msg.typing} live={msg.live} /> : msg.content
                                       )}
                                 </div>
                                 
