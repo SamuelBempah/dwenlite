@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Filter } from 'bad-words';
-import { Volume2, User, ArrowLeft, Upload, X, Mic, Pause, Play, Edit2, Check, PhoneOff, Hand, Maximize, Minimize, Menu } from 'lucide-react';
+import { Brain, Volume2, User, ArrowLeft, Upload, X, Mic, Pause, Play, Edit2, Check, PhoneOff, Hand, Maximize, Minimize, Menu } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import TeacherSidebar from '../components/TeacherSidebar';
 import UsageMeter from '../components/UsageMeter';
@@ -1009,7 +1009,15 @@ const AITeacher = () => {
       uploadLoadingRef.current = false;
       setUploadStatus('');
 
-      const aiPrompt = `The user ${userNameRef.current} has provided study materials. Their numbered notes are ready in the study material. Acknowledge that the notes are ready. Then, teach ONLY Concept #1 from the notes in 2-3 short, friendly sentences. Finally, ask a single question to test their understanding of Concept #1. ALWAYS end your turn after the question so the student can answer. Remember to track your progress strictly and use the Adaptive Analogy Engine if they struggle.`;
+      // Revisit topics the student struggled with in earlier sessions (once each).
+      const earlier = loadWeakTopics().slice(0, 2);
+      const warmUp = earlier.length
+        ? `Then do a quick warm-up first: in an earlier session the student struggled with ${earlier.map(t => `"${t.title}"`).join(' and ')}. Ask ONE short warm-up question about "${earlier[0].title}" and stop. After they answer, give brief feedback and continue with Concept #1 as usual.`
+        : '';
+      if (earlier.length) {
+        try { localStorage.setItem(WEAK_KEY, JSON.stringify(loadWeakTopics().slice(earlier.length))); } catch { /* ignore */ }
+      }
+      const aiPrompt = `The user ${userNameRef.current} has provided study materials. Their numbered notes are ready in the study material. Acknowledge that the notes are ready. ${warmUp || 'Then, teach ONLY Concept #1 from the notes in 2-3 short, friendly sentences. Finally, ask a single question to test their understanding of Concept #1.'} ALWAYS end your turn after the question so the student can answer. Remember to track your progress strictly and use the Adaptive Analogy Engine if they struggle.`;
 
       await generateAIResponse(aiPrompt, []);
 
@@ -1493,6 +1501,7 @@ const AITeacher = () => {
       if (aiText.startsWith('Teacher:')) aiText = aiText.substring('Teacher:'.length).trim();
       if (aiText.includes('[SESSION COMPLETE]')) {
         aiText = aiText.replace(/\[SESSION COMPLETE\]/g, '').trim();
+        persistWeakTopics();
         stepRef.current = 4;
         setUiStep(4);
         setIsTimerActive(false);
@@ -1615,6 +1624,44 @@ const AITeacher = () => {
     }
   };
 
+  // ---- Weak topics are remembered between sessions and revisited once as a warm-up ----
+  const WEAK_KEY = 'dwenliteWeakTopics';
+  const loadWeakTopics = () => {
+    try { const v = JSON.parse(localStorage.getItem(WEAK_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; }
+  };
+  const conceptTitle = (material, n) => {
+    const line = (material || '').split('\n').find(l => new RegExp(`^\\s*${n}\\.\\s`).test(l));
+    if (!line) return '';
+    return line.replace(/^\s*\d+\.\s*/, '').split(/[:.]/)[0].trim().slice(0, 70);
+  };
+  const persistWeakTopics = () => {
+    if (!weakRef.current.length) return;
+    try {
+      const fresh = weakRef.current.map(n => conceptTitle(studyMaterialRef.current, n)).filter(Boolean)
+        .map(title => ({ title, date: new Date().toISOString() }));
+      const merged = [...fresh, ...loadWeakTopics()];
+      const seen = new Set();
+      const unique = merged.filter(t => { const k = t.title.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
+      localStorage.setItem(WEAK_KEY, JSON.stringify(unique.slice(0, 10)));
+    } catch { /* ignore */ }
+  };
+
+  // Student explains the current concept in their own words and the teacher grades it.
+  const explainItBack = () => {
+    if (isThinking || uploadLoadingRef.current || stepRef.current !== 3) return;
+    currentAudioSessionRef.current += 1;
+    if (audioRef.current) audioRef.current.pause();
+    setIsSpeaking(false);
+    isSpeakingRef.current = false;
+    setIsPaused(false);
+    isPausedRef.current = false;
+    const n = Math.max(currentConcept, 1);
+    const note = `[SAY IT BACK: The student wants to explain concept ${n} back to you in their own words. Invite them to explain it, then stop and wait. After they speak, grade their explanation.]`;
+    messagesRef.current.push({ role: 'system', content: note });
+    saveSessionState();
+    generateAIResponse(note, toTeacherHistory(messagesRef.current));
+  };
+
   // Short written summary of the lesson: covered, strengths, weak spots, next steps.
   const openRecap = async () => {
     if (recapDoneRef.current) return;
@@ -1645,6 +1692,7 @@ const AITeacher = () => {
     stepRef.current = 4;
     setUiStep(4);
     setShowEndSessionModal(false);
+    persistWeakTopics();
     await speakAndAdvance("Session ended. Great job studying today!", 4);
     setEyeEmotion('sleep');
     openRecap();
@@ -2120,6 +2168,18 @@ const AITeacher = () => {
                   <Upload size={24} />
                 </button>
                 <span className="text-[11px] text-gray-400 font-medium tracking-wide whitespace-nowrap">Add Files</span>
+              </div>
+
+              {/* Explain it back */}
+              <div className="flex flex-col items-center gap-1.5 w-16">
+                <button
+                  onClick={explainItBack}
+                  disabled={isThinking}
+                  className="w-14 h-14 rounded-full bg-gray-800 text-gray-300 hover:bg-gray-700 disabled:opacity-40 flex items-center justify-center transition-all shadow-lg"
+                >
+                  <Brain size={24} />
+                </button>
+                <span className="text-[11px] text-gray-400 font-medium tracking-wide whitespace-nowrap">Explain It</span>
               </div>
 
               <div className="w-px h-10 bg-gray-700 mx-1"></div>
