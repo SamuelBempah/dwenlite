@@ -62,7 +62,13 @@ export async function askStudyChat({ context, history = [], question, kind = 'fo
     const res = await axios.post(AI_URL, { task: 'study_chat', messages, context: context || 'No materials yet.', kind });
     const text = res.data?.choices?.[0]?.message?.content?.trim();
     if (!text) throw new Error('No answer found.');
-    return text;
+    // Split off the trailing "FOLLOWUPS: a | b | c" line into tappable suggestions.
+    const m = text.match(/\n?\s*FOLLOWUPS:\s*(.+)\s*$/i);
+    if (!m) return { text, followups: [] };
+    return {
+      text: text.slice(0, m.index).trim(),
+      followups: m[1].split('|').map((q) => q.trim()).filter(Boolean).slice(0, 3),
+    };
   } catch (err) {
     throw new Error(err.response?.data?.error || err.message);
   }

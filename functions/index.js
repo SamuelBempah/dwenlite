@@ -144,7 +144,9 @@ const STUDY_CHAT_SYSTEM =
   "Never refuse just because something is out of scope. Be honest when you are unsure. If the notes look wrong or incomplete, say so politely.\n" +
   "5. On quiz or flashcard items you can explain why an answer is right or wrong, and write new practice questions when asked.\n" +
   "6. Be clear and well organised, as long as the question needs and no longer. Use Markdown (short headings, bullets, **bold** key terms). " +
-  "No greetings or filler. Optionally end with one short suggestion of what to study next.";
+  "No greetings or filler.\n" +
+  "7. The VERY LAST line of every answer must be exactly: FOLLOWUPS: first short question | second short question | third short question " +
+  "(three different things the student might want to ask next, each under 10 words, written as the student would say them).";
 
 const TASKS = {
   general: { system: BASE_SYSTEM, maxTokens: 4000, temperature: 0.4 },

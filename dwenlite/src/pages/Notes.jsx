@@ -5,6 +5,7 @@ import { doc, getDoc, updateDoc, addDoc, collection, setDoc, query, where, getDo
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import { askStudyChat, buildFolderContext } from '../lib/ai';
+import FollowUpChips from '../components/FollowUpChips';
 import jsPDF from 'jspdf';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
@@ -469,8 +470,8 @@ function Notes() {
     setChatHistory(prev => [...prev, { type: 'user', content: question }, { type: 'system', content: 'DwenLite AI is typing...' }]);
     setChatLoading(true);
     try {
-      const answer = await askStudyChat({ context: buildFolderContext(folder), history: priorHistory, question, kind: 'notes' });
-      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...').concat({ type: 'ai', content: answer }));
+      const { text: answer, followups } = await askStudyChat({ context: buildFolderContext(folder), history: priorHistory, question, kind: 'notes' });
+      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...').concat({ type: 'ai', content: answer, followups }));
     } catch (err) {
       console.error('Error processing question:', err);
       toast.error(err.message);
@@ -747,6 +748,7 @@ function Notes() {
                                 </AnimatePresence>
                             </motion.div>
                         ))}
+                        <FollowUpChips items={!chatLoading ? chatHistory[chatHistory.length - 1]?.followups : []} onPick={processQuestion} disabled={chatLoading} />
                         <div ref={chatEndRef} />
                     </div>
 

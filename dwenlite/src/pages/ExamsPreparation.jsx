@@ -801,7 +801,7 @@ function ExamsPreparation() {
 
     try {
       const context = reviewContent || 'No review content available.';
-      const answer = await askStudyChat({
+      const { text: answer } = await askStudyChat({
         context,
         history: chatHistory.filter(m => m.type === 'user' || m.type === 'ai'),
         question,

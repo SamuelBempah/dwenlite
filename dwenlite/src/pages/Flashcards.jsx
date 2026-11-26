@@ -5,6 +5,8 @@ import { doc, getDoc, updateDoc, addDoc, collection, setDoc, query, where, getDo
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import { askStudyChat, buildFolderContext } from '../lib/ai';
+import FollowUpChips from '../components/FollowUpChips';
+import { isDue, nextSrs, intervalLabel } from '../lib/srs';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, Zap, Coins, Brain, RotateCw, ChevronLeft, ChevronRight, 
@@ -22,6 +24,7 @@ function Flashcards() {
   const [flashcardsLoading, setFlashcardsLoading] = useState(false);
   const [currentFlashcardIndex, setCurrentFlashcardIndex] = useState(0);
   const [showAnswer, setShowAnswer] = useState(false);
+  const [dueOnly, setDueOnly] = useState(false);
   const [showStoredFlashcards, setShowStoredFlashcards] = useState(false);
   const [selectedFlashcardGroup, setSelectedFlashcardGroup] = useState(null);
   const [expandedGroups, setExpandedGroups] = useState({});
@@ -441,8 +444,8 @@ function Flashcards() {
     setChatHistory(prev => [...prev, { type: 'user', content: question }, { type: 'system', content: 'DwenLite AI is typing...' }]);
     setChatLoading(true);
     try {
-      const answer = await askStudyChat({ context: buildFolderContext(folder), history: priorHistory, question, kind: 'flashcards' });
-      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...').concat({ type: 'ai', content: answer }));
+      const { text: answer, followups } = await askStudyChat({ context: buildFolderContext(folder), history: priorHistory, question, kind: 'flashcards' });
+      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...').concat({ type: 'ai', content: answer, followups }));
     } catch (err) {
       console.error('Error processing question:', err);
       toast.error(err.message);
@@ -460,7 +463,29 @@ function Flashcards() {
 
   if (!folder) return null;
 
-  const currentFlashcard = selectedFlashcardGroup?.flashcards[currentFlashcardIndex];
+  const allCards = selectedFlashcardGroup?.flashcards || [];
+  const dueCount = allCards.filter(c => isDue(c)).length;
+  const cards = dueOnly ? allCards.filter(c => isDue(c)) : allCards;
+  const currentFlashcard = cards[currentFlashcardIndex];
+
+  // Save how well the student knew this card; spaced repetition schedules the next review.
+  const handleRateCard = (grade) => {
+    if (!currentFlashcard || !selectedFlashcardGroup) return;
+    const srs = nextSrs(currentFlashcard.srs, grade);
+    const cardIdx = allCards.indexOf(currentFlashcard);
+    const updatedGroup = {
+      ...selectedFlashcardGroup,
+      flashcards: allCards.map((c, i) => (i === cardIdx ? { ...c, srs } : c)),
+    };
+    const groups = folder.flashcardGroups.map(g => (g.id === updatedGroup.id ? updatedGroup : g));
+    setFolder(prev => ({ ...prev, flashcardGroups: groups }));
+    setSelectedFlashcardGroup(updatedGroup);
+    updateDoc(doc(db, 'folders', folderId), { flashcardGroups: groups })
+      .catch(() => toast.error('Could not save your progress.'));
+    setShowAnswer(false);
+    // In "due only" mode the rated card leaves the list, so the next card slides into this spot.
+    if (!dueOnly) setCurrentFlashcardIndex(i => i + 1);
+  };
 
   return (
     <>
@@ -535,13 +560,13 @@ function Flashcards() {
                          <p className="text-lg font-medium">No Collection Selected</p>
                          <p className="text-sm">Choose a flashcard group from the list below or generate a new one.</p>
                       </div>
-                   ) : currentFlashcardIndex >= selectedFlashcardGroup.flashcards.length ? (
+                   ) : currentFlashcardIndex >= cards.length ? (
                       <div className="aspect-[16/9] bg-slate-800/50 backdrop-blur-md border border-white/5 rounded-3xl flex flex-col items-center justify-center text-center p-8">
                          <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mb-6">
                             <Star size={40} className="text-green-400" fill="currentColor" />
                          </div>
                          <h2 className="text-2xl font-bold mb-2">Great Job!</h2>
-                         <p className="text-slate-400 mb-6">You've reviewed all cards in this group.</p>
+                         <p className="text-slate-400 mb-6">{dueOnly ? 'No more cards are due right now. Come back later for your next review.' : "You've reviewed all cards in this group."}</p>
                          <button 
                             onClick={() => { setCurrentFlashcardIndex(0); setShowAnswer(false); }}
                             className="px-6 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors"
@@ -551,14 +576,31 @@ function Flashcards() {
                       </div>
                    ) : (
                       <>
+                        <div className="flex items-center justify-between gap-3 mb-3 px-2">
+                            <div className="inline-flex rounded-full bg-slate-800 p-1 text-xs font-medium">
+                                <button
+                                    onClick={() => { setDueOnly(false); setCurrentFlashcardIndex(0); setShowAnswer(false); }}
+                                    className={`px-3 py-1.5 rounded-full transition-colors ${!dueOnly ? 'bg-purple-600 text-white' : 'text-slate-400'}`}
+                                >
+                                    All cards
+                                </button>
+                                <button
+                                    onClick={() => { setDueOnly(true); setCurrentFlashcardIndex(0); setShowAnswer(false); }}
+                                    className={`px-3 py-1.5 rounded-full transition-colors ${dueOnly ? 'bg-purple-600 text-white' : 'text-slate-400'}`}
+                                >
+                                    Due today ({dueCount})
+                                </button>
+                            </div>
+                            <span className="text-xs text-slate-500 hidden sm:block">Rate each card to schedule your next review</span>
+                        </div>
                         <div className="flex justify-between items-center mb-4 px-2">
                             <span className="text-sm font-mono text-purple-400">
-                                Card {currentFlashcardIndex + 1} / {selectedFlashcardGroup.flashcards.length}
+                                Card {currentFlashcardIndex + 1} / {cards.length}
                             </span>
                             <div className="h-2 flex-1 mx-4 bg-slate-800 rounded-full overflow-hidden">
                                 <div 
                                     className="h-full bg-purple-500 transition-all duration-300" 
-                                    style={{ width: `${((currentFlashcardIndex + 1) / selectedFlashcardGroup.flashcards.length) * 100}%` }}
+                                    style={{ width: `${((currentFlashcardIndex + 1) / Math.max(cards.length, 1)) * 100}%` }}
                                 />
                             </div>
                         </div>
@@ -624,6 +666,27 @@ function Flashcards() {
                                 <ChevronRight size={24} />
                             </button>
                         </div>
+
+                        {/* How well did you know it? */}
+                        {showAnswer && (
+                            <div className="mt-6 grid grid-cols-4 gap-2 sm:gap-3">
+                                {[
+                                    { g: 0, label: 'Again', color: 'bg-red-500/15 text-red-300 border-red-500/30 hover:bg-red-500/25' },
+                                    { g: 1, label: 'Hard', color: 'bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25' },
+                                    { g: 2, label: 'Good', color: 'bg-green-500/15 text-green-300 border-green-500/30 hover:bg-green-500/25' },
+                                    { g: 3, label: 'Easy', color: 'bg-blue-500/15 text-blue-300 border-blue-500/30 hover:bg-blue-500/25' },
+                                ].map(({ g, label, color }) => (
+                                    <button
+                                        key={g}
+                                        onClick={(e) => { e.stopPropagation(); handleRateCard(g); }}
+                                        className={`flex flex-col items-center rounded-xl border py-2.5 text-sm font-semibold transition-colors ${color}`}
+                                    >
+                                        {label}
+                                        <span className="text-[11px] font-normal opacity-70">{intervalLabel(currentFlashcard.srs, g)}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                       </>
                    )}
                 </div>
@@ -798,6 +861,7 @@ function Flashcards() {
                                 </AnimatePresence>
                             </motion.div>
                         ))}
+                        <FollowUpChips items={!chatLoading ? chatHistory[chatHistory.length - 1]?.followups : []} onPick={processQuestion} disabled={chatLoading} />
                         <div ref={chatEndRef} />
                     </div>
 
