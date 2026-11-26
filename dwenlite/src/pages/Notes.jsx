@@ -34,6 +34,13 @@ function Notes() {
     try { return localStorage.getItem('dwenliteNoteTemplate') || 'auto'; } catch { return 'auto'; }
   });
   const [showHighlights, setShowHighlights] = useState(true);
+  const [mergeSel, setMergeSel] = useState([]);
+  const [mergeBusy, setMergeBusy] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [draft, setDraft] = useState('');
+  const [titleBusy, setTitleBusy] = useState(null);
+  const latestFolder = useRef(null);
+  latestFolder.current = folder;
 
   useEffect(() => {
     if (!exportOpenId) return undefined;
@@ -360,6 +367,7 @@ function Notes() {
       toast.success('Notes generated successfully! 3 G_COINS deducted.');
       
       setExpandedGroups(prev => ({ ...prev, [newNote.id]: true }));
+      titleNote(newNote.id, { note: newNote });
     } catch (err) { toast.error(err.message); } 
     finally { setNotesLoading(false); }
   };
@@ -532,6 +540,82 @@ function Notes() {
     } catch (err) { toast.error('Could not remove the highlight.'); }
   };
 
+  const saveNotes = async (updatedNotes) => {
+    await updateDoc(doc(db, 'folders', folderId), { notes: updatedNotes });
+    setFolder(prev => ({ ...prev, notes: updatedNotes }));
+  };
+
+  // Short title + tags for a note (one tiny AI call). Runs in the background after new notes.
+  const titleNote = async (noteId, { quiet = true, note: given = null } = {}) => {
+    const note = given || latestFolder.current?.notes?.find(n => n.id === noteId);
+    if (!note) return;
+    setTitleBusy(noteId);
+    try {
+      const raw = await askAI(`Return ONLY a JSON object like {"title":"at most 6 words","tags":["tag1","tag2","tag3"]} describing these notes. Tags are short lowercase words.\n\n${String(note.content).slice(0, 3000)}`, 'general');
+      const m = raw.match(/\{[\s\S]*\}/);
+      const parsed = JSON.parse(m ? m[0] : raw);
+      const title = String(parsed.title || '').replace(/[#*"]/g, '').trim().slice(0, 60);
+      const tags = (Array.isArray(parsed.tags) ? parsed.tags : []).map(t => String(t).toLowerCase().trim().slice(0, 24)).filter(Boolean).slice(0, 4);
+      if (!title) throw new Error('no title');
+      const current = latestFolder.current.notes;
+      await saveNotes(current.map(n => (n.id === noteId ? { ...n, title, tags } : n)));
+    } catch (err) {
+      if (!quiet) toast.error('Could not make a title this time.');
+    } finally {
+      setTitleBusy(null);
+    }
+  };
+
+  // Combine two or more selected notes into one new note (originals stay).
+  const mergeSelected = async () => {
+    if (mergeSel.length < 2 || mergeBusy) return;
+    setMergeBusy(true);
+    try {
+      const picked = folder.notes.map((n, i) => ({ n, i })).filter(({ n }) => mergeSel.includes(n.id));
+      const text = picked.map(({ n, i }) => `=== NOTE ${i + 1} ===\n${n.content}`).join('\n\n');
+      const content = await askAI(`MODE: merge\n\n${text}`, 'note_tools');
+      const newNote = {
+        id: Date.now().toString(),
+        content,
+        createdAt: new Date().toISOString(),
+        rating: 0,
+        label: `merged Notes ${picked.map(({ i }) => i + 1).join(' + ')}`,
+      };
+      await updateDoc(doc(db, 'folders', folderId), { notes: arrayUnion(newNote) });
+      setFolder(prev => ({ ...prev, notes: [...prev.notes, newNote] }));
+      setExpandedGroups(prev => ({ ...prev, [newNote.id]: true }));
+      setMergeSel([]);
+      toast.success('Notes merged into a new note');
+      titleNote(newNote.id, { note: newNote });
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setMergeBusy(false);
+    }
+  };
+
+  // Editing keeps the last 3 versions so a mistake can be undone.
+  const startEdit = (note) => { setEditingId(note.id); setDraft(note.content || ''); };
+  const saveEdit = async (note) => {
+    const text = draft.trim();
+    if (!text) { toast.error('A note cannot be empty.'); return; }
+    if (text === note.content) { setEditingId(null); return; }
+    try {
+      const versions = [{ content: note.content, savedAt: new Date().toISOString() }, ...(note.versions || [])].slice(0, 3);
+      await saveNotes(folder.notes.map(n => (n.id === note.id ? { ...n, content: text, versions } : n)));
+      setEditingId(null);
+      toast.success('Note saved');
+    } catch (err) { toast.error('Could not save the note.'); }
+  };
+  const undoEdit = async (note) => {
+    const [latest, ...rest] = note.versions || [];
+    if (!latest) return;
+    try {
+      await saveNotes(folder.notes.map(n => (n.id === note.id ? { ...n, content: latest.content, versions: rest } : n)));
+      toast.success('Restored the previous version');
+    } catch (err) { toast.error('Could not restore.'); }
+  };
+
   // Shorter / longer / action items / key terms: creates a NEW note and keeps the original.
   const NOTE_TOOLS = {
     shorter: { label: 'Shorter', tag: 'shorter' },
@@ -555,6 +639,7 @@ function Notes() {
       setFolder(prev => ({ ...prev, notes: [...prev.notes, newNote] }));
       setExpandedGroups(prev => ({ ...prev, [newNote.id]: true }));
       toast.success(`Created: ${newNote.label}`);
+      titleNote(newNote.id, { note: newNote });
     } catch (err) {
       toast.error(err.message);
     } finally {
@@ -602,7 +687,8 @@ function Notes() {
       if (!q) return { note, idx, snippet: null };
       const text = (note.content || '').replace(/[#>*_`]/g, '');
       const at = text.toLowerCase().indexOf(q);
-      if (at < 0) return null;
+      const metaHit = [note.title, ...(note.tags || [])].join(' ').toLowerCase().includes(q);
+      if (at < 0) return metaHit ? { note, idx, snippet: null } : null;
       return {
         note, idx,
         snippet: {
@@ -758,6 +844,17 @@ function Notes() {
                                       )}
                                    </div>
                                 )}
+                                {mergeSel.length >= 2 && (
+                                   <div className="flex items-center justify-between gap-3 rounded-xl border border-purple-500/30 bg-purple-500/10 px-4 py-2.5">
+                                      <span className="text-sm text-purple-100">{mergeSel.length} notes selected</span>
+                                      <div className="flex gap-2">
+                                         <button onClick={() => setMergeSel([])} className="text-xs text-slate-400 hover:text-white">Clear</button>
+                                         <button onClick={mergeSelected} disabled={mergeBusy} className="rounded-lg bg-purple-600 px-3 py-1.5 text-sm font-semibold hover:bg-purple-500 disabled:opacity-50">
+                                            {mergeBusy ? 'Merging...' : 'Merge into one note'}
+                                         </button>
+                                      </div>
+                                   </div>
+                                )}
                                 {noteQuery.trim() && (
                                    <p className="text-xs text-slate-500">
                                       {visibleNotes.length} of {folder.notes.length} notes match "{noteQuery.trim()}"
@@ -782,9 +879,23 @@ function Notes() {
                                                 className="flex-1 cursor-pointer"
                                                 onClick={() => handleToggleGroup(note.id)}
                                             >
-                                                <h4 className="font-bold text-slate-200 flex items-center gap-2">
-                                                   Note {idx + 1}{note.label ? <span className="text-xs font-normal text-purple-300"> · {note.label}</span> : null}
+                                                <h4 className="font-bold text-slate-200 flex flex-wrap items-center gap-x-2">
+                                                   <input
+                                                      type="checkbox"
+                                                      checked={mergeSel.includes(note.id)}
+                                                      onClick={(e) => e.stopPropagation()}
+                                                      onChange={() => setMergeSel(sel => sel.includes(note.id) ? sel.filter(x => x !== note.id) : [...sel, note.id])}
+                                                      aria-label={`Select Note ${idx + 1} to merge`}
+                                                      className="h-4 w-4 accent-purple-500"
+                                                   />
+                                                   <span>Note {idx + 1}{note.title ? <span className="font-semibold text-white"> · {note.title}</span> : null}</span>
+                                                   {note.label ? <span className="text-xs font-normal text-purple-300">({note.label})</span> : null}
                                                 </h4>
+                                                {note.tags?.length > 0 && (
+                                                   <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                                      {note.tags.map(t => <span key={t} className="rounded-full bg-slate-700/70 px-2 py-0.5 text-[10px] text-slate-300">#{t}</span>)}
+                                                   </div>
+                                                )}
                                                 <p className="text-xs text-slate-500 mt-1">Created: {new Date(note.createdAt).toLocaleDateString()}</p>
                                                 {snippet && (
                                                    <p className="mt-2 text-xs text-slate-400 line-clamp-2">
@@ -872,6 +983,29 @@ function Notes() {
                                                           </button>
                                                        ))}
                                                        <button
+                                                          onClick={() => startEdit(note)}
+                                                          className="rounded-full border border-slate-600 bg-slate-700/40 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 transition-colors"
+                                                       >
+                                                          Edit
+                                                       </button>
+                                                       {note.versions?.length > 0 && (
+                                                          <button
+                                                             onClick={() => undoEdit(note)}
+                                                             className="rounded-full border border-slate-600 bg-slate-700/40 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 transition-colors"
+                                                          >
+                                                             Undo last edit
+                                                          </button>
+                                                       )}
+                                                       {!note.title && (
+                                                          <button
+                                                             onClick={() => titleNote(note.id, { quiet: false })}
+                                                             disabled={titleBusy === note.id}
+                                                             className="rounded-full border border-slate-600 bg-slate-700/40 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-50 transition-colors"
+                                                          >
+                                                             {titleBusy === note.id ? 'Working...' : 'Add title & tags'}
+                                                          </button>
+                                                       )}
+                                                       <button
                                                           onMouseDown={(e) => e.preventDefault()}
                                                           onClick={() => saveHighlight(note, idx)}
                                                           className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-3 py-1.5 text-xs font-medium text-yellow-200 hover:bg-yellow-500/20 transition-colors"
@@ -879,7 +1013,19 @@ function Notes() {
                                                           Save highlight
                                                        </button>
                                                     </div>
-                                                    {/* STYLED CONTENT VIEWER */}
+                                                    {editingId === note.id ? (
+                                                       <div>
+                                                          <textarea
+                                                             value={draft}
+                                                             onChange={(e) => setDraft(e.target.value)}
+                                                             className="min-h-[50vh] w-full resize-y rounded-xl border border-slate-700 bg-slate-900 p-4 font-mono text-sm text-slate-200 outline-none focus:border-purple-500"
+                                                          />
+                                                          <div className="mt-3 flex justify-end gap-2">
+                                                             <button onClick={() => setEditingId(null)} className="rounded-lg px-4 py-2 text-sm text-slate-400 hover:text-white">Cancel</button>
+                                                             <button onClick={() => saveEdit(note)} className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold hover:bg-purple-500">Save</button>
+                                                          </div>
+                                                       </div>
+                                                    ) : (
                                                     <div 
                                                        data-note-content={note.id}
                                                        className="prose prose-invert prose-sm max-w-none 
@@ -891,6 +1037,7 @@ function Notes() {
                                                        prose-blockquote:border-l-4 prose-blockquote:border-purple-500 prose-blockquote:bg-purple-900/20 prose-blockquote:pl-4 prose-blockquote:py-2 prose-blockquote:my-4 prose-blockquote:italic prose-blockquote:text-purple-100 prose-blockquote:rounded-r-lg"
                                                        dangerouslySetInnerHTML={{ __html: renderMarkdown(note.content) }}
                                                     />
+                                                    )}
                                                 </motion.div>
                                             )}
                                         </AnimatePresence>

@@ -182,6 +182,7 @@ const NOTE_TOOLS_SYSTEM =
   "- MODE: shorter -> keep the title, a one-line summary and only the essential points, about 40% of the length. Keep every name, number, date and definition that matters.\n" +
   "- MODE: longer -> keep everything and expand: clearer explanations, worked examples, analogies and extra context from your own knowledge. Put added material under a blockquote starting with '> **Added:**' or in sections titled 'Going deeper'.\n" +
   "- MODE: action_items -> extract only what must be done. Output: a short '## Summary', then '## Action Items' as a table with columns Task | Owner | Deadline (write 'Unassigned' or 'Not stated' when unknown, never invent), then '## Decisions Made' and '## Open Questions'. If the notes contain no actions, say so briefly.\n" +
+  "- MODE: merge -> the message holds several notes separated by lines like === NOTE 2 ===. Combine them into ONE organised set of notes: remove duplicates, keep every unique detail (names, numbers, dates, definitions, decisions), group by topic, keep the structure of the dominant note type, and add a short '> **Summary:**' at the top.\n" +
   "- MODE: key_terms -> a glossary table of the important terms with short definitions taken from the notes.";
 
 const TASKS = {
