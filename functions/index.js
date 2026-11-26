@@ -327,13 +327,14 @@ function splitText(text, size) {
 }
 
 // Long source (e.g. 2-hour meeting): notes per part in parallel, then one merge pass.
-async function longNotes(prompt, cfg) {
+async function longNotes(prompt, cfg, onProgress) {
   const chunks = splitText(prompt, CHUNK_CHARS);
   const n = chunks.length;
   const usage = { prompt_tokens: 0, completion_tokens: 0, prompt_cache_hit_tokens: 0, prompt_cache_miss_tokens: 0 };
   const add = (d) => { for (const k in usage) usage[k] += d.usage?.[k] || 0; };
 
   const partNotes = [];
+  if (onProgress) onProgress({ stage: "parts", done: 0, total: n });
   for (let i = 0; i < n; i += 4) { // 4 at a time
     const batch = await Promise.all(chunks.slice(i, i + 4).map(async (c, j) => {
       const idx = i + j + 1;
@@ -347,7 +348,9 @@ async function longNotes(prompt, cfg) {
       return d.choices[0].message.content;
     }));
     partNotes.push(...batch);
+    if (onProgress) onProgress({ stage: "parts", done: Math.min(n, i + 4), total: n });
   }
+  if (onProgress) onProgress({ stage: "merge", total: n });
 
   const merged = await callDeepSeek(
     cfg.system,
@@ -569,29 +572,46 @@ exports.generateNotesProxy = onRequest(
         });
       }
 
-      // Teacher replies can be streamed so the app starts speaking after the first sentence.
-      if (task === "teacher" && req.body.stream === true) {
+      // Streaming: teacher replies (so speech can start at once) and generation jobs (so the app can show real progress).
+      const STREAM_TASKS = new Set(["teacher", "notes", "general", "concepts"]);
+      if (STREAM_TASKS.has(task) && req.body.stream === true) {
         res.set({
           "Content-Type": "text/event-stream; charset=utf-8",
           "Cache-Control": "no-cache, no-transform",
           "X-Accel-Buffering": "no",
         });
         if (res.flushHeaders) res.flushHeaders();
+        const send = (o) => res.write(`data: ${JSON.stringify(o)}\n\n`);
         let total = "";
         let streamUsage = null;
         try {
-          streamUsage = await streamDeepSeek(teacherMessages, cfg.maxTokens, cfg.temperature, (t) => {
-            total += t;
-            res.write(`data: ${JSON.stringify({ t })}\n\n`);
-          });
+          if (task === "notes" && promptToUse.length > SINGLE_PASS_MAX) {
+            // very long source: parts are written one batch at a time and reported as they finish
+            const d = await longNotes(promptToUse, cfgToUse, (p) => send({ p }));
+            total = d.choices?.[0]?.message?.content || "";
+            streamUsage = d.usage;
+            send({ t: total });
+          } else {
+            const msgs = task === "teacher"
+              ? teacherMessages
+              : [{ role: "system", content: cfgToUse.system }, { role: "user", content: promptToUse }];
+            streamUsage = await streamDeepSeek(msgs, cfg.maxTokens, cfg.temperature, (t) => {
+              total += t;
+              send({ t });
+            });
+          }
         } catch (error) {
           logger.error("Stream error", error.response?.status, error.message);
-          res.write(`data: ${JSON.stringify({ error: hintFor(error) })}\n\n`);
+          send({ error: hintFor(error) });
         }
-        try { await addVoiceChars(uid, total.length); } catch (e) { logger.warn("voice count failed", e.message); }
-        try { await recordStats("teacher", streamUsage || {}); } catch (e) { /* stats are optional */ }
+        if (task === "teacher") {
+          try { await addVoiceChars(uid, total.length); } catch (e) { logger.warn("voice count failed", e.message); }
+        }
+        try { await recordStats(task, streamUsage || {}); } catch (e) { /* stats are optional */ }
         logger.info("ai_usage", { uid, task, streamed: true, chars: total.length });
-        res.write(`data: ${JSON.stringify({ done: true, voice: { used: (usage.voiceUsed || 0) + total.length, limit: VOICE_DAILY_CHARS } })}\n\n`);
+        send(task === "teacher"
+          ? { done: true, voice: { used: (usage.voiceUsed || 0) + total.length, limit: VOICE_DAILY_CHARS } }
+          : { done: true });
         return res.end();
       }
 

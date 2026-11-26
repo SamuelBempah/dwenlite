@@ -5,6 +5,9 @@ import { db, auth, storage } from '../firebase';
 import { ref as storageRef, getDownloadURL } from 'firebase/storage';
 import { uploadWithProgress } from '../lib/uploadManager';
 import { parseCards, toCsv } from '../lib/cards';
+import { generateStream } from '../lib/generate';
+import { useGenProgress } from '../lib/genProgress';
+import GenerationProgress from '../components/GenerationProgress';
 import { doc, getDoc, updateDoc, addDoc, collection, setDoc, query, where, getDocs } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
@@ -34,6 +37,7 @@ function Flashcards() {
   const [showAnswer, setShowAnswer] = useState(false);
   const [dueOnly, setDueOnly] = useState(false);
   const [imageBusy, setImageBusy] = useState(false);
+  const [genProgress, gp] = useGenProgress();
   const [diffFilter, setDiffFilter] = useState('all');
   const [cardStyle, setCardStyle] = useState(() => {
     try { return localStorage.getItem('dwenliteCardStyle') === 'cloze' ? 'cloze' : 'qa'; } catch { return 'qa'; }
@@ -205,7 +209,7 @@ function Flashcards() {
       const transcriptId = response.data.id;
       let status = 'queued';
       let transcribedText = '';
-      const maxAttempts = 30;
+      const maxAttempts = 600;
       let attempts = 0;
 
       while (status !== 'completed' && status !== 'error' && attempts < maxAttempts) {
@@ -214,6 +218,7 @@ function Flashcards() {
           { headers: { Authorization: `Bearer ${apiKey}` } }
         );
         status = checkResponse.data.status;
+        gp.set(0, 0.5, `Transcribing your recording (${status})`, { indeterminate: true });
         if (status === 'completed') transcribedText = checkResponse.data.text || '';
         else if (status === 'error') throw new Error(`Audio transcription failed: ${checkResponse.data.error || 'Unknown error'}`);
         attempts++;
@@ -244,7 +249,7 @@ function Flashcards() {
       const transcriptId = response.data.id;
       let status = 'queued';
       let transcribedText = '';
-      const maxAttempts = 60;
+      const maxAttempts = 600;
       let attempts = 0;
 
       while (status !== 'completed' && status !== 'error' && attempts < maxAttempts) {
@@ -253,6 +258,7 @@ function Flashcards() {
           { headers: { Authorization: `Bearer ${apiKey}` } }
         );
         status = checkResponse.data.status;
+        gp.set(0, 0.5, `Transcribing your recording (${status})`, { indeterminate: true });
         if (status === 'completed') transcribedText = checkResponse.data.text || '';
         else if (status === 'error') {
            let errorMessage = checkResponse.data.error || 'Unknown error';
@@ -294,7 +300,17 @@ function Flashcards() {
         : 'Each flashcard should have a question and an answer.';
       const prompt = `Generate 20 flashcards based on the following content: "${context}". ${styleText} Format as a JSON array: [{ "question": "...", "answer": "..." }, ...]. Return only the JSON array string, without any markdown, code block markers (like \`\`\`json), or additional text. Ensure the output is valid JSON.`;
 
-      const response = await axios.post(functionUrl, { prompt });
+      gp.set(0, 1, 'Material ready');
+      gp.set(1, 0, 'Connecting to the AI...');
+      const response = await generateStream({
+        prompt,
+        task: 'general',
+        onProgress: (e) => {
+          if (e.phase !== 'writing') return;
+          const n = (e.text.match(/"question"/g) || []).length;
+          gp.set(1, Math.min(0.98, n / 20), `${Math.min(n, 20)} of 20 cards written`);
+        },
+      }).catch(err => { throw new Error(err.response?.data?.error || err.message); });
       
       let generatedText;
       if (response.data.choices?.[0]?.message?.content) generatedText = response.data.choices[0].message.content.trim();
@@ -330,8 +346,11 @@ function Flashcards() {
     }
 
     setFlashcardsLoading(true);
+    gp.start('Creating your flashcards');
     try {
+      gp.set(0, 0.1, 'Reading your material');
       const newFlashcards = await generateContent();
+      gp.set(2, 0.2, 'Saving your flashcards');
       const newFlashcardGroup = {
         id: Date.now().toString(),
         flashcards: newFlashcards,
@@ -347,11 +366,12 @@ function Flashcards() {
       setFolder(prev => ({ ...prev, flashcardGroups: updatedFlashcardGroups }));
       setRatings(prev => ({ ...prev, [newFlashcardGroup.id]: newFlashcardGroup.rating }));
       setHasRated(prev => ({ ...prev, [newFlashcardGroup.id]: false }));
+      gp.finish();
       toast.success('New flashcard group generated successfully! 3 G_COINS deducted.');
       setSelectedFlashcardGroup(newFlashcardGroup);
       setCurrentFlashcardIndex(0);
       setShowAnswer(false);
-    } catch (err) { toast.error(err.message); } 
+    } catch (err) { gp.fail(); toast.error(err.message); } 
     finally { setFlashcardsLoading(false); }
   };
 
@@ -701,6 +721,8 @@ function Flashcards() {
            </button>
            </div>
         </motion.div>
+
+        {genProgress && <div className="mb-8"><GenerationProgress progress={genProgress} /></div>}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             

@@ -99,3 +99,10 @@ img, video, canvas, svg { max-width: 100%; }
 .md-a4 .md-table-wrap { margin: 1em 0; }
 .a4-inner > :first-child { margin-top: 0; }
 .a4-inner > h2:first-child { border-top: 0; padding-top: 0; }
+
+/* ---- generation progress bar ---- */
+@keyframes gen-sheen { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+.gen-sheen { background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .35), transparent); animation: gen-sheen 1.6s ease-in-out infinite; }
+@keyframes gen-stripe { 0% { left: -25%; } 100% { left: 100%; } }
+.gen-stripe { animation: gen-stripe 1.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .gen-sheen, .gen-stripe { animation: none; } }

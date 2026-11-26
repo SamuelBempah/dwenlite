@@ -11,6 +11,9 @@ import FollowUpChips from '../components/FollowUpChips';
 import Markdown from '../components/Markdown';
 import AnswerLengthToggle from '../components/AnswerLengthToggle';
 import { useChatMemory } from '../lib/chatMemory';
+import { generateStream } from '../lib/generate';
+import { useGenProgress } from '../lib/genProgress';
+import GenerationProgress from '../components/GenerationProgress';
 import { questionKey, weakQuestions, answersMatch } from '../lib/quizStats';
 import { arrayUnion } from 'firebase/firestore';
 import { recordStudy } from '../lib/streak';
@@ -40,6 +43,7 @@ function Quizzes() {
   const [fillText, setFillText] = useState('');
   const [explanation, setExplanation] = useState('');
   const [explainLoading, setExplainLoading] = useState(false);
+  const [genProgress, gp] = useGenProgress();
   const [results, setResults] = useState([]); // [{ quiz, correct, timedOut }]
   const [showStoredQuizzes, setShowStoredQuizzes] = useState(true); // Default to true to match Notes style
   const [selectedQuizGroup, setSelectedQuizGroup] = useState(null);
@@ -194,7 +198,7 @@ function Quizzes() {
       const transcriptId = response.data.id;
       let status = 'queued';
       let transcribedText = '';
-      const maxAttempts = 30;
+      const maxAttempts = 600;
       let attempts = 0;
 
       while (status !== 'completed' && status !== 'error' && attempts < maxAttempts) {
@@ -203,6 +207,7 @@ function Quizzes() {
           { headers: { Authorization: `Bearer ${apiKey}` } }
         );
         status = checkResponse.data.status;
+        gp.set(0, 0.5, `Transcribing your recording (${status})`, { indeterminate: true });
         if (status === 'completed') transcribedText = checkResponse.data.text || '';
         else if (status === 'error') throw new Error(`Audio transcription failed: ${checkResponse.data.error || 'Unknown error'}`);
         attempts++;
@@ -233,7 +238,7 @@ function Quizzes() {
       const transcriptId = response.data.id;
       let status = 'queued';
       let transcribedText = '';
-      const maxAttempts = 60;
+      const maxAttempts = 600;
       let attempts = 0;
 
       while (status !== 'completed' && status !== 'error' && attempts < maxAttempts) {
@@ -242,6 +247,7 @@ function Quizzes() {
           { headers: { Authorization: `Bearer ${apiKey}` } }
         );
         status = checkResponse.data.status;
+        gp.set(0, 0.5, `Transcribing your recording (${status})`, { indeterminate: true });
         if (status === 'completed') transcribedText = checkResponse.data.text || '';
         else if (status === 'error') {
           let errorMessage = checkResponse.data.error || 'Unknown error';
@@ -283,8 +289,19 @@ function Quizzes() {
         prompt = `You previously failed to return valid JSON. Generate 40 mixed quiz questions (multiple-choice, true/false and fill-in-the-blank, with a "type" field of mcq or fill) based on content: "${context.slice(0, 100000)}". Return ONLY the JSON array string. No markdown.`;
       }
 
-      const response = await axios.post(functionUrl, { prompt })
+      gp.set(0, 1, 'Material ready');
+      gp.set(1, 0, retry ? 'Fixing the format and trying again...' : 'Connecting to the AI...');
+      const response = await generateStream({
+        prompt,
+        task: 'general',
+        onProgress: (e) => {
+          if (e.phase !== 'writing') return;
+          const n = (e.text.match(/"question"/g) || []).length;
+          gp.set(1, Math.min(0.98, n / 40), `${Math.min(n, 40)} of 40 questions written`);
+        },
+      })
         .catch(err => {
+          if (err.response?.data?.error) throw new Error(err.response.data.error);
           if (err.response?.status === 404) throw new Error('Backend function not found.');
           throw new Error(`Generation failed: ${err.message}`);
         });
@@ -345,8 +362,11 @@ function Quizzes() {
     }
 
     setQuizLoading(true);
+    gp.start('Creating your quiz');
     try {
+      gp.set(0, 0.1, 'Reading your material');
       const newQuizzes = await generateContent();
+      gp.set(2, 0.2, 'Saving your quiz');
       const newGroup = {
         id: Date.now().toString(),
         quizzes: newQuizzes,
@@ -368,8 +388,9 @@ function Quizzes() {
       setSelectedAnswer(null);
       setIsCorrect(null);
       
+      gp.finish();
       toast.success('Quiz generated successfully! 5 G_COINS deducted.');
-    } catch (err) { toast.error(err.message); } 
+    } catch (err) { gp.fail(); toast.error(err.message); } 
     finally { setQuizLoading(false); }
   };
 
@@ -689,6 +710,8 @@ function Quizzes() {
               )}
            </button>
         </motion.div>
+
+        {genProgress && <div className="mb-8"><GenerationProgress progress={genProgress} /></div>}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             

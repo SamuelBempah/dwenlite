@@ -11,6 +11,9 @@ import AnswerLengthToggle from '../components/AnswerLengthToggle';
 import { loadVoicePrefs, LANGUAGES } from '../components/VoiceSettings';
 import { renderMarkdown as renderMd } from '../lib/markdown';
 import { useChatMemory } from '../lib/chatMemory';
+import { generateStream } from '../lib/generate';
+import { useGenProgress } from '../lib/genProgress';
+import GenerationProgress from '../components/GenerationProgress';
 import jsPDF from 'jspdf';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
@@ -33,6 +36,7 @@ function Notes() {
   const [expandedGroups, setExpandedGroups] = useState({});
   const [noteQuery, setNoteQuery] = useState('');
   const [exportOpenId, setExportOpenId] = useState(null);
+  const [genProgress, gp] = useGenProgress();
   const [readerId, setReaderId] = useState(null);      // note open in the full-screen reader
   const [outline, setOutline] = useState([]);
   const [pages, setPages] = useState([]);              // the note split into A4 pages (HTML strings)
@@ -311,7 +315,7 @@ function Notes() {
       const transcriptId = response.data.id;
       let status = 'queued';
       let transcribedText = '';
-      const maxAttempts = 30;
+      const maxAttempts = 600;
       let attempts = 0;
 
       while (status !== 'completed' && status !== 'error' && attempts < maxAttempts) {
@@ -320,6 +324,7 @@ function Notes() {
           { headers: { Authorization: `Bearer ${apiKey}` } }
         );
         status = checkResponse.data.status;
+        gp.set(0, 0.5, `Transcribing your recording (${status})`, { indeterminate: true });
         if (status === 'completed') transcribedText = checkResponse.data.text || '';
         else if (status === 'error') throw new Error(`Audio transcription failed: ${checkResponse.data.error || 'Unknown error'}`);
         attempts++;
@@ -350,7 +355,7 @@ function Notes() {
       const transcriptId = response.data.id;
       let status = 'queued';
       let transcribedText = '';
-      const maxAttempts = 60;
+      const maxAttempts = 600;
       let attempts = 0;
 
       while (status !== 'completed' && status !== 'error' && attempts < maxAttempts) {
@@ -359,6 +364,7 @@ function Notes() {
           { headers: { Authorization: `Bearer ${apiKey}` } }
         );
         status = checkResponse.data.status;
+        gp.set(0, 0.5, `Transcribing your recording (${status})`, { indeterminate: true });
         if (status === 'completed') transcribedText = checkResponse.data.text || '';
         else if (status === 'error') {
            let errorMessage = checkResponse.data.error || 'Unknown error';
@@ -401,7 +407,17 @@ function Notes() {
       const langLine = lang && lang.id !== 'en' ? `Write the notes in ${lang.name}.\n\n` : '';
       const prompt = `${templateLine}${langLine}Create notes from the following source material:\n\n${context}`;
 
-      const response = await axios.post(functionUrl, { prompt, task: 'notes' })
+      gp.set(0, 1, 'Material ready');
+      gp.set(1, 0, 'Connecting to the AI...');
+      const response = await generateStream({
+        prompt,
+        task: 'notes',
+        onProgress: (e) => {
+          if (e.phase === 'parts') gp.set(1, (e.done / e.total) * 0.9, `Long recording: written ${e.done} of ${e.total} parts`);
+          else if (e.phase === 'merge') gp.set(1, 0.93, 'Combining the parts into one set of notes');
+          else gp.set(1, Math.min(0.97, e.chars / 3800), `${e.chars.toLocaleString()} characters written`);
+        },
+      })
         .catch(err => {
            if (err.response?.data?.error) throw new Error(err.response.data.error);
            if (err.response?.status === 404) throw new Error('Backend function not found.');
@@ -439,8 +455,11 @@ function Notes() {
     }
 
     setNotesLoading(true);
+    gp.start('Creating your notes');
     try {
+      gp.set(0, 0.1, 'Reading your material');
       const newNote = await generateContent();
+      gp.set(2, 0.2, 'Saving your notes');
       const folderRef = doc(db, 'folders', folderId);
       await updateDoc(folderRef, { notes: arrayUnion(newNote) });
       await deductGCoins(auth.currentUser.uid, 3);
@@ -448,11 +467,12 @@ function Notes() {
       setFolder(prev => ({ ...prev, notes: [...prev.notes, newNote] }));
       setRatings(prev => ({ ...prev, [newNote.id]: newNote.rating }));
       setHasRated(prev => ({ ...prev, [newNote.id]: false }));
+      gp.finish();
       toast.success('Notes generated successfully! 3 G_COINS deducted.');
       
       setReaderId(newNote.id);
       titleNote(newNote.id, { note: newNote });
-    } catch (err) { toast.error(err.message); } 
+    } catch (err) { gp.fail(); toast.error(err.message); } 
     finally { setNotesLoading(false); }
   };
 
@@ -1077,6 +1097,8 @@ function Notes() {
            </button>
            </div>
         </motion.div>
+
+        {genProgress && <div className="mb-8"><GenerationProgress progress={genProgress} /></div>}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             
