@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { db, auth } from '../firebase';
 import { doc, getDoc, updateDoc, addDoc, collection, setDoc, query, where, getDocs } from 'firebase/firestore';
@@ -554,6 +555,16 @@ function Quizzes() {
 
   const currentQuiz = selectedQuizGroup?.quizzes[currentQuizIndex];
 
+  // Quiz opens full screen: Escape leaves it and the page behind stays still.
+  useEffect(() => {
+    if (!selectedQuizGroup) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setSelectedQuizGroup(null); };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
+  }, [selectedQuizGroup]);
+
   // Countdown for timed mode: one tick per second while a question is open.
   useEffect(() => {
     if (!timedMode || !currentQuiz || selectedAnswer !== null) return undefined;
@@ -684,6 +695,9 @@ function Quizzes() {
             {/* LEFT COLUMN: Active Quiz & List */}
             <div className="lg:col-span-2 space-y-6">
                 
+                {selectedQuizGroup && createPortal(
+                  <div className="fixed inset-0 z-[80] overflow-y-auto bg-slate-950 p-4 md:p-10" role="dialog" aria-modal="true">
+                  <div className="mx-auto max-w-3xl space-y-6 pt-4">
                 {/* ACTIVE QUIZ AREA */}
                 {selectedQuizGroup && currentQuizIndex < selectedQuizGroup.quizzes.length && currentQuiz && (
                    <motion.div 
@@ -718,7 +732,7 @@ function Quizzes() {
                          </div>
                       )}
 
-                      <h2 className="text-xl md:text-2xl font-bold text-white mb-6 leading-relaxed">
+                      <h2 className="text-2xl md:text-3xl font-bold text-white mb-6 leading-relaxed">
                          {currentQuiz.question}
                       </h2>
 
@@ -752,7 +766,7 @@ function Quizzes() {
                             const isSelected = selectedAnswer === option;
                             const isCorrectAnswer = option === currentQuiz.correctAnswer;
                             
-                            let btnClass = "w-full text-left p-4 rounded-xl border transition-all duration-200 flex justify-between items-center group ";
+                            let btnClass = "w-full text-left p-4 md:p-5 md:text-lg rounded-xl border transition-all duration-200 flex justify-between items-center group ";
                             
                             if (selectedAnswer) {
                                if (isSelected && isCorrect) btnClass += "bg-green-500/20 border-green-500/50 text-green-100";
@@ -865,6 +879,11 @@ function Quizzes() {
                    </div>
                    );
                 })()}
+
+                  </div>
+                </div>,
+                document.body
+                )}
 
                 {/* SCORE HISTORY */}
                 {!selectedQuizGroup && (folder.quizHistory || []).length > 0 && (() => {

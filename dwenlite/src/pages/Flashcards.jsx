@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { db, auth, storage } from '../firebase';
 import { ref as storageRef, getDownloadURL } from 'firebase/storage';
@@ -61,6 +62,16 @@ function Flashcards() {
   
   const chatEndRef = useRef(null);
   const { clearChat } = useChatMemory({ folder, folderId, kind: 'flashcards', chatHistory, setChatHistory });
+
+  // The open card deck takes the whole screen: Escape leaves it and the page behind stays still.
+  useEffect(() => {
+    if (!selectedFlashcardGroup) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setSelectedFlashcardGroup(null); };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
+  }, [selectedFlashcardGroup]);
 
   // Scroll to bottom of chat
   useEffect(() => {
@@ -713,7 +724,8 @@ function Flashcards() {
                    </button>
                 )}
 
-                {/* Active Flashcard Stage */}
+                {/* Active Flashcard Stage (full screen once a group is open) */}
+                {(() => { const stage = (
                 <div className="relative">
                    {!selectedFlashcardGroup ? (
                       <div className="aspect-[16/9] bg-slate-800/30 border-2 border-dashed border-slate-700 rounded-3xl flex flex-col items-center justify-center text-slate-500 p-8 text-center">
@@ -913,6 +925,17 @@ function Flashcards() {
                       </>
                    )}
                 </div>
+                ); return selectedFlashcardGroup ? createPortal(
+                  <div className="fixed inset-0 z-[80] overflow-y-auto bg-slate-950 p-4 md:p-10" role="dialog" aria-modal="true">
+                    <div className="mx-auto max-w-3xl pt-2">
+                      <div className="mb-4 flex justify-end">
+                        <button onClick={() => { setSelectedFlashcardGroup(null); setShowAnswer(false); }} className="rounded-lg px-3 py-2 text-sm font-medium text-slate-300 hover:bg-white/10 hover:text-white">Close</button>
+                      </div>
+                      {stage}
+                    </div>
+                  </div>,
+                  document.body
+                ) : stage; })()}
 
                 {/* Stored Groups List */}
                 <div className="bg-slate-800/30 backdrop-blur-sm border border-white/5 rounded-2xl p-6">
