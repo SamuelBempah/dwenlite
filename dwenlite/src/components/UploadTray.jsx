@@ -1,8 +1,17 @@
+import { useEffect, useState } from 'react';
 import { useUploads, formatBytes, formatEta } from '../lib/uploadManager';
 
 // Banner pinned to the top of the screen showing every upload in progress.
 export default function UploadTray() {
   const uploads = useUploads();
+  const [online, setOnline] = useState(typeof navigator === 'undefined' ? true : navigator.onLine);
+  useEffect(() => {
+    const on = () => setOnline(true);
+    const off = () => setOnline(false);
+    window.addEventListener('online', on);
+    window.addEventListener('offline', off);
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+  }, []);
   if (!uploads.length) return null;
 
   return (
@@ -35,9 +44,12 @@ export default function UploadTray() {
               <div className="mt-1.5 flex flex-wrap justify-between gap-x-3 text-xs text-slate-400">
                 <span>{formatBytes(u.transferred)} of {formatBytes(u.size)}</span>
                 <span>
-                  {u.state === 'paused' ? 'Paused' : !done && !err && u.speed ? `${formatBytes(u.speed)}/s · ${formatEta(left)}` : ''}
+                  {u.state === 'paused' ? 'Paused'
+                    : !done && !err && !online ? 'Waiting for connection…'
+                    : !done && !err && u.speed ? `${formatBytes(u.speed)}/s · ${formatEta(left)}` : ''}
                 </span>
               </div>
+              {err && u.message && <p className="mt-1 text-xs text-red-300">{u.message}</p>}
             </div>
           );
         })}

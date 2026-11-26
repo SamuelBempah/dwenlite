@@ -137,6 +137,10 @@ export function uploadWithProgress(storageRef, data, { name } = {}) {
   uploads.set(id, entry);
   emit();
 
+  // Firebase gives up after 10 min offline by default; on phones the network is often
+  // cut when the app is backgrounded, so keep retrying (and resuming) for up to 2 hours.
+  try { storageRef.storage.maxUploadRetryTime = 2 * 60 * 60 * 1000; } catch { /* ignore */ }
+
   const task = uploadBytesResumable(storageRef, data);
   let lastBytes = 0;
   let lastTime = Date.now();
@@ -162,10 +166,20 @@ export function uploadWithProgress(storageRef, data, { name } = {}) {
         state: snap.state === 'paused' ? 'paused' : 'uploading',
       });
     },
-    () => {
-      patch({ state: 'error' });
-      notify('Upload failed', `${entry.name} could not be uploaded.`, 'dwenlite-upload-done');
-      remove(6000);
+    (err) => {
+      console.error('Upload failed:', err?.code, err?.message);
+      const reasons = {
+        'storage/retry-limit-exceeded': 'Connection lost for too long. Check your internet and try again.',
+        'storage/unauthorized': 'Not allowed to upload (please sign in again).',
+        'storage/unauthenticated': 'Session expired. Please sign in again.',
+        'storage/quota-exceeded': 'Storage quota exceeded.',
+        'storage/canceled': 'Upload was cancelled.',
+        'storage/invalid-checksum': 'File got corrupted in transit. Please try again.',
+      };
+      const message = reasons[err?.code] || `Upload failed${err?.code ? ` (${err.code})` : ''}. Please try again.`;
+      patch({ state: 'error', message });
+      notify('Upload failed', `${entry.name}: ${message}`, 'dwenlite-upload-done');
+      remove(20000);
     },
     () => {
       patch({ state: 'done', transferred: uploads.get(id).size, speed: 0 });
