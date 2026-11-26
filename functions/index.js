@@ -20,6 +20,11 @@ const DEEPSEEK_API_KEY = defineSecret("DEEPSEEK_API_KEY");
 const MAX_CHARS = { general: 120000, notes: 400000, concepts: 300000, teacher: 160000, support: 3000, rewrite: 5000 };
 // Teacher turns are tiny, so they count for less against the hourly/daily limits.
 const WEIGHTS = { teacher: 0.25 };
+// Free spoken-voice allowance per ACCOUNT per day, counted in characters of teacher replies
+// (about 25 minutes of speech). Checked inside the same Firestore transaction as the rate limit,
+// so it adds no extra round trip.
+const VOICE_DAILY_CHARS = 20000;
+const voiceKey = () => "voice_" + new Date().toISOString().slice(0, 10);
 const TEACHER_MAX_TURNS = 16; // recent turns sent to the model (cost cap)
 // Notes longer than this are split into parts, summarised in parallel, then merged.
 const CHUNK_CHARS = 30000;
@@ -133,7 +138,7 @@ const TASKS = {
 // ---------------------------------------------------------------------------
 // Rate limiting (per signed-in user, stored in Firestore: aiUsage/{uid})
 // ---------------------------------------------------------------------------
-async function checkAndCountUsage(uid, weight = 1) {
+async function checkAndCountUsage(uid, weight = 1, { voice = false } = {}) {
   const ref = db.collection("aiUsage").doc(uid);
   const now = Date.now();
   return db.runTransaction(async (tx) => {
@@ -144,7 +149,8 @@ async function checkAndCountUsage(uid, weight = 1) {
     if (now - dayStart >= 24 * 3600 * 1000) { dayStart = now; dayCount = 0; }
     if (hourCount >= HOURLY_LIMIT) return { ok: false, reason: "hourly" };
     if (dayCount >= DAILY_LIMIT) return { ok: false, reason: "daily" };
-    tx.set(ref, { hourStart, hourCount: hourCount + weight, dayStart, dayCount: dayCount + weight });
+    if (voice && (d[voiceKey()] || 0) >= VOICE_DAILY_CHARS) return { ok: false, reason: "voice" };
+    tx.set(ref, { hourStart, hourCount: hourCount + weight, dayStart, dayCount: dayCount + weight }, { merge: true });
     return { ok: true };
   });
 }
@@ -243,6 +249,59 @@ async function longNotes(prompt, cfg) {
   return merged;
 }
 
+
+function addVoiceChars(uid, n) {
+  if (!n) return Promise.resolve();
+  return db.collection("aiUsage").doc(uid).set({ [voiceKey()]: admin.firestore.FieldValue.increment(n) }, { merge: true });
+}
+
+// Streams a DeepSeek completion, calling onDelta(text) for every piece as it arrives.
+async function streamDeepSeek(messages, maxTokens, temperature, onDelta) {
+  const r = await axios.post(
+    "https://api.deepseek.com/chat/completions",
+    { model: "deepseek-chat", messages, max_tokens: maxTokens, temperature, stream: true },
+    {
+      headers: {
+        Authorization: `Bearer ${DEEPSEEK_API_KEY.value()}`,
+        "Content-Type": "application/json",
+      },
+      responseType: "stream",
+      timeout: 200000,
+    }
+  );
+  await new Promise((resolve, reject) => {
+    let buf = "";
+    r.data.on("data", (chunk) => {
+      buf += chunk.toString("utf8");
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i).trim();
+        buf = buf.slice(i + 1);
+        if (!line.startsWith("data:")) continue;
+        const payload = line.slice(5).trim();
+        if (payload === "[DONE]") continue;
+        try {
+          const t = JSON.parse(payload).choices?.[0]?.delta?.content;
+          if (t) onDelta(t);
+        } catch (e) { /* ignore partial line */ }
+      }
+    });
+    r.data.on("end", resolve);
+    r.data.on("error", reject);
+  });
+}
+
+function hintFor(error) {
+  const status = error.response?.status;
+  return (
+    status === 401 ? "AI service key is invalid. Admin: re-set DEEPSEEK_API_KEY and redeploy." :
+    status === 402 ? "AI service balance is empty. Admin: top up the DeepSeek account." :
+    status === 429 || status === 503 ? "AI service is busy. Please try again in a moment." :
+    error.code === "ECONNABORTED" ? "The AI took too long. Try again with a shorter document." :
+    "Failed to generate content. Please try again."
+  );
+}
+
 // Best-effort duplicate guard (double clicks, retry loops) - per instance.
 const recent = new Map();
 function dedupeGet(key) {
@@ -314,13 +373,43 @@ exports.generateNotesProxy = onRequest(
       if (cached) return res.status(200).json(cached);
 
       // 4. Rate limit.
-      const usage = await checkAndCountUsage(uid, WEIGHTS[task] || 1);
+      const usage = await checkAndCountUsage(uid, WEIGHTS[task] || 1, { voice: task === "teacher" });
       if (!usage.ok) {
+        if (usage.reason === "voice") {
+          return res.status(429).json({
+            error: "You've hit your free limit for the day. Please try again tomorrow.",
+            code: "voice_limit",
+          });
+        }
         return res.status(429).json({
           error: usage.reason === "hourly"
             ? "Too many AI requests this hour. Please try again later."
             : "Daily AI limit reached. Please try again tomorrow.",
         });
+      }
+
+      // Teacher replies can be streamed so the app starts speaking after the first sentence.
+      if (task === "teacher" && req.body.stream === true) {
+        res.set({
+          "Content-Type": "text/event-stream; charset=utf-8",
+          "Cache-Control": "no-cache, no-transform",
+          "X-Accel-Buffering": "no",
+        });
+        if (res.flushHeaders) res.flushHeaders();
+        let total = "";
+        try {
+          await streamDeepSeek(teacherMessages, cfg.maxTokens, cfg.temperature, (t) => {
+            total += t;
+            res.write(`data: ${JSON.stringify({ t })}\n\n`);
+          });
+        } catch (error) {
+          logger.error("Stream error", error.response?.status, error.message);
+          res.write(`data: ${JSON.stringify({ error: hintFor(error) })}\n\n`);
+        }
+        try { await addVoiceChars(uid, total.length); } catch (e) { logger.warn("voice count failed", e.message); }
+        logger.info("ai_usage", { uid, task, streamed: true, chars: total.length });
+        res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+        return res.end();
       }
 
       try {
@@ -340,18 +429,14 @@ exports.generateNotesProxy = onRequest(
           completion: u.completion_tokens,
         });
 
+        if (task === "teacher") {
+          try { await addVoiceChars(uid, (response.data.choices?.[0]?.message?.content || "").length); } catch (e) { /* ignore */ }
+        }
         dedupeSet(key, response.data);
         return res.status(200).json(response.data);
       } catch (error) {
-        const status = error.response?.status;
-        logger.error("API Error", status, error.response?.data?.error?.message || error.message);
-        // Never forward upstream details (they can echo request data); give a safe hint instead.
-        const hint =
-          status === 401 ? "AI service key is invalid. Admin: re-set DEEPSEEK_API_KEY and redeploy." :
-          status === 402 ? "AI service balance is empty. Admin: top up the DeepSeek account." :
-          status === 429 || status === 503 ? "AI service is busy. Please try again in a moment." :
-          error.code === "ECONNABORTED" ? "The AI took too long. Try again with a shorter document." :
-          "Failed to generate content. Please try again.";
+        logger.error("API Error", error.response?.status, error.response?.data?.error?.message || error.message);
+        const hint = hintFor(error);
         return res.status(500).json({ error: hint });
       }
     });

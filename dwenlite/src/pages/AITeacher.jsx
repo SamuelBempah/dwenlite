@@ -586,6 +586,10 @@ const AITeacher = () => {
     };
   }, []);
 
+  useEffect(() => {
+    fetch('https://dwenlite-backend.fly.dev/health', { mode: 'no-cors' }).catch(() => { });
+  }, []);
+
   const handleStartSession = () => {
     setHasStarted(true);
     initAudioContext();
@@ -1096,25 +1100,6 @@ const AITeacher = () => {
     updateSpeakerVol();
   };
 
-  // Daily free voice allowance per device (~20,000 characters, roughly 25 minutes of speech).
-  const VOICE_DAILY_CHARS = 20000;
-  const readVoiceUsage = () => {
-    try {
-      const saved = JSON.parse(localStorage.getItem('dwenliteVoiceBudget') || '{}');
-      return saved.day === new Date().toDateString() ? (saved.used || 0) : 0;
-    } catch { return 0; }
-  };
-  const voiceLimitReached = () => readVoiceUsage() >= VOICE_DAILY_CHARS;
-  // Returns false (and spends nothing) if this text would go over today's allowance.
-  const spendVoiceBudget = (chars) => {
-    const used = readVoiceUsage();
-    if (used + chars > VOICE_DAILY_CHARS) return false;
-    try {
-      localStorage.setItem('dwenliteVoiceBudget', JSON.stringify({ day: new Date().toDateString(), used: used + chars }));
-    } catch { /* ignore */ }
-    return true;
-  };
-
   const handleVoiceLimit = () => {
     try { currentAudioSessionRef.current += 1; if (audioRef.current) audioRef.current.pause(); } catch { /* ignore */ }
     if (recognitionRef.current) { try { recognitionRef.current.abort(); } catch { /* ignore */ } }
@@ -1276,11 +1261,6 @@ const AITeacher = () => {
         return;
       }
 
-      if (!spendVoiceBudget(sentences.join(' ').length)) {
-        handleVoiceLimit();
-        return;
-      }
-
       await processAudioQueue(sentences, sessionId);
 
     } catch (error) {
@@ -1297,8 +1277,119 @@ const AITeacher = () => {
     }
   };
 
+  const TEACHER_URL = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
+
+  const cleanForTTS = (t) => t
+    .replace(/\[OPEN_UPLOAD\]|\[SESSION COMPLETE\]/g, '')
+    .replace(/[\n\r]+/g, ' ')
+    .replace(/"/g, "'")
+    .replace(/[$\\*_]/g, '')
+    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '')
+    .trim();
+
+  // Speaks sentences as they arrive: sentence 1 starts playing while the AI is still writing
+  // sentence 2, and audio for later sentences is fetched in parallel while earlier ones play.
+  const createSpeechStream = (onFirstSentence) => {
+    currentAudioSessionRef.current += 1;
+    const sessionId = currentAudioSessionRef.current;
+    const pending = [];
+    let closed = false;
+    let wake = null;
+    let started = false;
+
+    const push = (sentence) => {
+      const text = cleanForTTS(sentence);
+      if (!text) return;
+      const audio = fetchAudioForSentence(text);
+      audio.catch(() => { });
+      pending.push({ text, audio });
+      if (!started) {
+        started = true;
+        setIsSpeaking(true);
+        isSpeakingRef.current = true;
+        setIsPaused(false);
+        isPausedRef.current = false;
+        onFirstSentence?.();
+      }
+      if (wake) wake();
+    };
+    const end = () => { closed = true; if (wake) wake(); };
+
+    const done = (async () => {
+      while (currentAudioSessionRef.current === sessionId) {
+        if (pending.length === 0) {
+          if (closed) break;
+          await new Promise(r => { wake = r; });
+          wake = null;
+          continue;
+        }
+        const item = pending.shift();
+        try {
+          const url = await item.audio;
+          if (currentAudioSessionRef.current !== sessionId) break;
+          setCurrentCaption(item.text);
+          await playAudioUrl(url, sessionId);
+          URL.revokeObjectURL(url);
+        } catch (err) {
+          console.error('Audio queue error', err);
+          toast.error('Voice is unavailable right now. Please try again in a moment.');
+          break;
+        }
+      }
+      if (started && currentAudioSessionRef.current === sessionId) {
+        setCurrentCaption('');
+        setIsSpeaking(false);
+        isSpeakingRef.current = false;
+        setIsPaused(false);
+        isPausedRef.current = false;
+        if (stepRef.current === 2 && !uploadLoadingRef.current) {
+          setShowUploadDrawer(true);
+        } else if (stepRef.current !== 2 && stepRef.current !== 4) {
+          startListening();
+        }
+      }
+    })();
+
+    return { push, end, done, sessionId, hasStarted: () => started };
+  };
+
+  // Reads the teacher's reply as a stream and hands it over piece by piece.
+  const streamTeacherReply = async (payload, onText) => {
+    const token = await auth.currentUser?.getIdToken();
+    const res = await fetch(TEACHER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ ...payload, stream: true })
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      const e = new Error(j.error || `Request failed (${res.status})`);
+      e.code = j.code;
+      throw e;
+    }
+    if (!res.body?.getReader) { const e = new Error('Streaming not supported'); e.noStream = true; throw e; }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n\n')) >= 0) {
+        const ev = buf.slice(0, i);
+        buf = buf.slice(i + 2);
+        if (!ev.startsWith('data:')) continue;
+        let j;
+        try { j = JSON.parse(ev.slice(5)); } catch { continue; }
+        if (j.error) throw new Error(j.error);
+        if (j.t && onText(j.t) === 'stop') { reader.cancel().catch(() => { }); return; }
+      }
+    }
+  };
+
   const generateAIResponse = async (prompt, history) => {
-    if (voiceLimitReached()) { handleVoiceLimit(); return; }
     setIsThinking(true);
     setEyeEmotion('closed');
     setTimeout(() => {
@@ -1315,6 +1406,34 @@ const AITeacher = () => {
       isListeningRef.current = false;
     }
 
+    const stopThinking = () => {
+      setCurrentEmoji(null);
+      setEyeEmotion('closed');
+      setTimeout(() => setEyeEmotion('center'), 150);
+      setIsThinking(false);
+    };
+
+    // Turns the finished reply into app state (tags, history, session end).
+    const finishReply = (rawText) => {
+      let aiText = rawText.trim();
+      const wantsUpload = aiText.includes('[OPEN_UPLOAD]');
+      aiText = aiText.replace(/\[OPEN_UPLOAD\]/g, '').trim();
+      for (const token of ['\nStudent:', '\nUser:']) {
+        const idx = aiText.indexOf(token);
+        if (idx > 0) aiText = aiText.substring(0, idx).trim();
+      }
+      if (aiText.startsWith('Teacher:')) aiText = aiText.substring('Teacher:'.length).trim();
+      if (aiText.includes('[SESSION COMPLETE]')) {
+        aiText = aiText.replace(/\[SESSION COMPLETE\]/g, '').trim();
+        stepRef.current = 4;
+        setUiStep(4);
+        setIsTimerActive(false);
+        toast.success("Session completed successfully!");
+        clearSessionState();
+      }
+      return { aiText, wantsUpload };
+    };
+
     try {
       // The teacher's rules live on the server. We only send the conversation; the server keeps
       // [rules][study material] identical every turn (cheap, cached) and trims old turns.
@@ -1325,67 +1444,95 @@ const AITeacher = () => {
       if (!(lastTurn && lastTurn.role === 'user' && lastTurn.content === prompt)) {
         convo.push({ role: 'user', content: prompt });
       }
-
-      const functionUrl = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
-      const response = await axios.post(functionUrl, {
+      const payload = {
         task: 'teacher',
         messages: convo,
         material: studyMaterialRef.current || 'No study material yet.',
         userName: userNameRef.current,
-      });
+      };
 
-      let aiText;
-      if (response.data.choices?.[0]?.message?.content) {
-        aiText = response.data.choices[0].message.content.trim();
-      } else if (response.data.choices?.[0]?.text) {
-        aiText = response.data.choices[0].text.trim();
-      } else {
-        throw new Error('Invalid API response');
-      }
+      // ---- Fast path: stream the reply and start talking after the first sentence ----
+      const speech = createSpeechStream(stopThinking);
+      let raw = '';
+      let buffer = '';
+      let carry = '';
 
-      let wantsUpload = false;
-      if (aiText.includes('[OPEN_UPLOAD]')) {
-        wantsUpload = true;
-        aiText = aiText.replace(/\[OPEN_UPLOAD\]/g, '').trim();
-      }
+      const flushSentences = (final) => {
+        for (;;) {
+          const m = buffer.match(/([.!?]+["')\]]*)\s/);
+          if (!m) break;
+          const cut = m.index + m[1].length;
+          const candidate = carry + buffer.slice(0, cut);
+          buffer = buffer.slice(cut + 1);
+          if (candidate.length < 12 && !final) { carry = candidate + ' '; continue; }
+          speech.push(candidate);
+          carry = '';
+        }
+        if (final) {
+          const rest = (carry + buffer).trim();
+          if (rest) speech.push(rest);
+          carry = '';
+          buffer = '';
+        }
+      };
 
-      // Stop the AI from hallucinating both sides of the conversation
-      const stopTokens = ['\nStudent:', '\nUser:', 'Student:', 'User:'];
-      for (const token of stopTokens) {
-        const idx = aiText.indexOf(token);
-        if (idx !== -1 && idx > 0) {
-          aiText = aiText.substring(0, idx).trim();
+      let streamed = false;
+      try {
+        await streamTeacherReply(payload, (t) => {
+          if (currentAudioSessionRef.current !== speech.sessionId) return 'stop'; // interrupted
+          raw += t;
+          buffer += t;
+          flushSentences(false);
+        });
+        streamed = true;
+      } catch (err) {
+        if (err.code === 'voice_limit') {
+          speech.end();
+          handleVoiceLimit();
+          return;
+        }
+        if (!raw && !speech.hasStarted()) {
+          // Nothing spoken yet: fall through to the normal (non-streaming) request below.
+          console.warn('Streaming failed, using normal request:', err.message);
+        } else {
+          console.warn('Stream ended early:', err.message);
+          streamed = true;
         }
       }
 
-      if (aiText.startsWith('Teacher:')) {
-        aiText = aiText.substring('Teacher:'.length).trim();
+      if (streamed) {
+        if (currentAudioSessionRef.current === speech.sessionId) flushSentences(true);
+        speech.end();
+        const { aiText, wantsUpload } = finishReply(raw);
+        if (aiText) {
+          messagesRef.current.push({ role: 'ai', content: aiText });
+          saveSessionState();
+        }
+        if (!speech.hasStarted()) {
+          stopThinking();
+          if (stepRef.current !== 2 && stepRef.current !== 4) startListening();
+        }
+        await speech.done;
+        if (wantsUpload) setShowUploadDrawer(true);
+        if (stepRef.current === 4) setEyeEmotion('sleep');
+        return;
       }
+      speech.end();
 
-      if (aiText.includes('[SESSION COMPLETE]')) {
-        aiText = aiText.replace(/\[SESSION COMPLETE\]/g, '').trim();
-        stepRef.current = 4;
-        setUiStep(4);
-        setIsTimerActive(false);
-        toast.success("Session completed successfully!");
-        clearSessionState();
-      }
-
-      setCurrentEmoji(null);
-      setEyeEmotion('closed');
-      setTimeout(() => setEyeEmotion('center'), 150);
-      setIsThinking(false);
-
+      // ---- Fallback: normal request, then speak ----
+      const response = await axios.post(TEACHER_URL, payload);
+      const content = response.data.choices?.[0]?.message?.content || response.data.choices?.[0]?.text;
+      if (!content) throw new Error('Invalid API response');
+      const { aiText, wantsUpload } = finishReply(content);
+      stopThinking();
       await speakAndAdvance(aiText);
       if (wantsUpload) setShowUploadDrawer(true);
-
-      if (stepRef.current === 4) {
-        setEyeEmotion('sleep');
-      }
+      if (stepRef.current === 4) setEyeEmotion('sleep');
 
     } catch (error) {
       console.error('Dwenlite Cognitive Engine error:', error);
-      toast.error(error.response?.data?.error || 'Our Dwenlite Cognitive Engine is currently busy. Please try again.');
+      if (error.response?.data?.code === 'voice_limit') { handleVoiceLimit(); return; }
+      toast.error(error.response?.data?.error || error.message || 'Our Dwenlite Cognitive Engine is currently busy. Please try again.');
       setIsThinking(false);
       setIsSpeaking(false);
       isSpeakingRef.current = false;
