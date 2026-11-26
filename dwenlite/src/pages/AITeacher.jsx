@@ -132,10 +132,27 @@ const AITeacher = () => {
   const [recapText, setRecapText] = useState('');
   const [recapLoading, setRecapLoading] = useState(false);
   const recapDoneRef = useRef(false);
-  const [currentConcept, setCurrentConcept] = useState(0);
+  const [currentConcept, setCurrentConceptState] = useState(0);
+  const setCurrentConcept = (v) => { currentConceptRef.current = v; setCurrentConceptState(v); };
   const [conceptTotal, setConceptTotal] = useState(0);
   const [weakConcepts, setWeakConcepts] = useState([]);
   const weakRef = useRef([]);
+  // Works out which concept the teacher is on from its own words, for replies without a [C:n] tag.
+  const inferConcept = (text, current, total) => {
+    const words = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 };
+    const toNum = (w) => (/^\d+$/.test(w) ? parseInt(w, 10) : words[w.toLowerCase()]);
+    const named = text.match(/\b(?:concept|number|point|topic)\s*(?:number\s*|#)?(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b/i);
+    if (named) {
+      const n = toNum(named[1]);
+      if (n >= 1 && n <= total) return n;
+    }
+    if (/\b(moving on|move on to|onto the next|on to the next|next concept|let's move to the next|let's go to the next)\b/i.test(text)
+      && !/\b(before (?:we )?mov|not (?:yet )?mov|won't move|can't move)/i.test(text)) {
+      return Math.min(total, current + 1);
+    }
+    return 0;
+  };
+  const currentConceptRef = useRef(0);
   const countConcepts = (t = '') => {
     let m = 0;
     for (const x of t.matchAll(/^\s*(\d+)\.\s/gm)) m = Math.max(m, parseInt(x[1], 10));
@@ -1666,6 +1683,11 @@ const AITeacher = () => {
       aiText = aiText.replace(/\[DIAGRAM\][\s\S]*?(\[\/DIAGRAM\]|$)/, '').trim();
       const conceptTag = aiText.match(/\[C:(\d+)\]/);
       if (conceptTag) setCurrentConcept(parseInt(conceptTag[1], 10));
+      else {
+        const total = countConcepts(studyMaterialRef.current);
+        const inferred = total ? inferConcept(aiText, Math.max(currentConceptRef.current, 1), total) : 0;
+        if (inferred) setCurrentConcept(inferred);
+      }
       for (const w of aiText.matchAll(/\[WEAK:(\d+)\]/g)) {
         const n = parseInt(w[1], 10);
         if (!weakRef.current.includes(n)) {
