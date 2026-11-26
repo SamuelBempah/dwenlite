@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { auth, db } from '../../firebase';
+import StreakChip from '../StreakChip';
 import { doc, getDoc } from 'firebase/firestore';
 import { 
   Menu, X, LayoutDashboard, GraduationCap, 
@@ -80,7 +81,8 @@ const AppLayout = ({ children }) => {
           </Link>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 sm:gap-4">
+          <StreakChip />
           <Link to="/buy-coins" className="flex items-center gap-2 bg-slate-800/80 px-3 py-1.5 rounded-full border border-white/10 hover:border-yellow-500/50 transition-colors group">
             <Coins size={14} className="text-yellow-400 group-hover:animate-bounce" />
             <span className="text-sm font-bold text-white">{gCoins}</span>

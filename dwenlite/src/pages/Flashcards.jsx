@@ -8,6 +8,7 @@ import { askStudyChat, buildFolderContext } from '../lib/ai';
 import FollowUpChips from '../components/FollowUpChips';
 import { useChatMemory } from '../lib/chatMemory';
 import { isDue, nextSrs, intervalLabel } from '../lib/srs';
+import { recordStudy } from '../lib/streak';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, Zap, Coins, Brain, RotateCw, ChevronLeft, ChevronRight, 
@@ -473,6 +474,7 @@ function Flashcards() {
   // Save how well the student knew this card; spaced repetition schedules the next review.
   const handleRateCard = (grade) => {
     if (!currentFlashcard || !selectedFlashcardGroup) return;
+    recordStudy();
     const srs = nextSrs(currentFlashcard.srs, grade);
     const cardIdx = allCards.indexOf(currentFlashcard);
     const updatedGroup = {

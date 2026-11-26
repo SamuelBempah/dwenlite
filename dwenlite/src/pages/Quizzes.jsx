@@ -8,6 +8,7 @@ import { askStudyChat, buildFolderContext } from '../lib/ai';
 import FollowUpChips from '../components/FollowUpChips';
 import { useChatMemory } from '../lib/chatMemory';
 import { questionKey, weakQuestions, answersMatch } from '../lib/quizStats';
+import { recordStudy } from '../lib/streak';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, Zap, Coins, ChevronLeft, ChevronRight, 
@@ -465,6 +466,7 @@ function Quizzes() {
   const handleNextQuestion = () => {
     setTimeLeft(QUESTION_SECONDS);
     setFillText('');
+    if (selectedQuizGroup && currentQuizIndex + 1 >= selectedQuizGroup.quizzes.length) recordStudy();
     // Moving past the last question shows the score screen.
     setCurrentQuizIndex(prev => prev + 1);
     setSelectedAnswer(null);
