@@ -35,6 +35,12 @@ function Notes() {
   const [exportOpenId, setExportOpenId] = useState(null);
   const [readerId, setReaderId] = useState(null);      // note open in the full-screen reader
   const [outline, setOutline] = useState([]);
+  const [pages, setPages] = useState([]);              // the note split into A4 pages (HTML strings)
+  const [fitScale, setFitScale] = useState(1);         // shrinks the A4 page to fit narrow screens, like a PDF on a phone
+  const [fitMode, setFitMode] = useState(() => {
+    try { return localStorage.getItem('dwenliteReaderFit') !== '0'; } catch { return true; }
+  });
+  const measureRef = useRef(null);
   const [paperMode, setPaperMode] = useState(() => {
     try { return localStorage.getItem('dwenliteReaderTheme') === 'paper'; } catch { return false; }
   });
@@ -64,17 +70,60 @@ function Notes() {
     return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
   }, [readerId]);
 
+  // Split the formatted note into real A4 pages: measure each block at A4 width and start a new page when it no longer fits.
   useEffect(() => {
-    if (!readerId) { setOutline([]); return undefined; }
+    if (!readerId || editingId === readerId) { setPages([]); return undefined; }
+    let cancelled = false;
+    const PAGE_CONTENT_H = 1011; // 1123px A4 height minus top and bottom padding
+    const run = () => {
+      const el = measureRef.current;
+      if (cancelled || !el) return;
+      const out = [];
+      let cur = [];
+      let start = 0;
+      [...el.children].forEach((k) => {
+        const top = k.offsetTop;
+        const bottom = top + k.offsetHeight;
+        if (cur.length && bottom - start > PAGE_CONTENT_H) {
+          // never leave a heading alone at the bottom of a page
+          const carry = [];
+          while (cur.length > 1 && /^H[1-3]$/.test(cur[cur.length - 1].tag)) carry.unshift(cur.pop());
+          out.push(cur.map(c => c.html).join(''));
+          cur = carry;
+          start = carry.length ? carry[0].top : top;
+        }
+        cur.push({ html: k.outerHTML, tag: k.tagName, top });
+      });
+      if (cur.length) out.push(cur.map(c => c.html).join(''));
+      setPages(out.length ? out : ['']);
+    };
+    const t = setTimeout(() => { (document.fonts?.ready ?? Promise.resolve()).then(run); }, 40);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [readerId, folder?.notes, editingId, readerScale]);
+
+  // Outline from the headings on the pages.
+  useEffect(() => {
+    if (!readerId || pages.length === 0) { setOutline([]); return undefined; }
     const t = setTimeout(() => {
-      const el = document.getElementById('reader-content');
-      if (!el) { setOutline([]); return; }
-      const heads = [...el.querySelectorAll('h1, h2, h3')];
+      const heads = [...document.querySelectorAll('.a4-sheet h1, .a4-sheet h2, .a4-sheet h3')];
       heads.forEach((h, i) => { h.id = `sec-${i}`; });
       setOutline(heads.map((h, i) => ({ id: `sec-${i}`, text: h.textContent.trim(), level: Number(h.tagName[1]) })));
     }, 60);
     return () => clearTimeout(t);
-  }, [readerId, folder?.notes, editingId]);
+  }, [readerId, pages]);
+
+  // Fit the A4 page to the available width (so a phone shows the whole page, like a PDF), or show it at full size.
+  useEffect(() => {
+    if (!readerId) return undefined;
+    const el = document.getElementById('reader-article');
+    if (!el) return undefined;
+    const calc = () => setFitScale(fitMode ? Math.min(1, el.clientWidth / 794) : 1);
+    calc();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(calc) : null;
+    ro?.observe(el);
+    window.addEventListener('resize', calc);
+    return () => { ro?.disconnect(); window.removeEventListener('resize', calc); };
+  }, [readerId, fitMode, pages.length]);
 
   useEffect(() => {
     if (!exportOpenId) return undefined;
@@ -855,12 +904,19 @@ function Notes() {
                         </div>
                      </div>
                   ) : (
-                  <div 
-                     data-note-content={note.id}
-                     id="reader-content"
-                     className={`md md-reader${paperMode ? ' md-paper' : ''}`}
-                     dangerouslySetInnerHTML={{ __html: renderMarkdown(note.content) }}
-                  />
+                  <div style={{ zoom: fitScale, width: 794 }} className="mx-auto">
+                     {pages.map((html, i) => (
+                        <div
+                           key={i}
+                           data-note-content={note.id}
+                           className={`a4-sheet md md-reader md-a4${paperMode ? ' md-paper a4-paper' : ''}`}
+                           style={{ '--md-scale': readerScale }}
+                        >
+                           <div className="a4-inner" dangerouslySetInnerHTML={{ __html: html }} />
+                           <div className="a4-num">Page {i + 1} of {pages.length}</div>
+                        </div>
+                     ))}
+                  </div>
                   )}
     </>
   );
@@ -879,6 +935,12 @@ function Notes() {
               <p className="truncate text-xs text-slate-500">{new Date(readerNote.createdAt).toLocaleDateString()}{readerNote.label ? ` · ${readerNote.label}` : ''}</p>
             </div>
             <div className="flex items-center gap-1">
+              <button
+                onClick={() => setFitMode(v => { try { localStorage.setItem('dwenliteReaderFit', v ? '0' : '1'); } catch { /* ignore */ } return !v; })}
+                aria-pressed={fitMode}
+                title={fitMode ? 'Fits the whole page on screen. Tap for full size.' : 'Full size. Tap to fit the page on screen.'}
+                className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${fitMode ? 'bg-white/15 text-white' : 'text-slate-300 hover:bg-white/10'}`}
+              >{fitMode ? 'Fit' : '100%'}</button>
               <button onClick={togglePaper} aria-pressed={paperMode} className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${paperMode ? 'bg-white text-slate-900' : 'text-slate-300 hover:bg-white/10'}`}>Paper</button>
               <button onClick={() => setScale(Math.max(0.9, +(readerScale - 0.15).toFixed(2)))} aria-label="Smaller text" className="rounded-lg px-2.5 py-1.5 text-sm font-semibold text-slate-300 hover:bg-white/10">A-</button>
               <button onClick={() => setScale(Math.min(1.5, +(readerScale + 0.15).toFixed(2)))} aria-label="Larger text" className="rounded-lg px-2.5 py-1.5 text-base font-semibold text-slate-300 hover:bg-white/10">A+</button>
@@ -909,7 +971,7 @@ function Notes() {
                   </ul>
                 </aside>
               )}
-              <article className={`mx-auto min-w-0 max-w-[794px] flex-1 rounded-lg ${paperMode ? 'border border-slate-300 bg-white' : 'border border-white/10 bg-slate-900'} px-4 py-6 shadow-2xl md:min-h-[1123px] md:px-14 md:py-12 ${outline.length > 2 ? 'lg:mx-0' : ''}`} style={{ '--md-scale': readerScale }}>
+              <article id="reader-article" className={`mx-auto min-w-0 max-w-[794px] flex-1 ${fitMode ? '' : 'overflow-x-auto'} ${outline.length > 2 ? 'lg:mx-0' : ''}`}>
                 {outline.length > 2 && (
                   <select
                     onChange={(e) => { if (e.target.value) jumpTo(e.target.value); e.target.value = ''; }}
@@ -923,6 +985,8 @@ function Notes() {
                 )}
                 {renderNoteBody(readerNote, readerIdx)}
               </article>
+              {/* hidden copy at real A4 width, only used to measure where the pages break */}
+              <div ref={measureRef} aria-hidden="true" className="a4-measure md md-reader md-a4" style={{ '--md-scale': readerScale }} dangerouslySetInnerHTML={{ __html: renderMarkdown(readerNote.content) }} />
             </div>
           </div>
         </div>,

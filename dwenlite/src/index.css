@@ -81,3 +81,21 @@ img, video, canvas, svg { max-width: 100%; }
 .md-paper th, .md-paper td { border-bottom-color: #e2e8f0; border-left-color: #e2e8f0; }
 .md-paper tbody tr:nth-child(even) { background: #f8fafc; }
 .md-paper hr { border-top-color: #e2e8f0; }
+
+/* ---- A4 pages in the note reader ---- */
+.a4-measure { position: absolute; left: -10000px; top: 0; width: 682px; visibility: hidden; pointer-events: none; }
+.a4-sheet { position: relative; box-sizing: border-box; width: 794px; min-height: 1123px; padding: 56px; margin: 0 auto 18px; border-radius: 3px; border: 1px solid rgba(255, 255, 255, .1); background: #0f172a; box-shadow: 0 10px 30px rgba(0, 0, 0, .5); }
+.a4-sheet.a4-paper { background: #fff; border-color: #cbd5e1; box-shadow: 0 8px 24px rgba(15, 23, 42, .25); }
+.a4-num { position: absolute; bottom: 22px; left: 0; right: 0; text-align: center; font-size: 11px; color: #64748b; }
+.md-a4 { font-size: calc(14.5px * var(--md-scale, 1)); line-height: 1.65; }
+.md-a4 h1 { font-size: 1.75em; margin: 0 0 .6em; }
+.md-a4 h2 { font-size: 1.3em; margin: 1.5em 0 .5em; padding-top: .8em; }
+.md-a4 h3 { font-size: 1.1em; margin: 1.25em 0 .35em; }
+.md-a4 p { margin: .7em 0; }
+.md-a4 ul, .md-a4 ol { margin: .7em 0 1em; }
+.md-a4 li { margin: .3em 0; }
+.md-a4 blockquote { margin: 1em 0; padding: .7em 1em; }
+.md-a4 th, .md-a4 td { padding: .5em .8em; }
+.md-a4 .md-table-wrap { margin: 1em 0; }
+.a4-inner > :first-child { margin-top: 0; }
+.a4-inner > h2:first-child { border-top: 0; padding-top: 0; }
