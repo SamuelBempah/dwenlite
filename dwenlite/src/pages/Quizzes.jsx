@@ -7,7 +7,7 @@ import axios from 'axios';
 import { askStudyChat, buildFolderContext } from '../lib/ai';
 import FollowUpChips from '../components/FollowUpChips';
 import { useChatMemory } from '../lib/chatMemory';
-import { questionKey, weakQuestions } from '../lib/quizStats';
+import { questionKey, weakQuestions, answersMatch } from '../lib/quizStats';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, Zap, Coins, ChevronLeft, ChevronRight, 
@@ -31,6 +31,7 @@ function Quizzes() {
     try { return localStorage.getItem('dwenliteTimedQuiz') === '1'; } catch { return false; }
   });
   const [timeLeft, setTimeLeft] = useState(QUESTION_SECONDS);
+  const [fillText, setFillText] = useState('');
   const [results, setResults] = useState([]); // [{ quiz, correct, timedOut }]
   const [showStoredQuizzes, setShowStoredQuizzes] = useState(true); // Default to true to match Notes style
   const [selectedQuizGroup, setSelectedQuizGroup] = useState(null);
@@ -268,10 +269,10 @@ function Quizzes() {
         else context = latestDocument.extractedText || folder.name;
       }
 
-      let prompt = `Generate 40 multiple-choice quiz questions based on the following content: "${context}". For each question, provide the question, four options (labeled a, b, c, d), and the correct answer. Format as a JSON array: [{ "question": "...", "options": ["a. ...", "b. ...", "c. ...", "d. ..."], "correctAnswer": "..." }], ...]. Return only the JSON array string, without any markdown or code blocks.`;
+      let prompt = `Generate 40 quiz questions based on the following content: "${context.slice(0, 100000)}". Use a mix of three types: about 60% multiple-choice, 20% true/false and 20% fill-in-the-blank. Every question must be answerable from or closely related to the content. Format as a JSON array. Multiple-choice: {"type":"mcq","question":"...","options":["a. ...","b. ...","c. ...","d. ..."],"correctAnswer":"a. ..."}. True/false: {"type":"mcq","question":"True or false: ...","options":["a. True","b. False"],"correctAnswer":"a. True"}. Fill-in-the-blank: {"type":"fill","question":"A sentence with ____ where the missing word or short phrase goes.","options":[],"correctAnswer":"the missing word or phrase"}. Return only the JSON array string, without any markdown or code blocks.`;
 
       if (retry) {
-        prompt = `You previously failed to return valid JSON. Generate 40 multiple-choice quiz questions based on content: "${context}". Return ONLY the JSON array string. No markdown.`;
+        prompt = `You previously failed to return valid JSON. Generate 40 mixed quiz questions (multiple-choice, true/false and fill-in-the-blank, with a "type" field of mcq or fill) based on content: "${context.slice(0, 100000)}". Return ONLY the JSON array string. No markdown.`;
       }
 
       const response = await axios.post(functionUrl, { prompt })
@@ -298,21 +299,21 @@ function Quizzes() {
 
       if (!Array.isArray(quizzes)) throw new Error('API response must be a JSON array.');
       
-      // Ensure we have enough and format
-      while (quizzes.length < 40) {
-        quizzes.push({
-          question: `Sample question ${quizzes.length + 1}`,
-          options: ['a. Option A', 'b. Option B', 'c. Option C', 'd. Option D'],
-          correctAnswer: 'a. Option A',
-        });
-      }
-      
-      return quizzes.slice(0, 40).map(quiz => {
-        const validCorrectAnswer = quiz.options.find(opt => opt.startsWith(quiz.correctAnswer)) || quiz.correctAnswer;
+      const valid = quizzes.filter(q => q && q.question && q.correctAnswer &&
+        (q.type === 'fill' || (Array.isArray(q.options) && q.options.length >= 2)));
+      if (valid.length === 0) throw new Error('Could not build quiz questions. Please try again.');
+
+      return valid.slice(0, 40).map(quiz => {
+        const isFill = quiz.type === 'fill';
+        const options = isFill ? [] : quiz.options;
+        const validCorrectAnswer = isFill
+          ? String(quiz.correctAnswer)
+          : (options.find(opt => opt.startsWith(quiz.correctAnswer)) || quiz.correctAnswer);
         return {
           id: Date.now().toString() + Math.random().toString(36).substring(2),
+          type: isFill ? 'fill' : 'mcq',
           question: quiz.question,
-          options: quiz.options,
+          options,
           correctAnswer: validCorrectAnswer,
         };
       });
@@ -425,6 +426,7 @@ function Quizzes() {
     setIsCorrect(null);
     setResults([]);
     setTimeLeft(QUESTION_SECONDS);
+    setFillText('');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -443,7 +445,9 @@ function Quizzes() {
 
   const handleAnswerSelect = (option) => {
     if (selectedAnswer !== null || quizLoading) return;
-    const correct = option === currentQuiz.correctAnswer;
+    const correct = currentQuiz.type === 'fill'
+      ? answersMatch(option, currentQuiz.correctAnswer)
+      : option === currentQuiz.correctAnswer;
     setSelectedAnswer(option);
     setIsCorrect(correct);
     setResults(r => [...r, { quiz: currentQuiz, correct, timedOut: false }]);
@@ -460,6 +464,7 @@ function Quizzes() {
 
   const handleNextQuestion = () => {
     setTimeLeft(QUESTION_SECONDS);
+    setFillText('');
     // Moving past the last question shows the score screen.
     setCurrentQuizIndex(prev => prev + 1);
     setSelectedAnswer(null);
@@ -648,6 +653,31 @@ function Quizzes() {
                          {currentQuiz.question}
                       </h2>
 
+                      {currentQuiz.type === 'fill' ? (
+                         <div className="space-y-3">
+                            <p className="text-xs font-semibold uppercase tracking-wider text-purple-300">Fill in the blank</p>
+                            <div className="flex gap-2">
+                               <input
+                                  value={fillText}
+                                  onChange={(e) => setFillText(e.target.value)}
+                                  onKeyDown={(e) => { if (e.key === 'Enter' && fillText.trim()) handleAnswerSelect(fillText.trim()); }}
+                                  disabled={selectedAnswer !== null}
+                                  placeholder="Type your answer..."
+                                  className={`flex-1 rounded-xl border bg-slate-900/60 px-4 py-3 outline-none ${selectedAnswer === null ? 'border-white/10 focus:border-purple-500' : isCorrect ? 'border-green-500/50 text-green-100' : 'border-red-500/50 text-red-100'}`}
+                               />
+                               <button
+                                  onClick={() => fillText.trim() && handleAnswerSelect(fillText.trim())}
+                                  disabled={selectedAnswer !== null || !fillText.trim()}
+                                  className="rounded-xl bg-purple-600 px-5 font-semibold hover:bg-purple-500 disabled:opacity-40 transition-colors"
+                               >
+                                  Check
+                               </button>
+                            </div>
+                            {selectedAnswer !== null && !isCorrect && (
+                               <p className="text-sm text-green-300">{selectedAnswer === '__timeout__' ? "Time's up. " : ''}Correct answer: {currentQuiz.correctAnswer}</p>
+                            )}
+                         </div>
+                      ) : (
                       <div className="space-y-3">
                          {currentQuiz.options.map((option, idx) => {
                             const isSelected = selectedAnswer === option;
@@ -678,6 +708,7 @@ function Quizzes() {
                             );
                          })}
                       </div>
+                      )}
 
                       <AnimatePresence>
                          {selectedAnswer && (
