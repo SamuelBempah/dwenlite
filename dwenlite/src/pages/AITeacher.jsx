@@ -1171,7 +1171,7 @@ const AITeacher = () => {
       const response = await fetch('https://dwenlite-backend.fly.dev/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: sentence, voice: voicePrefsRef.current.voice }),
+        body: JSON.stringify({ text: sentence }),
         signal: ctrl.signal
       });
       if (!response.ok) throw new Error('TTS failed: ' + response.status);
