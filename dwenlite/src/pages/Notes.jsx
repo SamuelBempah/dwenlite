@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { db, auth } from '../firebase';
 import { doc, getDoc, updateDoc, addDoc, collection, setDoc, query, where, getDocs, arrayUnion, arrayRemove } from 'firebase/firestore';
@@ -17,7 +18,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, Zap, Coins, ChevronLeft, ChevronRight, 
   MessageSquare, Send, AlertTriangle, Trash2, Star, ChevronDown, 
-  ChevronUp, Sparkles, FolderOpen, FileText, Download, File, Highlighter, Search, X
+  ChevronUp, Sparkles, FolderOpen, FileText, Download, File, Highlighter, Search, X, Maximize2
 } from 'lucide-react';
 
 function Notes() {
@@ -32,6 +33,11 @@ function Notes() {
   const [expandedGroups, setExpandedGroups] = useState({});
   const [noteQuery, setNoteQuery] = useState('');
   const [exportOpenId, setExportOpenId] = useState(null);
+  const [readerId, setReaderId] = useState(null);      // note open in the full-screen reader
+  const [outline, setOutline] = useState([]);
+  const [readerScale, setReaderScale] = useState(() => {
+    try { return parseFloat(localStorage.getItem('dwenliteReaderScale')) || 1; } catch { return 1; }
+  });
   const [noteLang, setNoteLang] = useState(() => loadVoicePrefs().language);
   const [noteTemplate, setNoteTemplate] = useState(() => {
     try { return localStorage.getItem('dwenliteNoteTemplate') || 'auto'; } catch { return 'auto'; }
@@ -44,6 +50,28 @@ function Notes() {
   const [titleBusy, setTitleBusy] = useState(null);
   const latestFolder = useRef(null);
   latestFolder.current = folder;
+
+  // Full-screen reader: Escape closes it, the page behind does not scroll, and an outline is built from the headings.
+  useEffect(() => {
+    if (!readerId) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setReaderId(null); };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = prev; };
+  }, [readerId]);
+
+  useEffect(() => {
+    if (!readerId) { setOutline([]); return undefined; }
+    const t = setTimeout(() => {
+      const el = document.getElementById('reader-content');
+      if (!el) { setOutline([]); return; }
+      const heads = [...el.querySelectorAll('h1, h2, h3')];
+      heads.forEach((h, i) => { h.id = `sec-${i}`; });
+      setOutline(heads.map((h, i) => ({ id: `sec-${i}`, text: h.textContent.trim(), level: Number(h.tagName[1]) })));
+    }, 60);
+    return () => clearTimeout(t);
+  }, [readerId, folder?.notes, editingId]);
 
   useEffect(() => {
     if (!exportOpenId) return undefined;
@@ -370,7 +398,7 @@ function Notes() {
       setHasRated(prev => ({ ...prev, [newNote.id]: false }));
       toast.success('Notes generated successfully! 3 G_COINS deducted.');
       
-      setExpandedGroups(prev => ({ ...prev, [newNote.id]: true }));
+      setReaderId(newNote.id);
       titleNote(newNote.id, { note: newNote });
     } catch (err) { toast.error(err.message); } 
     finally { setNotesLoading(false); }
@@ -587,7 +615,7 @@ function Notes() {
       };
       await updateDoc(doc(db, 'folders', folderId), { notes: arrayUnion(newNote) });
       setFolder(prev => ({ ...prev, notes: [...prev.notes, newNote] }));
-      setExpandedGroups(prev => ({ ...prev, [newNote.id]: true }));
+      setReaderId(newNote.id);
       setMergeSel([]);
       toast.success('Notes merged into a new note');
       titleNote(newNote.id, { note: newNote });
@@ -641,7 +669,7 @@ function Notes() {
       };
       await updateDoc(doc(db, 'folders', folderId), { notes: arrayUnion(newNote) });
       setFolder(prev => ({ ...prev, notes: [...prev.notes, newNote] }));
-      setExpandedGroups(prev => ({ ...prev, [newNote.id]: true }));
+      setReaderId(newNote.id);
       toast.success(`Created: ${newNote.label}`);
       titleNote(newNote.id, { note: newNote });
     } catch (err) {
@@ -704,8 +732,142 @@ function Notes() {
     })
     .filter(Boolean);
 
+  const readerIdx = readerId ? folder.notes.findIndex(n => n.id === readerId) : -1;
+  const readerNote = readerIdx >= 0 ? folder.notes[readerIdx] : null;
+  const setScale = (v) => { setReaderScale(v); try { localStorage.setItem('dwenliteReaderScale', String(v)); } catch { /* ignore */ } };
+  const jumpTo = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  // Everything shown inside the reader: tools, editor or the formatted note.
+  const renderNoteBody = (note, idx) => (
+    <>
+      <div className="mb-6 flex gap-2 overflow-x-auto pb-2 [&>button]:shrink-0 [&>button]:whitespace-nowrap">
+                     {Object.entries(NOTE_TOOLS).map(([mode, t]) => (
+                        <button
+                           key={mode}
+                           onClick={() => runNoteTool(note, idx, mode)}
+                           disabled={!!toolBusy}
+                           className="rounded-full border border-purple-500/30 bg-purple-500/10 px-3 py-1.5 text-xs font-medium text-purple-200 hover:bg-purple-500/20 disabled:opacity-40 transition-colors"
+                        >
+                           {toolBusy === `${note.id}:${mode}` ? 'Working...' : t.label}
+                        </button>
+                     ))}
+                     <button
+                        onClick={() => startEdit(note)}
+                        className="rounded-full border border-slate-600 bg-slate-700/40 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 transition-colors"
+                     >
+                        Edit
+                     </button>
+                     {note.versions?.length > 0 && (
+                        <button
+                           onClick={() => undoEdit(note)}
+                           className="rounded-full border border-slate-600 bg-slate-700/40 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 transition-colors"
+                        >
+                           Undo last edit
+                        </button>
+                     )}
+                     {!note.title && (
+                        <button
+                           onClick={() => titleNote(note.id, { quiet: false })}
+                           disabled={titleBusy === note.id}
+                           className="rounded-full border border-slate-600 bg-slate-700/40 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-50 transition-colors"
+                        >
+                           {titleBusy === note.id ? 'Working...' : 'Add title & tags'}
+                        </button>
+                     )}
+                     <button
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => saveHighlight(note, idx)}
+                        className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-3 py-1.5 text-xs font-medium text-yellow-200 hover:bg-yellow-500/20 transition-colors"
+                     >
+                        Save highlight
+                     </button>
+                  </div>
+                  {editingId === note.id ? (
+                     <div>
+                        <textarea
+                           value={draft}
+                           onChange={(e) => setDraft(e.target.value)}
+                           className="min-h-[50vh] w-full resize-y rounded-xl border border-slate-700 bg-slate-900 p-4 font-mono text-sm text-slate-200 outline-none focus:border-purple-500"
+                        />
+                        <div className="mt-3 flex justify-end gap-2">
+                           <button onClick={() => setEditingId(null)} className="rounded-lg px-4 py-2 text-sm text-slate-400 hover:text-white">Cancel</button>
+                           <button onClick={() => saveEdit(note)} className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold hover:bg-purple-500">Save</button>
+                        </div>
+                     </div>
+                  ) : (
+                  <div 
+                     data-note-content={note.id}
+                     id="reader-content"
+                     className="md md-reader"
+                     dangerouslySetInnerHTML={{ __html: renderMarkdown(note.content) }}
+                  />
+                  )}
+    </>
+  );
+
+
   return (
     <>
+      {readerNote && createPortal(
+        <div className="fixed inset-0 z-[80] flex flex-col bg-slate-950 text-slate-200" role="dialog" aria-modal="true" aria-label="Note reader">
+          <div className="flex items-center gap-2 border-b border-white/10 bg-slate-950/95 px-3 py-3 backdrop-blur md:px-6">
+            <button onClick={() => setReaderId(null)} aria-label="Close reader" className="rounded-lg p-2 text-slate-300 hover:bg-white/10 hover:text-white">
+              <X size={22} />
+            </button>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-white">Note {readerIdx + 1}{readerNote.title ? ` · ${readerNote.title}` : ''}</p>
+              <p className="truncate text-xs text-slate-500">{new Date(readerNote.createdAt).toLocaleDateString()}{readerNote.label ? ` · ${readerNote.label}` : ''}</p>
+            </div>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setScale(Math.max(0.9, +(readerScale - 0.15).toFixed(2)))} aria-label="Smaller text" className="rounded-lg px-2.5 py-1.5 text-sm font-semibold text-slate-300 hover:bg-white/10">A-</button>
+              <button onClick={() => setScale(Math.min(1.5, +(readerScale + 0.15).toFixed(2)))} aria-label="Larger text" className="rounded-lg px-2.5 py-1.5 text-base font-semibold text-slate-300 hover:bg-white/10">A+</button>
+              <div className="relative" data-export-menu>
+                <button onClick={() => setExportOpenId(exportOpenId === 'reader' ? null : 'reader')} aria-label="Export" className="rounded-lg p-2 text-slate-300 hover:bg-white/10"><Download size={18} /></button>
+                {exportOpenId === 'reader' && (
+                  <div role="menu" className="absolute right-0 top-full z-30 mt-1 w-44 overflow-hidden rounded-xl border border-white/10 bg-slate-900 shadow-2xl">
+                    {[['PDF (.pdf)', () => handleDownloadPDF(readerNote, readerIdx)], ['Word (.doc)', () => handleDownloadWord(readerNote, readerIdx)], ['Markdown (.md)', () => handleDownloadMarkdown(readerNote, readerIdx)]].map(([label, fn]) => (
+                      <button key={label} role="menuitem" onClick={() => { fn(); setExportOpenId(null); }} className="block w-full px-4 py-2.5 text-left text-sm text-slate-200 hover:bg-white/10">{label}</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto">
+            <div className="mx-auto flex max-w-6xl gap-10 px-4 py-6 md:px-8 md:py-10">
+              {outline.length > 2 && (
+                <aside className="sticky top-2 hidden h-fit max-h-[80vh] w-60 shrink-0 overflow-y-auto lg:block">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">On this page</p>
+                  <ul className="space-y-1.5 border-l border-white/10">
+                    {outline.map(o => (
+                      <li key={o.id}>
+                        <button onClick={() => jumpTo(o.id)} className={`block w-full truncate py-0.5 text-left text-sm text-slate-400 hover:text-white ${o.level === 3 ? 'pl-6' : 'pl-3'}`}>{o.text}</button>
+                      </li>
+                    ))}
+                  </ul>
+                </aside>
+              )}
+              <article className="mx-auto min-w-0 max-w-3xl flex-1 lg:mx-0" style={{ '--md-scale': readerScale }}>
+                {outline.length > 2 && (
+                  <select
+                    onChange={(e) => { if (e.target.value) jumpTo(e.target.value); e.target.value = ''; }}
+                    defaultValue=""
+                    aria-label="Jump to section"
+                    className="mb-5 w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm text-slate-200 lg:hidden"
+                  >
+                    <option value="">Jump to section...</option>
+                    {outline.filter(o => o.level < 3).map(o => <option key={o.id} value={o.id}>{o.text}</option>)}
+                  </select>
+                )}
+                {renderNoteBody(readerNote, readerIdx)}
+              </article>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
 
       <div className="relative z-10 max-w-6xl mx-auto p-4 md:p-8 pb-20">
         
@@ -893,7 +1055,7 @@ function Notes() {
                                         <div className="p-4 flex flex-col md:flex-row justify-between md:items-center gap-4">
                                             <div 
                                                 className="flex-1 cursor-pointer"
-                                                onClick={() => handleToggleGroup(note.id)}
+                                                onClick={() => setReaderId(note.id)}
                                             >
                                                 <h4 className="font-bold text-slate-200 flex flex-wrap items-center gap-x-2">
                                                    <input
@@ -963,10 +1125,11 @@ function Notes() {
                                                 </div>
 
                                                 <button 
-                                                    onClick={() => handleToggleGroup(note.id)}
-                                                    className="p-2 hover:bg-white/10 rounded-lg text-slate-400 transition-colors"
+                                                    onClick={() => setReaderId(note.id)}
+                                                    className="flex items-center gap-1.5 rounded-lg bg-purple-500/15 px-3 py-2 text-xs font-semibold text-purple-200 hover:bg-purple-500/25 transition-colors"
+                                                    title="Open in full screen"
                                                 >
-                                                    {expandedGroups[note.id] ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                                    <Maximize2 size={14} /> Open
                                                 </button>
                                                 
                                                 <button 
@@ -979,78 +1142,6 @@ function Notes() {
                                             </div>
                                         </div>
 
-                                        <AnimatePresence>
-                                            {expandedGroups[note.id] && (
-                                                <motion.div 
-                                                    initial={{ height: 0, opacity: 0 }}
-                                                    animate={{ height: 'auto', opacity: 1 }}
-                                                    exit={{ height: 0, opacity: 0 }}
-                                                    className="border-t border-white/5 bg-slate-900/30 px-6 py-6"
-                                                >
-                                                    <div className="mb-4 flex flex-wrap gap-2">
-                                                       {Object.entries(NOTE_TOOLS).map(([mode, t]) => (
-                                                          <button
-                                                             key={mode}
-                                                             onClick={() => runNoteTool(note, idx, mode)}
-                                                             disabled={!!toolBusy}
-                                                             className="rounded-full border border-purple-500/30 bg-purple-500/10 px-3 py-1.5 text-xs font-medium text-purple-200 hover:bg-purple-500/20 disabled:opacity-40 transition-colors"
-                                                          >
-                                                             {toolBusy === `${note.id}:${mode}` ? 'Working...' : t.label}
-                                                          </button>
-                                                       ))}
-                                                       <button
-                                                          onClick={() => startEdit(note)}
-                                                          className="rounded-full border border-slate-600 bg-slate-700/40 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 transition-colors"
-                                                       >
-                                                          Edit
-                                                       </button>
-                                                       {note.versions?.length > 0 && (
-                                                          <button
-                                                             onClick={() => undoEdit(note)}
-                                                             className="rounded-full border border-slate-600 bg-slate-700/40 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 transition-colors"
-                                                          >
-                                                             Undo last edit
-                                                          </button>
-                                                       )}
-                                                       {!note.title && (
-                                                          <button
-                                                             onClick={() => titleNote(note.id, { quiet: false })}
-                                                             disabled={titleBusy === note.id}
-                                                             className="rounded-full border border-slate-600 bg-slate-700/40 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-50 transition-colors"
-                                                          >
-                                                             {titleBusy === note.id ? 'Working...' : 'Add title & tags'}
-                                                          </button>
-                                                       )}
-                                                       <button
-                                                          onMouseDown={(e) => e.preventDefault()}
-                                                          onClick={() => saveHighlight(note, idx)}
-                                                          className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-3 py-1.5 text-xs font-medium text-yellow-200 hover:bg-yellow-500/20 transition-colors"
-                                                       >
-                                                          Save highlight
-                                                       </button>
-                                                    </div>
-                                                    {editingId === note.id ? (
-                                                       <div>
-                                                          <textarea
-                                                             value={draft}
-                                                             onChange={(e) => setDraft(e.target.value)}
-                                                             className="min-h-[50vh] w-full resize-y rounded-xl border border-slate-700 bg-slate-900 p-4 font-mono text-sm text-slate-200 outline-none focus:border-purple-500"
-                                                          />
-                                                          <div className="mt-3 flex justify-end gap-2">
-                                                             <button onClick={() => setEditingId(null)} className="rounded-lg px-4 py-2 text-sm text-slate-400 hover:text-white">Cancel</button>
-                                                             <button onClick={() => saveEdit(note)} className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold hover:bg-purple-500">Save</button>
-                                                          </div>
-                                                       </div>
-                                                    ) : (
-                                                    <div 
-                                                       data-note-content={note.id}
-                                                       className="md text-sm text-slate-300"
-                                                       dangerouslySetInnerHTML={{ __html: renderMarkdown(note.content) }}
-                                                    />
-                                                    )}
-                                                </motion.div>
-                                            )}
-                                        </AnimatePresence>
                                     </motion.div>
                                 ))}
                             </motion.div>

@@ -64,7 +64,14 @@ const NOTES_SYSTEM =
   "- **Bold** key terms. Use > blockquotes for definitions, warnings and " +
   "key takeaways. Use tables when comparing things.\n" +
   "- If the source is unclear or a speaker is unknown, say 'Unclear' rather " +
-  "than guessing.\n\n" +
+  "than guessing.\n" +
+  "READABILITY (very important, the notes must never feel cluttered or overwhelming):\n" +
+  "- Short sections: at most 7 bullets under any heading; split into ### sub-sections instead of long lists.\n" +
+  "- Each bullet is one short line (under 25 words). No walls of text, no paragraph longer than 3 sentences.\n" +
+  "- Never nest bullets deeper than two levels. Never repeat the same fact in two places.\n" +
+  "- Use a Markdown table whenever you compare items or list tasks, terms or dates (header row, then a separator row, with a blank line before the table).\n" +
+  "- Bold only the few terms that really matter, not whole sentences. At most one blockquote callout per section.\n" +
+  "- Put the most important information first in every section.\n\n" +
   "IF IT IS A MEETING / GATHERING / DISCUSSION / SERMON / EVENT USE THIS:\n" +
   "# <Title>\n" +
   "> **Summary:** ...\n" +
