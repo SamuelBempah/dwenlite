@@ -7,11 +7,13 @@ import UsageMeter from '../components/UsageMeter';
 import VoiceSettings, { loadVoicePrefs } from '../components/VoiceSettings';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
-import { auth, storage } from '../firebase';
+import { auth, db, storage } from '../firebase';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { ref, getDownloadURL } from 'firebase/storage';
 import { uploadWithProgress, primeUploadNotifications } from '../lib/uploadManager';
 import axios from 'axios';
 import { askAI } from '../lib/ai';
+import { recordStudy } from '../lib/streak';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import mammoth from 'mammoth';
@@ -110,6 +112,7 @@ const AITeacher = () => {
       audioRef.current.playbackRate = voicePrefs.speed;
     }
   }, [voicePrefs]);
+  const [topicText, setTopicText] = useState('');
   const [showRecap, setShowRecap] = useState(false);
   const [recapText, setRecapText] = useState('');
   const [recapLoading, setRecapLoading] = useState(false);
@@ -456,7 +459,27 @@ const AITeacher = () => {
     return `${m}:${s}`;
   };
 
+  // Also keep the lesson in the user's account (throttled) so it can be resumed on another device.
+  const lastRemoteSave = useRef(0);
+  const syncSessionRemote = (force = false) => {
+    const uid = auth.currentUser?.uid;
+    if (!uid || stepRef.current < 3) return;
+    if (!force && Date.now() - lastRemoteSave.current < 15000) return;
+    lastRemoteSave.current = Date.now();
+    updateDoc(doc(db, 'users', uid), {
+      teacherSession: {
+        step: stepRef.current,
+        userName: userNameRef.current,
+        studyMaterial: (studyMaterialRef.current || '').slice(0, 150000),
+        messages: messagesRef.current.slice(-40).map(m => ({ role: m.role, content: String(m.content).slice(0, 1500) })),
+        sessionTime,
+        updatedAt: Date.now(),
+      },
+    }).catch(() => { });
+  };
+
   const saveSessionState = () => {
+    syncSessionRemote();
     if (stepRef.current >= 3) {
       try {
         localStorage.setItem('aiTeacherSession', JSON.stringify({
@@ -474,6 +497,7 @@ const AITeacher = () => {
 
   const clearSessionState = () => {
     localStorage.removeItem('aiTeacherSession');
+    if (auth.currentUser?.uid) updateDoc(doc(db, 'users', auth.currentUser.uid), { teacherSession: null }).catch(() => { });
     setIsTimerActive(false);
     setSessionTime(0);
   };
@@ -635,6 +659,21 @@ const AITeacher = () => {
 
   useEffect(() => {
     fetch('https://dwenlite-backend.fly.dev/health', { mode: 'no-cors' }).catch(() => { });
+  }, []);
+
+  // Resume anywhere: if this device has no saved lesson but the account does, bring it here.
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged(async (user) => {
+      if (!user || localStorage.getItem('aiTeacherSession')) return;
+      try {
+        const snap = await getDoc(doc(db, 'users', user.uid));
+        const remote = snap.exists() ? snap.data().teacherSession : null;
+        if (remote && remote.step === 3 && remote.studyMaterial && !localStorage.getItem('aiTeacherSession')) {
+          localStorage.setItem('aiTeacherSession', JSON.stringify(remote));
+        }
+      } catch { /* offline or no permission */ }
+    });
+    return unsub;
   }, []);
 
   const handleStartSession = () => {
@@ -869,6 +908,70 @@ const AITeacher = () => {
     }
   };
 
+  // Starts the lesson from a finished set of numbered concepts (from files or from a topic).
+  const beginLesson = async (generatedNotes, topic = '') => {
+    studyMaterialRef.current = generatedNotes;
+    setConceptTotal(countConcepts(generatedNotes));
+    setCurrentConcept(1);
+    recapDoneRef.current = false;
+    weakRef.current = [];
+    setWeakConcepts([]);
+    setFiles([]);
+
+    stepRef.current = 3;
+    setUiStep(3);
+    setIsTimerActive(true);
+
+    setUploadLoading(false);
+    uploadLoadingRef.current = false;
+    setUploadStatus('');
+
+    // Revisit topics the student struggled with in earlier sessions (once each).
+    const earlier = loadWeakTopics().slice(0, 2);
+    const warmUp = earlier.length
+      ? `Then do a quick warm-up first: in an earlier session the student struggled with ${earlier.map(t => `"${t.title}"`).join(' and ')}. Ask ONE short warm-up question about "${earlier[0].title}" and stop. After they answer, give brief feedback and continue with Concept #1 as usual.`
+      : '';
+    if (earlier.length) {
+      try { localStorage.setItem(WEAK_KEY, JSON.stringify(loadWeakTopics().slice(earlier.length))); } catch { /* ignore */ }
+    }
+    const intro = topic
+      ? `The student has no files. They asked you to teach them the topic "${topic}", and you wrote the curriculum yourself from your own knowledge (it is in the study material). Say you have prepared a lesson plan on it.`
+      : `The user ${userNameRef.current} has provided study materials. Their numbered notes are ready in the study material. Acknowledge that the notes are ready.`;
+    const aiPrompt = `${intro} ${warmUp || 'Then, teach ONLY Concept #1 from the notes in 2-3 short, friendly sentences. Finally, ask a single question to test their understanding of Concept #1.'} ALWAYS end your turn after the question so the student can answer. Remember to track your progress strictly and use the Adaptive Analogy Engine if they struggle.`;
+
+    recordStudy();
+    await generateAIResponse(aiPrompt, []);
+  };
+
+  // "Teach me this topic": no files needed, the AI writes the curriculum itself.
+  const handleTopicStart = async () => {
+    const topic = topicText.trim().slice(0, 200);
+    if (!topic || uploadLoadingRef.current || stepRef.current !== 2) return;
+    setShowUploadDrawer(false);
+    setUploadLoading(true);
+    uploadLoadingRef.current = true;
+    setUploadStatus('Building your lesson plan...');
+    setEstimatedTime(20);
+    try {
+      const prompt = `The student wants to learn this topic from scratch: "${topic}".\n\nThere is no source material. Write a complete curriculum from your own knowledge as a numbered list of 8 to 12 distinct concepts ("1. Title: explanation"), ordered from fundamentals to advanced, accurate and detailed enough to teach from. Number the concepts starting at 1.`;
+      const res = await axios.post(TEACHER_URL, { prompt, task: 'concepts' })
+        .catch(err => { throw new Error(err.response?.data?.error || err.message); });
+      const notes = res.data.choices?.[0]?.message?.content?.trim();
+      if (!notes) throw new Error('Could not build a lesson plan. Please try again.');
+      setTopicText('');
+      await beginLesson(notes, topic);
+    } catch (err) {
+      toast.error(err.message || 'Could not start the lesson.');
+      setShowUploadDrawer(true);
+    } finally {
+      setUploadLoading(false);
+      uploadLoadingRef.current = false;
+      setUploadStatus('');
+      setEstimatedTime(0);
+      setEyeEmotion('center');
+    }
+  };
+
   const handleFileUpload = async () => {
     if (files.length === 0) return;
     primeUploadNotifications();
@@ -993,33 +1096,7 @@ const AITeacher = () => {
         return;
       }
 
-      studyMaterialRef.current = generatedNotes;
-      setConceptTotal(countConcepts(generatedNotes));
-      setCurrentConcept(1);
-      recapDoneRef.current = false;
-      weakRef.current = [];
-      setWeakConcepts([]);
-      setFiles([]);
-
-      stepRef.current = 3;
-      setUiStep(3);
-      setIsTimerActive(true);
-
-      setUploadLoading(false);
-      uploadLoadingRef.current = false;
-      setUploadStatus('');
-
-      // Revisit topics the student struggled with in earlier sessions (once each).
-      const earlier = loadWeakTopics().slice(0, 2);
-      const warmUp = earlier.length
-        ? `Then do a quick warm-up first: in an earlier session the student struggled with ${earlier.map(t => `"${t.title}"`).join(' and ')}. Ask ONE short warm-up question about "${earlier[0].title}" and stop. After they answer, give brief feedback and continue with Concept #1 as usual.`
-        : '';
-      if (earlier.length) {
-        try { localStorage.setItem(WEAK_KEY, JSON.stringify(loadWeakTopics().slice(earlier.length))); } catch { /* ignore */ }
-      }
-      const aiPrompt = `The user ${userNameRef.current} has provided study materials. Their numbered notes are ready in the study material. Acknowledge that the notes are ready. ${warmUp || 'Then, teach ONLY Concept #1 from the notes in 2-3 short, friendly sentences. Finally, ask a single question to test their understanding of Concept #1.'} ALWAYS end your turn after the question so the student can answer. Remember to track your progress strictly and use the Adaptive Analogy Engine if they struggle.`;
-
-      await generateAIResponse(aiPrompt, []);
+      await beginLesson(generatedNotes);
 
     } catch (err) {
       console.error(err);
@@ -2332,6 +2409,34 @@ const AITeacher = () => {
                     </button>
                   </div>
                 ))}
+              </div>
+            )}
+
+            {uiStep === 2 && files.length === 0 && (
+              <div className="mt-5">
+                <div className="mb-3 flex items-center gap-3 text-xs uppercase tracking-wider text-gray-500">
+                  <div className="h-px flex-1 bg-gray-700" /> or <div className="h-px flex-1 bg-gray-700" />
+                </div>
+                <label htmlFor="topic-input" className="mb-2 block text-sm font-semibold text-gray-200">Teach me a topic</label>
+                <div className="flex gap-2">
+                  <input
+                    id="topic-input"
+                    value={topicText}
+                    onChange={(e) => setTopicText(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleTopicStart(); }}
+                    maxLength={200}
+                    placeholder="e.g. Photosynthesis for grade 10"
+                    className="min-w-0 flex-1 rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-sm text-gray-100 outline-none focus:border-blue-500"
+                  />
+                  <button
+                    onClick={handleTopicStart}
+                    disabled={!topicText.trim() || uploadLoading}
+                    className="rounded-xl bg-blue-600 px-4 font-semibold text-white hover:bg-blue-500 disabled:opacity-40 transition"
+                  >
+                    Start
+                  </button>
+                </div>
+                <p className="mt-2 text-xs text-gray-500">No files needed. The teacher builds the lesson plan itself.</p>
               </div>
             )}
 
