@@ -25,3 +25,45 @@ export async function askAI(prompt, task = 'general') {
     throw new Error(err.response?.data?.error || err.message);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Study chat: the AI reads the student's WHOLE folder, so nobody has to pick a note.
+// ---------------------------------------------------------------------------
+const cap = (t = '', n) => (t.length > n ? t.slice(0, n) + '\n[...cut for length]' : t);
+
+export function buildFolderContext(folder) {
+  if (!folder) return '';
+  const parts = [];
+  (folder.notes || []).forEach((n, i) => parts.push(`### Note ${i + 1}\n${cap(n.content, 30000)}`));
+  (folder.documents || []).forEach((d) => {
+    if (d.extractedText) parts.push(`### Document: ${d.name}\n${cap(d.extractedText, 40000)}`);
+  });
+  (folder.quizGroups || []).forEach((g, i) => {
+    const qs = (g.quizzes || []).map((q) =>
+      `Q: ${q.question}\nOptions: ${(q.options || []).join(' | ')}\nCorrect answer: ${q.correctAnswer}`).join('\n\n');
+    parts.push(`### Quiz Group ${i + 1}\n${qs}`);
+  });
+  (folder.flashcardGroups || []).forEach((g, i) => {
+    const cs = (g.flashcards || []).map((c, j) => `Card ${j + 1}\nQ: ${c.question}\nA: ${c.answer}`).join('\n\n');
+    parts.push(`### Flashcards ${i + 1}\n${cs}`);
+  });
+  return cap(parts.join('\n\n'), 200000);
+}
+
+// history: [{type:'user'|'ai', content}], question: the new user message
+export async function askStudyChat({ context, history = [], question, kind = 'folder' }) {
+  const messages = history
+    .filter((m) => m.type === 'user' || m.type === 'ai')
+    .map((m) => ({ role: m.type === 'user' ? 'user' : 'assistant', content: m.content }));
+  const last = messages[messages.length - 1];
+  if (!(last && last.role === 'user' && last.content === question)) messages.push({ role: 'user', content: question });
+
+  try {
+    const res = await axios.post(AI_URL, { task: 'study_chat', messages, context: context || 'No materials yet.', kind });
+    const text = res.data?.choices?.[0]?.message?.content?.trim();
+    if (!text) throw new Error('No answer found.');
+    return text;
+  } catch (err) {
+    throw new Error(err.response?.data?.error || err.message);
+  }
+}

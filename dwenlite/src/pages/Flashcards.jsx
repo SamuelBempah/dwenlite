@@ -4,6 +4,7 @@ import { db, auth } from '../firebase';
 import { doc, getDoc, updateDoc, addDoc, collection, setDoc, query, where, getDocs } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
+import { askStudyChat, buildFolderContext } from '../lib/ai';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, Zap, Coins, Brain, RotateCw, ChevronLeft, ChevronRight, 
@@ -428,123 +429,24 @@ function Flashcards() {
 
   const handleChatSubmit = async (e) => {
     e.preventDefault();
-    if (!chatInput.trim()) return;
-
+    if (!chatInput.trim() || chatLoading) return;
     const question = chatInput.trim();
     setChatInput('');
-
-    const flashcardGroupRegex = /(?:reference|check|use|from)\s*(?:flashcard\s*group\s*)(\d+|one|two|three|four|five)/i;
-    const match = question.match(flashcardGroupRegex);
-    let flashcardGroupIndex = null;
-
-    if (match) {
-      const flashcardGroupRef = match[1].toLowerCase();
-      const numberWords = ['one', 'two', 'three', 'four', 'five'];
-      if (numberWords.includes(flashcardGroupRef)) {
-        flashcardGroupIndex = numberWords.indexOf(flashcardGroupRef);
-      } else if (!isNaN(parseInt(flashcardGroupRef))) {
-        flashcardGroupIndex = parseInt(flashcardGroupRef) - 1;
-      }
-    }
-
-    if (flashcardGroupIndex !== null && folder.flashcardGroups[flashcardGroupIndex]) {
-      const selectedFlashcardGroup = folder.flashcardGroups[flashcardGroupIndex];
-      await processQuestion(question, selectedFlashcardGroup);
-    } else if (folder.flashcardGroups.length === 0) {
-      toast.error('No flashcard groups available to reference.');
-      return;
-    } else {
-      setShowFlashcardGroupPrompt(true);
-      setChatHistory(prev => [
-        ...prev,
-        { type: 'user', content: question },
-        { type: 'system', content: 'Please select a flashcard group to reference for this question.' },
-      ]);
-      setSelectedFlashcardGroupId('');
-    }
+    await processQuestion(question);
   };
 
-  const handleFlashcardGroupSelection = async () => {
-    if (!selectedFlashcardGroupId) { toast.error('Please select a flashcard group.'); return; }
-
-    const selectedFlashcardGroup = folder.flashcardGroups.find(group => group.id === selectedFlashcardGroupId);
-    if (!selectedFlashcardGroup) { toast.error('Selected flashcard group not found.'); return; }
-
-    const lastQuestion = chatHistory.findLast(item => item.type === 'user')?.content;
-    if (!lastQuestion) { toast.error('No question found to process.'); return; }
-
-    setShowFlashcardGroupPrompt(false);
-    await processQuestion(lastQuestion, selectedFlashcardGroup);
-  };
-
-  const scrapeWeb = async (query) => {
-    try {
-      const apiKey = import.meta.env.VITE_SERPAPI_API_KEY;
-      if (!apiKey) throw new Error('SerpApi API key not found.');
-
-      const params = new URLSearchParams({ q: query, api_key: apiKey });
-      const response = await axios.get(`https://serpapi.com/search?${params.toString()}`);
-      
-      const organicResults = response.data.organic_results || [];
-      let searchResults = organicResults.slice(0, 3).map(result => ({ title: result.title, snippet: result.snippet, link: result.link }));
-
-      if (searchResults.length === 0) {
-        searchResults = [{ title: 'No results found', snippet: 'No relevant information was found for your query.', link: '' }];
-      }
-      return searchResults;
-    } catch (err) {
-      console.error('Web scraping error:', err);
-      throw new Error(`Web scraping failed: ${err.message}`);
-    }
-  };
-
-  const processQuestion = async (question, flashcardGroup) => {
+  // The AI reads every flashcard group, note and document in the folder and may go beyond them.
+  const processQuestion = async (question) => {
+    const priorHistory = chatHistory;
+    setChatHistory(prev => [...prev, { type: 'user', content: question }, { type: 'system', content: 'DwenLite AI is typing...' }]);
     setChatLoading(true);
     try {
-      const flashcardContent = flashcardGroup.flashcards.map((card, index) => {
-        return `Flashcard ${index + 1}:\nQuestion: ${card.question}\nAnswer: ${card.answer}`;
-      }).join('\n\n');
-
-      const flashcardGroupIndex = folder.flashcardGroups.findIndex(g => g.id === flashcardGroup.id) + 1;
-      setChatHistory(prev => [...prev, { type: 'system', content: `DwenLite AI is reading Flashcard Group ${flashcardGroupIndex}...` }]);
-
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      const functionUrl = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
-      let prompt = `You are DwenLite AI, an assistant that answers questions based on provided flashcard group content. Here is the content of the flashcard group:\n\n${flashcardContent}\n\nQuestion: ${question}\n\nProvide a clear, concise, and accurate answer based on the flashcard group content. If the question cannot be answered from the flashcard group, state so and provide a brief explanation. Format the answer as plain text suitable for rendering in a React component.`;
-
-      setChatHistory(prev => [...prev, { type: 'system', content: 'DwenLite AI is typing...' }]);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      let response = await axios.post(functionUrl, { prompt });
-      let answer;
-      if (response.data.choices?.[0]?.message?.content) answer = response.data.choices[0].message.content.trim();
-      else if (response.data.choices?.[0]?.text) answer = response.data.choices[0].text.trim();
-      else throw new Error('Invalid API response: No answer found.');
-
-      if (answer.includes('cannot be answered from the flashcard group')) {
-        setChatHistory(prev => [...prev, { type: 'system', content: 'DwenLite AI is searching the web for additional information...' }]);
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        const searchResults = await scrapeWeb(question);
-        const searchContent = searchResults.map(result => `Title: ${result.title}\nSnippet: ${result.snippet}\nLink: ${result.link}`).join('\n\n');
-        prompt = `You are DwenLite AI, an assistant that answers questions using provided flashcard group content and web search results. The flashcard group content did not provide enough information to answer the question. Here is the flashcard group content:\n\n${flashcardContent}\n\nHere are the web search results:\n\n${searchContent}\n\nQuestion: ${question}\n\nProvide a clear, concise, and accurate answer based on the web search results. If the question still cannot be answered, state so and provide a brief explanation. Format the answer as plain text suitable for rendering in a React component.`;
-
-        response = await axios.post(functionUrl, { prompt });
-        if (response.data.choices?.[0]?.message?.content) answer = response.data.choices[0].message.content.trim();
-        else if (response.data.choices?.[0]?.text) answer = response.data.choices[0].text.trim();
-        else throw new Error('Invalid API response: No answer found after web search.');
-      }
-
-      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...' && item.content !== 'DwenLite AI is searching the web for additional information...').concat({
-        type: 'ai',
-        content: answer,
-      }));
-
+      const answer = await askStudyChat({ context: buildFolderContext(folder), history: priorHistory, question, kind: 'flashcards' });
+      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...').concat({ type: 'ai', content: answer }));
     } catch (err) {
       console.error('Error processing question:', err);
       toast.error(err.message);
-      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...' && item.content !== 'DwenLite AI is searching the web for additional information...'));
+      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...'));
     } finally {
       setChatLoading(false);
     }
@@ -900,27 +802,7 @@ function Flashcards() {
                     </div>
 
                     <div className="p-3 bg-slate-800/50 rounded-b-2xl border-t border-white/5">
-                        {showFlashcardGroupPrompt ? (
-                            <div className="flex flex-col gap-2 animate-fade-in">
-                                <select 
-                                    value={selectedFlashcardGroupId}
-                                    onChange={(e) => setSelectedFlashcardGroupId(e.target.value)}
-                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm focus:border-purple-500 outline-none"
-                                >
-                                    <option value="">Select context...</option>
-                                    {folder.flashcardGroups.map((g, i) => (
-                                        <option key={g.id} value={g.id}>Group {i+1} ({g.flashcards.length} cards)</option>
-                                    ))}
-                                </select>
-                                <button 
-                                    onClick={handleFlashcardGroupSelection}
-                                    className="w-full bg-purple-600 hover:bg-purple-500 text-white py-2 rounded-lg text-sm"
-                                >
-                                    Confirm Context
-                                </button>
-                            </div>
-                        ) : (
-                            <form onSubmit={handleChatSubmit} className="flex gap-2">
+                        <form onSubmit={handleChatSubmit} className="flex gap-2">
                                 <input 
                                     value={chatInput}
                                     onChange={(e) => setChatInput(e.target.value)}
@@ -936,7 +818,6 @@ function Flashcards() {
                                     <Send size={18} />
                                 </button>
                             </form>
-                        )}
                     </div>
                 </div>
             </div>

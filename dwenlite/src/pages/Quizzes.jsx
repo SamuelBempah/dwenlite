@@ -4,6 +4,7 @@ import { db, auth } from '../firebase';
 import { doc, getDoc, updateDoc, addDoc, collection, setDoc, query, where, getDocs } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
+import { askStudyChat, buildFolderContext } from '../lib/ai';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ArrowLeft, Zap, Coins, ChevronLeft, ChevronRight, 
@@ -438,47 +439,10 @@ function Quizzes() {
   // --- CHAT LOGIC ---
   const handleChatSubmit = async (e) => {
     e.preventDefault();
-    if (!chatInput.trim()) return;
-
+    if (!chatInput.trim() || chatLoading) return;
     const question = chatInput.trim();
     setChatInput('');
-
-    const quizGroupRegex = /(?:reference|check|use|from)\s*(?:quiz\s*group\s*)(\d+|one|two|three|four|five)/i;
-    const match = question.match(quizGroupRegex);
-    let groupIndex = null;
-
-    if (match) {
-      const groupRef = match[1].toLowerCase();
-      const numberWords = ['one', 'two', 'three', 'four', 'five'];
-      if (numberWords.includes(groupRef)) groupIndex = numberWords.indexOf(groupRef);
-      else if (!isNaN(parseInt(groupRef))) groupIndex = parseInt(groupRef) - 1;
-    }
-
-    if (groupIndex !== null && folder.quizGroups[groupIndex]) {
-      await processQuestion(question, folder.quizGroups[groupIndex]);
-    } else if (folder.quizGroups.length === 0) {
-      toast.error('No quiz groups available.');
-    } else {
-      setShowQuizGroupPrompt(true);
-      setChatHistory(prev => [
-        ...prev,
-        { type: 'user', content: question },
-        { type: 'system', content: 'Please select a quiz group to reference for this question.' },
-      ]);
-      setSelectedQuizGroupId('');
-    }
-  };
-
-  const handleQuizGroupSelection = async () => {
-    if (!selectedQuizGroupId) { toast.error('Please select a quiz group.'); return; }
-    const selectedGroup = folder.quizGroups.find(group => group.id === selectedQuizGroupId);
-    if (!selectedGroup) { toast.error('Selected quiz group not found.'); return; }
-
-    const lastQuestion = chatHistory.findLast(item => item.type === 'user')?.content;
-    if (!lastQuestion) { toast.error('No question found.'); return; }
-
-    setShowQuizGroupPrompt(false);
-    await processQuestion(lastQuestion, selectedGroup);
+    await processQuestion(question);
   };
 
   const handleReportContent = async (messageIndex, reason) => {
@@ -504,36 +468,17 @@ function Quizzes() {
     finally { setReportLoading(false); }
   };
 
-  const processQuestion = async (question, group) => {
+  // The AI reads every quiz group, note and document in the folder and may go beyond them.
+  const processQuestion = async (question) => {
+    const priorHistory = chatHistory;
+    setChatHistory(prev => [...prev, { type: 'user', content: question }, { type: 'system', content: 'DwenLite AI is typing...' }]);
     setChatLoading(true);
     try {
-      const groupIndex = folder.quizGroups.findIndex(g => g.id === group.id) + 1;
-      setChatHistory(prev => [...prev, { type: 'system', content: `DwenLite AI is reading Quiz Group ${groupIndex}...` }]);
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      const functionUrl = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
-      const quizContent = group.quizzes.map(quiz => 
-        `Q: ${quiz.question}\nOpts: ${quiz.options.join(', ')}\nAns: ${quiz.correctAnswer}`
-      ).join('\n\n');
-
-      const prompt = `You are DwenLite AI. Answer based on this quiz group:\n\n${quizContent}\n\nQuestion: ${question}\n\nProvide a concise answer.`;
-
-      setChatHistory(prev => [...prev, { type: 'system', content: 'DwenLite AI is typing...' }]);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      const response = await axios.post(functionUrl, { prompt });
-      let answer;
-      if (response.data.choices?.[0]?.message?.content) answer = response.data.choices[0].message.content.trim();
-      else if (response.data.choices?.[0]?.text) answer = response.data.choices[0].text.trim();
-      else throw new Error('No answer found.');
-
-      setChatHistory(prev => prev.filter(item => !item.content.includes('typing') && !item.content.includes('reading')).concat({
-        type: 'ai',
-        content: answer,
-      }));
+      const answer = await askStudyChat({ context: buildFolderContext(folder), history: priorHistory, question, kind: 'quizzes' });
+      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...').concat({ type: 'ai', content: answer }));
     } catch (err) {
       toast.error(err.message);
-      setChatHistory(prev => prev.filter(item => !item.content.includes('typing')));
+      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...'));
     } finally {
       setChatLoading(false);
     }
@@ -888,27 +833,7 @@ function Quizzes() {
                     </div>
 
                     <div className="p-3 bg-slate-800/50 rounded-b-2xl border-t border-white/5">
-                        {showQuizGroupPrompt ? (
-                            <div className="flex flex-col gap-2 animate-fade-in">
-                                <select 
-                                    value={selectedQuizGroupId}
-                                    onChange={(e) => setSelectedQuizGroupId(e.target.value)}
-                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm focus:border-purple-500 outline-none"
-                                >
-                                    <option value="">Select quiz group context...</option>
-                                    {folder.quizGroups.map((g, i) => (
-                                        <option key={g.id} value={g.id}>Group {i+1} ({new Date(g.createdAt).toLocaleDateString()})</option>
-                                    ))}
-                                </select>
-                                <button 
-                                    onClick={handleQuizGroupSelection}
-                                    className="w-full bg-purple-600 hover:bg-purple-500 text-white py-2 rounded-lg text-sm"
-                                >
-                                    Confirm Context
-                                </button>
-                            </div>
-                        ) : (
-                            <form onSubmit={handleChatSubmit} className="flex gap-2">
+                        <form onSubmit={handleChatSubmit} className="flex gap-2">
                                 <input 
                                     value={chatInput}
                                     onChange={(e) => setChatInput(e.target.value)}
@@ -924,7 +849,6 @@ function Quizzes() {
                                     <Send size={18} />
                                 </button>
                             </form>
-                        )}
                     </div>
                 </div>
             </div>

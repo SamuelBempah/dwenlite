@@ -6,6 +6,7 @@ import { uploadWithProgress, primeUploadNotifications } from '../lib/uploadManag
 import { addDoc, collection } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
+import { askStudyChat } from '../lib/ai';
 import mammoth from 'mammoth';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -800,10 +801,13 @@ function ExamsPreparation() {
 
     try {
       const context = reviewContent || 'No review content available.';
-      const prompt = `You are DwenLite AI, a helpful exam tutor. Based on these notes: "${context.slice(0, 10000)}", answer: "${question}". Keep it concise.`;
+      const answer = await askStudyChat({
+        context,
+        history: chatHistory.filter(m => m.type === 'user' || m.type === 'ai'),
+        question,
+        kind: 'exam',
+      });
 
-      const answer = await callAIProxy(prompt);
-      
       setChatHistory(prev => prev.filter(m => m.type !== 'loading').concat({
         type: 'ai',
         content: answer,

@@ -97,6 +97,15 @@ const AITeacher = () => {
   const [showUploadDrawer, setShowUploadDrawer] = useState(false);
   const [showVoiceLimit, setShowVoiceLimit] = useState(false);
   const [voiceUsage, setVoiceUsage] = useState({ used: 0, limit: 0 });
+  const [currentConcept, setCurrentConcept] = useState(0);
+  const [conceptTotal, setConceptTotal] = useState(0);
+  const [weakConcepts, setWeakConcepts] = useState([]);
+  const weakRef = useRef([]);
+  const countConcepts = (t = '') => {
+    let m = 0;
+    for (const x of t.matchAll(/^\s*(\d+)\.\s/gm)) m = Math.max(m, parseInt(x[1], 10));
+    return m;
+  };
 
   // Load today's usage for the signed-in account.
   useEffect(() => {
@@ -644,6 +653,7 @@ const AITeacher = () => {
           setSessionTime(storedSession.sessionTime || 0);
           setIsTimerActive(true);
           studyMaterialRef.current = storedSession.studyMaterial;
+          setConceptTotal(countConcepts(storedSession.studyMaterial));
           messagesRef.current = storedSession.messages || [];
           setEyeEmotion('center');
           speakAndAdvance(`Welcome back, ${userNameRef.current}! We didn't finish our last session, so let's pick up right where we left off.`, 3);
@@ -953,6 +963,7 @@ const AITeacher = () => {
       if (isAppend) {
         studyMaterialRef.current = `${studyMaterialRef.current}\n\n${generatedNotes}`;
         const newTotal = lastConceptNumber(studyMaterialRef.current);
+        setConceptTotal(newTotal);
         setFiles([]);
         setUploadLoading(false);
         uploadLoadingRef.current = false;
@@ -966,6 +977,10 @@ const AITeacher = () => {
       }
 
       studyMaterialRef.current = generatedNotes;
+      setConceptTotal(countConcepts(generatedNotes));
+      setCurrentConcept(1);
+      weakRef.current = [];
+      setWeakConcepts([]);
       setFiles([]);
 
       stepRef.current = 3;
@@ -1302,7 +1317,7 @@ const AITeacher = () => {
   const TEACHER_URL = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
 
   const cleanForTTS = (t) => t
-    .replace(/\[OPEN_UPLOAD\]|\[SESSION COMPLETE\]/g, '')
+    .replace(/\[OPEN_UPLOAD\]|\[SESSION COMPLETE\]|\[(?:C|WEAK):\d+\]/g, '')
     .replace(/[\n\r]+/g, ' ')
     .replace(/"/g, "'")
     .replace(/[$\\*_]/g, '')
@@ -1439,6 +1454,16 @@ const AITeacher = () => {
     // Turns the finished reply into app state (tags, history, session end).
     const finishReply = (rawText) => {
       let aiText = rawText.trim();
+      const conceptTag = aiText.match(/\[C:(\d+)\]/);
+      if (conceptTag) setCurrentConcept(parseInt(conceptTag[1], 10));
+      for (const w of aiText.matchAll(/\[WEAK:(\d+)\]/g)) {
+        const n = parseInt(w[1], 10);
+        if (!weakRef.current.includes(n)) {
+          weakRef.current = [...weakRef.current, n];
+          setWeakConcepts(weakRef.current);
+        }
+      }
+      aiText = aiText.replace(/\[(?:C|WEAK):\d+\]/g, '').trim();
       const wantsUpload = aiText.includes('[OPEN_UPLOAD]');
       aiText = aiText.replace(/\[OPEN_UPLOAD\]/g, '').trim();
       for (const token of ['\nStudent:', '\nUser:']) {
@@ -1472,6 +1497,7 @@ const AITeacher = () => {
         messages: convo,
         material: studyMaterialRef.current || 'No study material yet.',
         userName: userNameRef.current,
+        weak: weakRef.current,
       };
 
       // ---- Fast path: stream the reply and start talking after the first sentence ----
@@ -1505,6 +1531,10 @@ const AITeacher = () => {
           if (currentAudioSessionRef.current !== speech.sessionId) return 'stop'; // interrupted
           raw += t;
           buffer += t;
+          if (raw.length < 40) {
+            const ct = raw.match(/\[C:(\d+)\]/);
+            if (ct) setCurrentConcept(parseInt(ct[1], 10));
+          }
           flushSentences(false);
         });
         streamed = true;
@@ -1760,6 +1790,28 @@ const AITeacher = () => {
           </div>
         </div>
       </div>
+
+      {/* Lesson progress */}
+      {uiStep >= 3 && conceptTotal > 0 && (
+        <div className="px-4 md:px-6 pb-3 bg-[#0E0E0E] z-40">
+          <div className="mx-auto max-w-2xl">
+            <div className="mb-1.5 flex items-center justify-between text-xs">
+              <span className="font-medium text-gray-300">
+                Concept {Math.min(Math.max(currentConcept, 1), conceptTotal)} of {conceptTotal}
+              </span>
+              {weakConcepts.length > 0 && (
+                <span className="text-amber-400">To revisit: {weakConcepts.join(', ')}</span>
+              )}
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-gray-800">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-blue-500 to-purple-500 transition-[width] duration-700"
+                style={{ width: `${Math.round((Math.min(Math.max(currentConcept, 1), conceptTotal) / conceptTotal) * 100)}%` }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Stage (Zoom-like Video Area) */}
       <div className="flex-1 p-4 md:p-6 flex flex-col items-center justify-center relative bg-[#0E0E0E] overflow-hidden min-h-0">

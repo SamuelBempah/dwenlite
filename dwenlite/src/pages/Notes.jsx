@@ -4,6 +4,7 @@ import { db, auth } from '../firebase';
 import { doc, getDoc, updateDoc, addDoc, collection, setDoc, query, where, getDocs, arrayUnion } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
+import { askStudyChat, buildFolderContext } from '../lib/ai';
 import jsPDF from 'jspdf';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
@@ -456,79 +457,20 @@ function Notes() {
 
   const handleChatSubmit = async (e) => {
     e.preventDefault();
-    if (!chatInput.trim()) return;
-
+    if (!chatInput.trim() || chatLoading) return;
     const question = chatInput.trim();
     setChatInput('');
-
-    const noteRegex = /(?:reference|check|use|from)\s*(?:note\s*)(\d+|one|two|three|four|five)/i;
-    const match = question.match(noteRegex);
-    let noteIndex = null;
-
-    if (match) {
-      const noteRef = match[1].toLowerCase();
-      const numberWords = ['one', 'two', 'three', 'four', 'five'];
-      if (numberWords.includes(noteRef)) {
-        noteIndex = numberWords.indexOf(noteRef);
-      } else if (!isNaN(parseInt(noteRef))) {
-        noteIndex = parseInt(noteRef) - 1;
-      }
-    }
-
-    if (noteIndex !== null && folder.notes[noteIndex]) {
-      const selectedNote = folder.notes[noteIndex];
-      await processQuestion(question, selectedNote);
-    } else if (folder.notes.length === 0) {
-      toast.error('No notes available to reference.');
-      return;
-    } else {
-      setShowNotePrompt(true);
-      setChatHistory(prev => [
-        ...prev,
-        { type: 'user', content: question },
-        { type: 'system', content: 'Please select a note to reference for this question.' },
-      ]);
-      setSelectedNoteId('');
-    }
+    await processQuestion(question);
   };
 
-  const handleNoteSelection = async () => {
-    if (!selectedNoteId) { toast.error('Please select a note.'); return; }
-
-    const selectedNote = folder.notes.find(note => note.id === selectedNoteId);
-    if (!selectedNote) { toast.error('Selected note not found.'); return; }
-
-    const lastQuestion = chatHistory.findLast(item => item.type === 'user')?.content;
-    if (!lastQuestion) { toast.error('No question found to process.'); return; }
-
-    setShowNotePrompt(false);
-    await processQuestion(lastQuestion, selectedNote);
-  };
-
-  const processQuestion = async (question, note) => {
+  // The AI reads every note (and uploaded document) in the folder and may go beyond them.
+  const processQuestion = async (question) => {
+    const priorHistory = chatHistory;
+    setChatHistory(prev => [...prev, { type: 'user', content: question }, { type: 'system', content: 'DwenLite AI is typing...' }]);
     setChatLoading(true);
     try {
-      const noteIndex = folder.notes.findIndex(n => n.id === note.id) + 1;
-      setChatHistory(prev => [...prev, { type: 'system', content: `DwenLite AI is reading Note ${noteIndex}...` }]);
-      await new Promise(resolve => setTimeout(resolve, 1500));
-
-      const functionUrl = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
-      const prompt = `You are DwenLite AI, an assistant that answers questions based on provided notes. Here is the content of the note:\n\n${note.content}\n\nQuestion: ${question}\n\nProvide a clear, concise, and accurate answer based on the note. If the question cannot be answered from the note, state so and provide a brief explanation. Format with Markdown (bold, list).`;
-
-      setChatHistory(prev => [...prev, { type: 'system', content: 'DwenLite AI is typing...' }]);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      const response = await axios.post(functionUrl, { prompt });
-      let answer;
-      if (response.data.choices?.[0]?.message?.content) answer = response.data.choices[0].message.content.trim();
-      else if (response.data.choices?.[0]?.text) answer = response.data.choices[0].text.trim();
-      else throw new Error('Invalid DwenLite API response: No answer found.');
-
-      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...' && item.content !== `DwenLite AI is reading Note ${noteIndex}...`).concat({
-        type: 'ai',
-        content: answer,
-      }));
-
+      const answer = await askStudyChat({ context: buildFolderContext(folder), history: priorHistory, question, kind: 'notes' });
+      setChatHistory(prev => prev.filter(item => item.content !== 'DwenLite AI is typing...').concat({ type: 'ai', content: answer }));
     } catch (err) {
       console.error('Error processing question:', err);
       toast.error(err.message);
@@ -735,7 +677,7 @@ function Notes() {
                         {chatHistory.length === 0 && (
                             <div className="text-center text-slate-500 mt-10 text-sm">
                                 <MessageSquare size={32} className="mx-auto mb-2 opacity-50" />
-                                <p>Ask me anything about your notes!</p>
+                                <p>Ask me anything. I will search all your notes and add more.</p>
                             </div>
                         )}
                         
@@ -809,27 +751,7 @@ function Notes() {
                     </div>
 
                     <div className="p-3 bg-slate-800/50 rounded-b-2xl border-t border-white/5">
-                        {showNotePrompt ? (
-                            <div className="flex flex-col gap-2 animate-fade-in">
-                                <select 
-                                    value={selectedNoteId}
-                                    onChange={(e) => setSelectedNoteId(e.target.value)}
-                                    className="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-sm focus:border-purple-500 outline-none"
-                                >
-                                    <option value="">Select context...</option>
-                                    {folder.notes.map((n, i) => (
-                                        <option key={n.id} value={n.id}>Note {i+1} ({new Date(n.createdAt).toLocaleDateString()})</option>
-                                    ))}
-                                </select>
-                                <button 
-                                    onClick={handleNoteSelection}
-                                    className="w-full bg-purple-600 hover:bg-purple-500 text-white py-2 rounded-lg text-sm"
-                                >
-                                    Confirm Context
-                                </button>
-                            </div>
-                        ) : (
-                            <form onSubmit={handleChatSubmit} className="flex gap-2">
+                        <form onSubmit={handleChatSubmit} className="flex gap-2">
                                 <input 
                                     value={chatInput}
                                     onChange={(e) => setChatInput(e.target.value)}
@@ -845,7 +767,6 @@ function Notes() {
                                     <Send size={18} />
                                 </button>
                             </form>
-                        )}
                     </div>
                 </div>
             </div>
