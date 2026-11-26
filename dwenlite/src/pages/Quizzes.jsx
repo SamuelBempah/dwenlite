@@ -7,6 +7,7 @@ import axios from 'axios';
 import { askStudyChat, buildFolderContext, askAI } from '../lib/ai';
 import jsPDF from 'jspdf';
 import FollowUpChips from '../components/FollowUpChips';
+import Markdown from '../components/Markdown';
 import AnswerLengthToggle from '../components/AnswerLengthToggle';
 import { useChatMemory } from '../lib/chatMemory';
 import { questionKey, weakQuestions, answersMatch } from '../lib/quizStats';
@@ -1093,7 +1094,7 @@ function Quizzes() {
                                                 : 'bg-slate-700 text-slate-200 rounded-bl-none'
                                     }`}
                                 >
-                                    {msg.content}
+                                    {msg.type === 'ai' ? <Markdown content={msg.content} /> : msg.content}
                                 </div>
                                 
                                 {msg.type === 'ai' && !msg.content.includes('typing') && (

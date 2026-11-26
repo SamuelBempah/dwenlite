@@ -9,6 +9,7 @@ import toast from 'react-hot-toast';
 import axios from 'axios';
 import { askStudyChat, buildFolderContext } from '../lib/ai';
 import FollowUpChips from '../components/FollowUpChips';
+import Markdown from '../components/Markdown';
 import AnswerLengthToggle from '../components/AnswerLengthToggle';
 import { useChatMemory } from '../lib/chatMemory';
 import { isDue, nextSrs, intervalLabel } from '../lib/srs';
@@ -1052,7 +1053,7 @@ function Flashcards() {
                                             <span className="animate-bounce delay-200">.</span>
                                         </div>
                                       ) : (
-                                        msg.content
+                                        msg.type === 'ai' ? <Markdown content={msg.content} /> : msg.content
                                       )}
                                 </div>
                                 

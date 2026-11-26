@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import Markdown from '../components/Markdown';
 import { auth, db } from '../firebase';
 import { collection, addDoc, doc, onSnapshot, updateDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore';
 import toast from 'react-hot-toast';
@@ -725,12 +726,7 @@ Happy browsing with DwenLite!
                          className="border-t border-white/5 bg-slate-900/30 px-6 py-6"
                        >
                          <div
-                           className="prose prose-invert prose-sm max-w-none 
-                           prose-headings:text-purple-200 prose-headings:font-bold
-                           prose-a:text-purple-400 hover:prose-a:text-purple-300
-                           prose-strong:text-white
-                           prose-code:text-purple-300 prose-code:bg-purple-900/20 prose-code:px-1 prose-code:rounded
-                           prose-blockquote:border-l-purple-500 prose-blockquote:bg-purple-900/10 prose-blockquote:py-1 prose-blockquote:px-4"
+                           className="md text-sm text-slate-300"
                            dangerouslySetInnerHTML={{ __html: renderMarkdown(b.content) }}
                          />
                        </motion.div>
@@ -799,7 +795,7 @@ Happy browsing with DwenLite!
                            : 'bg-slate-700 text-slate-200 rounded-bl-none'
                       }`}
                    >
-                      {msg.content}
+                      {msg.sender === 'user' ? msg.content : <Markdown content={msg.content} />}
                    </div>
                    <span className="text-[10px] text-slate-500 mt-1 px-1">{msg.timestamp.split(',')[1]}</span>
                 </div>

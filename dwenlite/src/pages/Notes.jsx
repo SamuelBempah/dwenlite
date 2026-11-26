@@ -8,6 +8,7 @@ import { askStudyChat, buildFolderContext, askAI } from '../lib/ai';
 import FollowUpChips from '../components/FollowUpChips';
 import AnswerLengthToggle from '../components/AnswerLengthToggle';
 import { loadVoicePrefs, LANGUAGES } from '../components/VoiceSettings';
+import { renderMarkdown as renderMd } from '../lib/markdown';
 import { useChatMemory } from '../lib/chatMemory';
 import jsPDF from 'jspdf';
 import { marked } from 'marked';
@@ -98,8 +99,7 @@ function Notes() {
     enhancedContent = enhancedContent.replace(/^\* /gm, '- ');
 
     // 2. Render to HTML
-    const html = marked(enhancedContent);
-    return DOMPurify.sanitize(html);
+    return renderMd(enhancedContent);
   };
 
   // Scroll to bottom of chat
@@ -1044,13 +1044,7 @@ function Notes() {
                                                     ) : (
                                                     <div 
                                                        data-note-content={note.id}
-                                                       className="prose prose-invert prose-sm max-w-none 
-                                                       prose-headings:text-purple-300 prose-headings:font-bold prose-headings:mb-2 prose-headings:mt-4
-                                                       prose-h3:text-lg 
-                                                       prose-p:text-slate-300 prose-p:leading-relaxed prose-p:mb-4
-                                                       prose-strong:text-white prose-strong:font-bold prose-strong:bg-white/5 prose-strong:px-1 prose-strong:rounded
-                                                       prose-ul:list-disc prose-ul:pl-5 prose-li:text-slate-300 prose-li:mb-1
-                                                       prose-blockquote:border-l-4 prose-blockquote:border-purple-500 prose-blockquote:bg-purple-900/20 prose-blockquote:pl-4 prose-blockquote:py-2 prose-blockquote:my-4 prose-blockquote:italic prose-blockquote:text-purple-100 prose-blockquote:rounded-r-lg"
+                                                       className="md text-sm text-slate-300"
                                                        dangerouslySetInnerHTML={{ __html: renderMarkdown(note.content) }}
                                                     />
                                                     )}
@@ -1109,7 +1103,7 @@ function Notes() {
                                             <span className="animate-bounce delay-200">.</span>
                                         </div>
                                       ) : (
-                                        <div dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
+                                        <div className="md" dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.content) }} />
                                       )}
                                 </div>
                                 

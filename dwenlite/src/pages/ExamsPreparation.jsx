@@ -7,6 +7,7 @@ import { addDoc, collection } from 'firebase/firestore';
 import toast from 'react-hot-toast';
 import axios from 'axios';
 import { askStudyChat } from '../lib/ai';
+import Markdown from '../components/Markdown';
 import mammoth from 'mammoth';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
@@ -1211,8 +1212,8 @@ function ExamsPreparation() {
                       <FileText className="text-purple-400" />
                       <h2 className="text-lg font-bold">Study Notes</h2>
                     </div>
-                    <div className="prose prose-invert max-w-none prose-p:text-slate-300 prose-headings:text-white prose-strong:text-purple-300 prose-ul:list-disc prose-li:marker:text-purple-500">
-                      <pre className="whitespace-pre-wrap font-sans text-sm md:text-base leading-relaxed">{reviewContent}</pre>
+                    <div className="text-sm md:text-base text-slate-300">
+                      <Markdown content={reviewContent} />
                     </div>
                   </div>
                   
@@ -1556,7 +1557,7 @@ function ExamsPreparation() {
                                 ? 'bg-purple-600 text-white rounded-br-none' 
                                 : 'bg-slate-700 text-slate-200 rounded-bl-none relative group border border-white/5'
                             }`}>
-                              {msg.content}
+                              {msg.type === 'ai' ? <Markdown content={msg.content} /> : msg.content}
                               
                               {msg.type === 'ai' && (
                                 <button 

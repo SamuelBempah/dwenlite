@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom';
 import TeacherSidebar from '../components/TeacherSidebar';
 import UsageMeter from '../components/UsageMeter';
 import DiagramModal from '../components/DiagramModal';
+import Markdown from '../components/Markdown';
 import VoiceSettings, { loadVoicePrefs, LANGUAGES } from '../components/VoiceSettings';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -2358,10 +2359,7 @@ const AITeacher = () => {
                 {recapLoading ? (
                   <p className="animate-pulse text-sm text-slate-400">Writing your recap...</p>
                 ) : (
-                  <div
-                    className="prose prose-invert prose-sm max-w-none prose-headings:text-blue-300 prose-headings:mb-1 prose-headings:mt-4 prose-li:text-slate-300 prose-p:text-slate-300"
-                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(marked.parse(recapText || '')) }}
-                  />
+                  <Markdown content={recapText} className="text-sm text-slate-300" />
                 )}
               </div>
               <div className="flex gap-3 border-t border-white/10 px-5 py-4">
