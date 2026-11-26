@@ -94,6 +94,7 @@ const AITeacher = () => {
   // File Upload State
   const [uiStep, setUiStep] = useState(0);
   const [showUploadDrawer, setShowUploadDrawer] = useState(false);
+  const [showVoiceLimit, setShowVoiceLimit] = useState(false);
   const [showEndSessionModal, setShowEndSessionModal] = useState(false);
   const [files, setFiles] = useState([]);
   const [uploadLoading, setUploadLoading] = useState(false);
@@ -113,7 +114,6 @@ const AITeacher = () => {
 
   const audioCtxRef = useRef(null);
   const speakerAnalyserRef = useRef(null);
-  const ttsDownUntilRef = useRef(0);
   const micAnalyserRef = useRef(null);
   const micStreamRef = useRef(null);
 
@@ -440,12 +440,6 @@ const AITeacher = () => {
   }, [isSpeaking]);
 
   const togglePause = () => {
-    const synth = window.speechSynthesis;
-    if (synth && (synth.speaking || synth.paused) && !(audioRef.current && audioRef.current.src && !audioRef.current.paused && !audioRef.current.ended)) {
-      if (isPaused) { synth.resume(); setIsPaused(false); isPausedRef.current = false; setIsSpeaking(true); isSpeakingRef.current = true; }
-      else { synth.pause(); setIsPaused(true); isPausedRef.current = true; setIsSpeaking(false); isSpeakingRef.current = false; }
-      return;
-    }
     if (audioRef.current) {
       if (isPaused) {
         audioRef.current.play().then(() => {
@@ -468,7 +462,6 @@ const AITeacher = () => {
   const raiseHand = () => {
     setIsRaisingHand(true);
     currentAudioSessionRef.current += 1; // abort current queue
-    try { window.speechSynthesis?.cancel(); } catch { /* ignore */ }
     if (audioRef.current) {
       audioRef.current.pause();
     }
@@ -849,7 +842,6 @@ const AITeacher = () => {
     uploadLoadingRef.current = true;
     if (isAppend) {
       currentAudioSessionRef.current += 1; // stop whatever the teacher is saying
-      try { window.speechSynthesis?.cancel(); } catch { /* ignore */ }
       if (audioRef.current) audioRef.current.pause();
       setIsSpeaking(false);
       isSpeakingRef.current = false;
@@ -1104,26 +1096,45 @@ const AITeacher = () => {
     updateSpeakerVol();
   };
 
-  // Cost guard: each device gets ~20,000 characters (~25 min of speech) of the premium voice per
-  // day; after that the teacher keeps talking with the free built-in voice.
-  const spendVoiceBudget = (chars) => {
+  // Daily free voice allowance per device (~20,000 characters, roughly 25 minutes of speech).
+  const VOICE_DAILY_CHARS = 20000;
+  const readVoiceUsage = () => {
     try {
-      const day = new Date().toDateString();
       const saved = JSON.parse(localStorage.getItem('dwenliteVoiceBudget') || '{}');
-      const used = saved.day === day ? saved.used : 0;
-      if (used + chars > 20000) return false;
-      localStorage.setItem('dwenliteVoiceBudget', JSON.stringify({ day, used: used + chars }));
-      return true;
-    } catch { return true; }
+      return saved.day === new Date().toDateString() ? (saved.used || 0) : 0;
+    } catch { return 0; }
+  };
+  const voiceLimitReached = () => readVoiceUsage() >= VOICE_DAILY_CHARS;
+  // Returns false (and spends nothing) if this text would go over today's allowance.
+  const spendVoiceBudget = (chars) => {
+    const used = readVoiceUsage();
+    if (used + chars > VOICE_DAILY_CHARS) return false;
+    try {
+      localStorage.setItem('dwenliteVoiceBudget', JSON.stringify({ day: new Date().toDateString(), used: used + chars }));
+    } catch { /* ignore */ }
+    return true;
   };
 
-  // If the voice server is down or slow, fall back to the device's built-in voice so the
-  // teacher always speaks. After a failure we skip the server for 2 minutes.
+  const handleVoiceLimit = () => {
+    try { currentAudioSessionRef.current += 1; if (audioRef.current) audioRef.current.pause(); } catch { /* ignore */ }
+    if (recognitionRef.current) { try { recognitionRef.current.abort(); } catch { /* ignore */ } }
+    clearTimeout(silenceTimerRef.current);
+    setIsListening(false);
+    isListeningRef.current = false;
+    setIsSpeaking(false);
+    isSpeakingRef.current = false;
+    setIsThinking(false);
+    setIsPaused(false);
+    isPausedRef.current = false;
+    setIsTimerActive(false);
+    setCurrentCaption('');
+    setEyeEmotion('sleep');
+    setShowVoiceLimit(true);
+  };
+
   const fetchAudioForSentence = async (sentence) => {
-    if (Date.now() < ttsDownUntilRef.current) return 'browser';
-    if (!spendVoiceBudget(sentence.length)) return 'browser'; // daily cap on the paid voice server
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 15000);
+    const timer = setTimeout(() => ctrl.abort(), 30000); // the server may need ~15s to wake up
     try {
       const response = await fetch('https://dwenlite-backend.fly.dev/api/tts', {
         method: 'POST',
@@ -1135,38 +1146,12 @@ const AITeacher = () => {
       const blob = await response.blob();
       if (!blob.size) throw new Error('TTS returned empty audio');
       return URL.createObjectURL(blob);
-    } catch (err) {
-      console.warn('Voice server unavailable, using device voice:', err.message);
-      ttsDownUntilRef.current = Date.now() + 120000;
-      return 'browser';
     } finally {
       clearTimeout(timer);
     }
   };
 
-  const speakWithBrowserVoice = (text, sessionId) => new Promise((resolve) => {
-    const synth = window.speechSynthesis;
-    if (!synth) { resolve(); return; }
-    const u = new SpeechSynthesisUtterance(text);
-    const voices = synth.getVoices();
-    const voice =
-      voices.find(v => /^en[-_](US|GB)/i.test(v.lang) && /(aria|jenny|ava|samantha|google us english|female)/i.test(v.name)) ||
-      voices.find(v => /^en/i.test(v.lang));
-    if (voice) u.voice = voice;
-    u.rate = 1.0;
-    u.pitch = 1.05;
-    const timer = setInterval(() => {
-      if (currentAudioSessionRef.current !== sessionId) synth.cancel();
-      setSpeakerVolume(isSpeakingRef.current && !synth.paused ? 50 + Math.random() * 90 : 0);
-    }, 120);
-    const done = () => { clearInterval(timer); setSpeakerVolume(0); resolve(); };
-    u.onend = done;
-    u.onerror = done;
-    synth.speak(u);
-  });
-
-  const playAudioUrl = (url, sessionId, sentence = '') => {
-    if (url === 'browser') return speakWithBrowserVoice(sentence, sessionId);
+  const playAudioUrl = (url, sessionId) => {
     return new Promise((resolve, reject) => {
       initAudioContext();
       if (audioCtxRef.current && audioCtxRef.current.state === 'suspended') {
@@ -1215,17 +1200,17 @@ const AITeacher = () => {
         if (!url || currentAudioSessionRef.current !== sessionId) break;
 
         setCurrentCaption(currentSentence);
-        const spokenSentence = currentSentence;
 
         let nextSentence = sentences.shift();
         nextAudioPromise = nextSentence ? fetchAudioForSentence(nextSentence) : null;
         currentSentence = nextSentence;
 
-        await playAudioUrl(url, sessionId, spokenSentence);
-        if (url !== 'browser') URL.revokeObjectURL(url);
+        await playAudioUrl(url, sessionId);
+        URL.revokeObjectURL(url);
 
       } catch (err) {
         console.error("Audio queue error", err);
+        toast.error('Voice is unavailable right now. Please try again in a moment.');
         break;
       }
     }
@@ -1252,7 +1237,6 @@ const AITeacher = () => {
 
     currentAudioSessionRef.current += 1;
     const sessionId = currentAudioSessionRef.current;
-    try { window.speechSynthesis?.cancel(); } catch { /* ignore */ }
 
     if (recognitionRef.current && isListening) {
       recognitionRef.current.abort();
@@ -1292,6 +1276,11 @@ const AITeacher = () => {
         return;
       }
 
+      if (!spendVoiceBudget(sentences.join(' ').length)) {
+        handleVoiceLimit();
+        return;
+      }
+
       await processAudioQueue(sentences, sessionId);
 
     } catch (error) {
@@ -1309,6 +1298,7 @@ const AITeacher = () => {
   };
 
   const generateAIResponse = async (prompt, history) => {
+    if (voiceLimitReached()) { handleVoiceLimit(); return; }
     setIsThinking(true);
     setEyeEmotion('closed');
     setTimeout(() => {
@@ -1901,6 +1891,29 @@ const AITeacher = () => {
 
         </div>
       </div>
+
+      {/* Daily voice limit reached */}
+      <AnimatePresence>
+        {showVoiceLimit && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[90] flex items-center justify-center bg-black/70 backdrop-blur-sm p-6"
+          >
+            <div className="w-full max-w-sm rounded-2xl border border-white/10 bg-[#121217] p-6 text-center text-white shadow-2xl">
+              <h2 className="text-xl font-bold mb-2">Daily limit reached</h2>
+              <p className="text-slate-300 text-sm mb-6">
+                You've hit your free limit for the day. Please try again tomorrow.
+              </p>
+              <button
+                onClick={() => setShowVoiceLimit(false)}
+                className="w-full rounded-xl bg-purple-600 hover:bg-purple-500 py-3 font-bold transition-colors"
+              >
+                OK
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Upload Drawer Overlay */}
       <AnimatePresence>
