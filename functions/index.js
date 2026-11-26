@@ -16,7 +16,11 @@ const DEEPSEEK_API_KEY = defineSecret("DEEPSEEK_API_KEY");
 // Limits (tune freely). They exist so a leaked URL or a runaway client loop
 // can never burn through your balance.
 // ---------------------------------------------------------------------------
-const MAX_PROMPT_CHARS = 40000;
+// Max input per task (characters). A 1-hour meeting transcript is ~50-60k characters.
+const MAX_CHARS = { general: 120000, notes: 400000, support: 3000, rewrite: 5000 };
+// Notes longer than this are split into parts, summarised in parallel, then merged.
+const CHUNK_CHARS = 30000;
+const SINGLE_PASS_MAX = 45000;
 const HOURLY_LIMIT = 40;
 const DAILY_LIMIT = 250;
 const DEDUPE_MS = 60 * 1000;
@@ -106,6 +110,80 @@ async function checkAndCountUsage(uid) {
   });
 }
 
+
+async function callDeepSeek(system, user, maxTokens, temperature) {
+  const r = await axios.post(
+    "https://api.deepseek.com/chat/completions",
+    {
+      model: "deepseek-chat",
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      max_tokens: maxTokens,
+      temperature,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${DEEPSEEK_API_KEY.value()}`,
+        "Content-Type": "application/json",
+      },
+      timeout: 200000,
+    }
+  );
+  return r.data;
+}
+
+// Split long text on paragraph / sentence boundaries into <= size pieces.
+function splitText(text, size) {
+  const parts = text.split(/(?<=[.!?\n])\s+/);
+  const chunks = [];
+  let cur = "";
+  for (const p of parts) {
+    if ((cur + " " + p).length > size && cur) { chunks.push(cur); cur = p; }
+    else cur = cur ? cur + " " + p : p;
+    while (cur.length > size) { chunks.push(cur.slice(0, size)); cur = cur.slice(size); }
+  }
+  if (cur) chunks.push(cur);
+  return chunks;
+}
+
+// Long source (e.g. 2-hour meeting): notes per part in parallel, then one merge pass.
+async function longNotes(prompt, cfg) {
+  const chunks = splitText(prompt, CHUNK_CHARS);
+  const n = chunks.length;
+  const usage = { prompt_tokens: 0, completion_tokens: 0, prompt_cache_hit_tokens: 0, prompt_cache_miss_tokens: 0 };
+  const add = (d) => { for (const k in usage) usage[k] += d.usage?.[k] || 0; };
+
+  const partNotes = [];
+  for (let i = 0; i < n; i += 4) { // 4 at a time
+    const batch = await Promise.all(chunks.slice(i, i + 4).map(async (c, j) => {
+      const idx = i + j + 1;
+      const d = await callDeepSeek(
+        cfg.system,
+        `This is part ${idx} of ${n} of one long source. Write detailed notes for THIS PART ONLY in the required structure ` +
+        `(keep every name, number, date, decision, action item and owner). No title or summary needed.\n\n${c}`,
+        3000, cfg.temperature
+      );
+      add(d);
+      return d.choices[0].message.content;
+    }));
+    partNotes.push(...batch);
+  }
+
+  const merged = await callDeepSeek(
+    cfg.system,
+    `Below are notes written from ${n} consecutive parts of ONE long source. Merge them into a single, ` +
+    `well-organised set of notes using the required structure. Remove duplicates, keep all concrete details ` +
+    `(names, numbers, dates, decisions, action items with owners/deadlines), keep chronological order inside topics.\n\n` +
+    partNotes.map((t, i) => `--- PART ${i + 1} ---\n${t}`).join("\n\n"),
+    cfg.maxTokens, cfg.temperature
+  );
+  add(merged);
+  merged.usage = usage;
+  return merged;
+}
+
 // Best-effort duplicate guard (double clicks, retry loops) - per instance.
 const recent = new Map();
 function dedupeGet(key) {
@@ -121,7 +199,7 @@ function dedupeSet(key, v) {
 
 exports.generateNotesProxy = onRequest(
   {
-    timeoutSeconds: 300,
+    timeoutSeconds: 540,
     memory: "512MiB",
     maxInstances: 10, // hard cap on parallel spend
     secrets: [DEEPSEEK_API_KEY],
@@ -152,7 +230,7 @@ exports.generateNotesProxy = onRequest(
       if (typeof prompt !== "string" || !prompt.trim()) {
         return res.status(400).json({ error: "Prompt is required." });
       }
-      if (prompt.length > MAX_PROMPT_CHARS) {
+      if (prompt.length > (MAX_CHARS[task] || 40000)) {
         return res.status(413).json({ error: "Input is too long. Please use a shorter document." });
       }
 
@@ -172,25 +250,10 @@ exports.generateNotesProxy = onRequest(
       }
 
       try {
-        const response = await axios.post(
-          "https://api.deepseek.com/chat/completions",
-          {
-            model: "deepseek-chat",
-            messages: [
-              { role: "system", content: cfg.system },
-              { role: "user", content: prompt },
-            ],
-            max_tokens: cfg.maxTokens,
-            temperature: cfg.temperature,
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${DEEPSEEK_API_KEY.value()}`,
-              "Content-Type": "application/json",
-            },
-            timeout: 290000,
-          }
-        );
+        const data = task === "notes" && prompt.length > SINGLE_PASS_MAX
+          ? await longNotes(prompt, cfg)
+          : await callDeepSeek(cfg.system, prompt, cfg.maxTokens, cfg.temperature);
+        const response = { data };
 
         const u = response.data.usage || {};
         logger.info("ai_usage", {
