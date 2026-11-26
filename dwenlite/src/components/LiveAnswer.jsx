@@ -7,7 +7,7 @@ import Sparkle from './Sparkle';
 function scrollParent(el) {
   for (let p = el && el.parentElement; p; p = p.parentElement) {
     const o = getComputedStyle(p).overflowY;
-    if ((o === 'auto' || o === 'scroll') && p.scrollHeight > p.clientHeight) return p;
+    if (o === 'auto' || o === 'scroll') return p;
   }
   return null;
 }
@@ -26,18 +26,48 @@ export default function LiveAnswer({ live }) {
     let done = 0;          // how many finished blocks are already on screen
     let stableHtml = '';
     let lastText = null;
+    let lastTyping = null;
     let scrollEl = null;
-    let stick = true;
+    let stick = true;          // follow the newest text, until the reader scrolls up on purpose
+    let typingNow = true;
+    let raf = null;
+    let lastT = 0;
 
-    const onScroll = () => { stick = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 140; };
+    // Only the reader's own gestures change `stick`, never our own scrolling.
+    const userMoved = () => requestAnimationFrame(() => {
+      if (scrollEl) stick = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 140;
+    });
     const attach = () => {
       scrollEl = scrollParent(box.current);
-      if (scrollEl) scrollEl.addEventListener('scroll', onScroll, { passive: true });
+      if (!scrollEl) return;
+      ['wheel', 'touchmove', 'keydown', 'mousedown'].forEach(ev => scrollEl.addEventListener(ev, userMoved, { passive: true }));
     };
 
+    // Glides to the bottom a little every frame, so new lines slide in instead of jumping.
+    const follow = (t) => {
+      raf = null;
+      const dt = lastT ? Math.min(50, t - lastT) : 16;
+      lastT = t;
+      if (!scrollEl) attach();
+      let more = typingNow;
+      if (stick && scrollEl) {
+        const gap = scrollEl.scrollHeight - scrollEl.clientHeight - scrollEl.scrollTop;
+        if (gap > 0.5) {
+          // gentle when close, quicker the further behind it is, so the newest line is never lost off-screen
+          const tau = Math.max(18, 90 - gap * 0.35);
+          scrollEl.scrollTop += Math.max(1, gap * (1 - Math.exp(-dt / tau)));
+          more = true;
+        }
+      }
+      if (more) raf = requestAnimationFrame(follow); else lastT = 0;
+    };
+    const startFollow = () => { if (!raf) raf = requestAnimationFrame(follow); };
+
     const render = (text, typing) => {
-      if (text === lastText) return;
+      // the "finished typing" update carries the same text, so the typing flag must be compared too
+      if (text === lastText && typing === lastTyping) return;
       lastText = text;
+      lastTyping = typing;
       if (!box.current) return;
       if (!scrollEl) attach();
 
@@ -62,16 +92,16 @@ export default function LiveAnswer({ live }) {
         cursor.current.style.opacity = typing && text ? '1' : '0';
       }
 
-      // stay at the bottom while it writes
-      if (stick && scrollEl) {
-        scrollEl.scrollTop = scrollEl.scrollHeight;
-        // once more after the browser has laid out the new text, in case it grew a little further
-        requestAnimationFrame(() => { if (stick && scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight; });
-      }
+      typingNow = typing;
+      startFollow(); // keep the newest text in view
     };
 
     const unsub = live.subscribe(render);
-    return () => { unsub(); if (scrollEl) scrollEl.removeEventListener('scroll', onScroll); };
+    return () => {
+      unsub();
+      if (raf) cancelAnimationFrame(raf);
+      if (scrollEl) ['wheel', 'touchmove', 'keydown', 'mousedown'].forEach(ev => scrollEl.removeEventListener(ev, userMoved));
+    };
   }, [live]);
 
   return (
