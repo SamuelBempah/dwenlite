@@ -35,6 +35,9 @@ function Notes() {
   const [exportOpenId, setExportOpenId] = useState(null);
   const [readerId, setReaderId] = useState(null);      // note open in the full-screen reader
   const [outline, setOutline] = useState([]);
+  const [paperMode, setPaperMode] = useState(() => {
+    try { return localStorage.getItem('dwenliteReaderTheme') === 'paper'; } catch { return false; }
+  });
   const [readerScale, setReaderScale] = useState(() => {
     try { return parseFloat(localStorage.getItem('dwenliteReaderScale')) || 1; } catch { return 1; }
   });
@@ -790,6 +793,7 @@ function Notes() {
 
   const readerIdx = readerId ? folder.notes.findIndex(n => n.id === readerId) : -1;
   const readerNote = readerIdx >= 0 ? folder.notes[readerIdx] : null;
+  const togglePaper = () => setPaperMode(v => { try { localStorage.setItem('dwenliteReaderTheme', v ? 'dark' : 'paper'); } catch { /* ignore */ } return !v; });
   const setScale = (v) => { setReaderScale(v); try { localStorage.setItem('dwenliteReaderScale', String(v)); } catch { /* ignore */ } };
   const jumpTo = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
@@ -854,7 +858,7 @@ function Notes() {
                   <div 
                      data-note-content={note.id}
                      id="reader-content"
-                     className="md md-reader"
+                     className={`md md-reader${paperMode ? ' md-paper' : ''}`}
                      dangerouslySetInnerHTML={{ __html: renderMarkdown(note.content) }}
                   />
                   )}
@@ -875,6 +879,7 @@ function Notes() {
               <p className="truncate text-xs text-slate-500">{new Date(readerNote.createdAt).toLocaleDateString()}{readerNote.label ? ` · ${readerNote.label}` : ''}</p>
             </div>
             <div className="flex items-center gap-1">
+              <button onClick={togglePaper} aria-pressed={paperMode} className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-colors ${paperMode ? 'bg-white text-slate-900' : 'text-slate-300 hover:bg-white/10'}`}>Paper</button>
               <button onClick={() => setScale(Math.max(0.9, +(readerScale - 0.15).toFixed(2)))} aria-label="Smaller text" className="rounded-lg px-2.5 py-1.5 text-sm font-semibold text-slate-300 hover:bg-white/10">A-</button>
               <button onClick={() => setScale(Math.min(1.5, +(readerScale + 0.15).toFixed(2)))} aria-label="Larger text" className="rounded-lg px-2.5 py-1.5 text-base font-semibold text-slate-300 hover:bg-white/10">A+</button>
               <div className="relative" data-export-menu>
@@ -890,7 +895,7 @@ function Notes() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto bg-black/40">
+          <div className={`flex-1 overflow-y-auto ${paperMode ? 'bg-slate-300' : 'bg-black/40'}`}>
             <div className="mx-auto flex max-w-6xl gap-10 px-1.5 py-2 md:px-8 md:py-8">
               {outline.length > 2 && (
                 <aside className="sticky top-2 hidden h-fit max-h-[80vh] w-60 shrink-0 overflow-y-auto lg:block">
@@ -904,7 +909,7 @@ function Notes() {
                   </ul>
                 </aside>
               )}
-              <article className={`mx-auto min-w-0 max-w-[794px] flex-1 rounded-lg border border-white/10 bg-slate-900 px-4 py-6 shadow-2xl md:min-h-[1123px] md:px-14 md:py-12 ${outline.length > 2 ? 'lg:mx-0' : ''}`} style={{ '--md-scale': readerScale }}>
+              <article className={`mx-auto min-w-0 max-w-[794px] flex-1 rounded-lg ${paperMode ? 'border border-slate-300 bg-white' : 'border border-white/10 bg-slate-900'} px-4 py-6 shadow-2xl md:min-h-[1123px] md:px-14 md:py-12 ${outline.length > 2 ? 'lg:mx-0' : ''}`} style={{ '--md-scale': readerScale }}>
                 {outline.length > 2 && (
                   <select
                     onChange={(e) => { if (e.target.value) jumpTo(e.target.value); e.target.value = ''; }}
