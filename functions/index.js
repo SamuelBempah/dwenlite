@@ -156,6 +156,12 @@ const TEACHER_SYSTEM =
   "- After they explain, grade it honestly: \"Score: X out of 10\", one sentence on what they got right, what was missing or wrong (corrected briefly), then a one-line model explanation, then offer to continue. If the score is below 7, add [WEAK:n].\n\n" +
   "WARM-UP\n" +
   "- If the first message of a session asks for a warm-up on a topic the student struggled with earlier, do that first: one quick question, brief feedback after their answer, then continue with Concept 1.\n\n" +
+  "SAVED FOLDERS\n" +
+  "- The student can teach from material already saved in their account (folders with notes, documents, quizzes and flashcards) instead of uploading files. " +
+  "A line like [Student's folders: A, B] lists the folder names.\n" +
+  "- If they ask you to use, open or study one of those folders (or its notes, quizzes or flashcards), reply with one short friendly sentence such as \"Sure, I'll load your Biology folder now\" " +
+  "and put [USE_FOLDER:exact folder name] at the very END of your reply, copying the name exactly from the list. Never read the tag aloud.\n" +
+  "- If they want saved material but do not say which, ask which folder, or add [OPEN_UPLOAD] to open the picker.\n\n" +
   "MORE MATERIAL\n" +
   "- If the student wants to add, upload or share more files, notes or topics, reply with one short friendly sentence and include the exact tag [OPEN_UPLOAD]. " +
   "New material will be appended to the study material as additional numbered concepts. When you are told new material was added, acknowledge it, say how many new concepts there are, and ask whether to finish the current concept first and then cover them (default) or switch right away.\n\n" +
@@ -277,7 +283,7 @@ function buildStudyChatMessages({ context, kind, messages, length, language }) {
 
 // Build the teacher conversation. Order matters for caching: [rules][material] never change
 // within a session, only the recent turns after them do.
-function buildTeacherMessages({ material, userName, messages, weak, style, level, language }) {
+function buildTeacherMessages({ material, userName, messages, weak, style, level, language, folders }) {
   const turns = messages
     .filter((m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string" && m.content.trim())
     .map((m) => ({ role: m.role, content: m.content.slice(0, 4000) }));
@@ -294,6 +300,10 @@ function buildTeacherMessages({ material, userName, messages, weak, style, level
   const lastTurn = recentTurns[recentTurns.length - 1];
   if (weakList.length && lastTurn && lastTurn.role === "user") {
     lastTurn.content += `\n[Weak spots so far: concepts ${weakList.join(", ")}]`;
+  }
+  const folderNames = Array.isArray(folders) ? folders.map((f) => String(f).replace(/[\[\]\n]/g, " ").trim().slice(0, 60)).filter(Boolean).slice(0, 30) : [];
+  if (folderNames.length && lastTurn && lastTurn.role === "user") {
+    lastTurn.content += `\n[Student's folders: ${folderNames.join(", ")}]`;
   }
   const STYLES = ["story", "coach", "socratic", "simple"];
   const LEVELS = ["easy", "exam"];
@@ -476,7 +486,7 @@ exports.generateNotesProxy = onRequest(
       }
 
       // 2. Validate input.
-      const { prompt, task = "general", messages, material, userName, weak, style, level, language } = req.body || {};
+      const { prompt, task = "general", messages, material, userName, weak, style, level, language, folders } = req.body || {};
 
       // Admin only: daily token usage, for the usage dashboard.
       if (task === "admin_stats") {
@@ -514,7 +524,7 @@ exports.generateNotesProxy = onRequest(
         if (material.length > MAX_CHARS.teacher) {
           return res.status(413).json({ error: "Study material is too long." });
         }
-        teacherMessages = buildTeacherMessages({ material, userName, messages, weak, style, level, language });
+        teacherMessages = buildTeacherMessages({ material, userName, messages, weak, style, level, language, folders });
         if (teacherMessages.length < 4) return res.status(400).json({ error: "Teacher request is invalid." });
         dedupeInput = JSON.stringify(teacherMessages.slice(2));
       } else if (task === "study_chat") {

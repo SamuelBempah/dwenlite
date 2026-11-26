@@ -10,7 +10,7 @@ import VoiceSettings, { loadVoicePrefs, LANGUAGES } from '../components/VoiceSet
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { auth, db, storage } from '../firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { ref, getDownloadURL } from 'firebase/storage';
 import { uploadWithProgress, primeUploadNotifications } from '../lib/uploadManager';
 import axios from 'axios';
@@ -122,6 +122,11 @@ const AITeacher = () => {
     }
   }, [voicePrefs]);
   const [topicText, setTopicText] = useState('');
+  const [userFolders, setUserFolders] = useState([]);
+  const [foldersLoaded, setFoldersLoaded] = useState(false);
+  const [folderPick, setFolderPick] = useState({}); // folderId -> { notes, docs, quizzes, cards }
+  const [showFolderPicker, setShowFolderPicker] = useState(false);
+  const userFoldersRef = useRef([]);
   const [diagramCode, setDiagramCode] = useState('');
   const [showRecap, setShowRecap] = useState(false);
   const [recapText, setRecapText] = useState('');
@@ -684,6 +689,22 @@ const AITeacher = () => {
     fetch('https://dwenlite-backend.fly.dev/health', { mode: 'no-cors' }).catch(() => { });
   }, []);
 
+  // The student's saved folders (notes, documents, quizzes, flashcards) can be taught from directly.
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged(async (user) => {
+      if (!user) return;
+      try {
+        const snap = await getDocs(query(collection(db, 'folders'), where('user_id', '==', user.uid)));
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+        userFoldersRef.current = list;
+        setUserFolders(list);
+      } catch { /* the picker simply stays empty */ }
+      finally { setFoldersLoaded(true); }
+    });
+    return unsub;
+  }, []);
+
   // Resume anywhere: if this device has no saved lesson but the account does, bring it here.
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (user) => {
@@ -995,8 +1016,63 @@ const AITeacher = () => {
     }
   };
 
-  const handleFileUpload = async () => {
-    if (files.length === 0) return;
+  const countsOf = (f) => ({
+    notes: (f.notes || []).length,
+    docs: (f.documents || []).filter(d => d.extractedText).length,
+    quizzes: (f.quizGroups || []).reduce((a, g) => a + (g.quizzes || []).length, 0),
+    cards: (f.flashcardGroups || []).reduce((a, g) => a + (g.flashcards || []).length, 0),
+  });
+
+  // Turns the chosen parts of a saved folder into study text for the teacher.
+  const folderToText = (f, pick) => {
+    const cap = (t, n) => String(t || '').slice(0, n);
+    const parts = [`=== Folder: ${f.name} ===`];
+    if (pick.notes) (f.notes || []).forEach((n, i) => parts.push(`--- Note ${i + 1} ---\n${cap(n.content, 30000)}`));
+    if (pick.docs) (f.documents || []).forEach(d => { if (d.extractedText) parts.push(`--- Document: ${d.name} ---\n${cap(d.extractedText, 40000)}`); });
+    if (pick.quizzes) (f.quizGroups || []).forEach((g, i) => parts.push(`--- Quiz ${i + 1} (questions with correct answers) ---\n` +
+      (g.quizzes || []).map(q => `Q: ${q.question}\nCorrect answer: ${q.correctAnswer}`).join('\n\n')));
+    if (pick.cards) (f.flashcardGroups || []).forEach((g, i) => parts.push(`--- Flashcards ${i + 1} ---\n` +
+      (g.flashcards || []).map(c => `Q: ${c.question}\nA: ${c.answer}`).join('\n\n')));
+    return parts.join('\n\n');
+  };
+
+  const useSelectedFolders = () => {
+    const chosen = userFolders.filter(f => folderPick[f.id]);
+    if (!chosen.length) { toast.error('Tick at least one folder.'); return; }
+    const text = chosen.map(f => folderToText(f, folderPick[f.id])).join('\n\n').slice(0, 250000);
+    if (text.replace(/=== Folder:[^\n]*===/g, '').trim().length < 80) {
+      toast.error('Nothing readable in what you picked. Notes and documents with text work best.');
+      return;
+    }
+    handleFileUpload(text);
+  };
+
+  // Voice: the student names a folder and the teacher loads it by itself.
+  const openFolderByName = async (name) => {
+    const norm = (t) => String(t).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+    const q = norm(name);
+    const list = userFoldersRef.current;
+    let match = list.filter(f => norm(f.name) === q);
+    if (!match.length) match = list.filter(f => norm(f.name).includes(q) || q.includes(norm(f.name)));
+    if (match.length === 1) {
+      const f = match[0];
+      const text = folderToText(f, { notes: true, docs: true, quizzes: true, cards: true });
+      if (text.replace(/=== Folder:[^\n]*===/g, '').trim().length < 80) {
+        toast.error(`"${f.name}" has nothing I can read yet. Add notes or a text document first.`);
+        return;
+      }
+      toast.success(`Loading "${f.name}"...`);
+      await handleFileUpload(text.slice(0, 250000));
+    } else {
+      toast(match.length ? 'More than one folder matches. Please pick one below.' : "I couldn't find that folder. Please pick one below.");
+      setShowFolderPicker(true);
+      setShowUploadDrawer(true);
+    }
+  };
+
+  const handleFileUpload = async (presetText = null) => {
+    const preset = typeof presetText === 'string' ? presetText : null; // text from saved folders instead of files
+    if (!preset && files.length === 0) return;
     primeUploadNotifications();
 
     if (!document.fullscreenElement) {
@@ -1030,7 +1106,7 @@ const AITeacher = () => {
     }
 
     try {
-      let combinedText = '';
+      let combinedText = preset || '';
 
       const imageFiles = [];
 
@@ -1111,7 +1187,7 @@ const AITeacher = () => {
         setUploadLoading(false);
         uploadLoadingRef.current = false;
         setUploadStatus('');
-        const note = `[NEW MATERIAL ADDED: The student just uploaded more files. ${Math.max(newTotal - previousCount, 1)} new concepts (numbers ${previousCount + 1} to ${newTotal}) were appended to the end of the study material. Acknowledge this warmly in one or two sentences, mention what the new material covers in a few words, and ask if they want to finish the current concept first and then cover the new ones, or switch to the new material right away. Do not advance concepts until they answer.]`;
+        const note = `[NEW MATERIAL ADDED: The student just ${preset ? 'added material from their saved folders' : 'uploaded more files'}. ${Math.max(newTotal - previousCount, 1)} new concepts (numbers ${previousCount + 1} to ${newTotal}) were appended to the end of the study material. Acknowledge this warmly in one or two sentences, mention what the new material covers in a few words, and ask if they want to finish the current concept first and then cover the new ones, or switch to the new material right away. Do not advance concepts until they answer.]`;
         messagesRef.current.push({ role: 'system', content: note });
         saveSessionState();
         toast.success('New material added to your session!');
@@ -1448,7 +1524,7 @@ const AITeacher = () => {
   const TEACHER_URL = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
 
   const cleanForTTS = (t) => t
-    .replace(/\[OPEN_UPLOAD\]|\[SESSION COMPLETE\]|\[(?:C|WEAK):\d+\]/g, '')
+    .replace(/\[OPEN_UPLOAD\]|\[SESSION COMPLETE\]|\[(?:C|WEAK):\d+\]|\[USE_FOLDER:[^\]]*\]/g, '')
     .replace(/[\n\r]+/g, ' ')
     .replace(/"/g, "'")
     .replace(/[$\\*_]/g, '')
@@ -1598,6 +1674,8 @@ const AITeacher = () => {
         }
       }
       aiText = aiText.replace(/\[(?:C|WEAK):\d+\]/g, '').trim();
+      const folderTag = aiText.match(/\[USE_FOLDER:([^\]]+)\]/);
+      aiText = aiText.replace(/\[USE_FOLDER:[^\]]*\]/g, '').trim();
       const wantsUpload = aiText.includes('[OPEN_UPLOAD]');
       aiText = aiText.replace(/\[OPEN_UPLOAD\]/g, '').trim();
       for (const token of ['\nStudent:', '\nUser:']) {
@@ -1614,7 +1692,7 @@ const AITeacher = () => {
         toast.success("Session completed successfully!");
         clearSessionState();
       }
-      return { aiText, wantsUpload };
+      return { aiText, wantsUpload, folderName: folderTag ? folderTag[1].trim() : '' };
     };
 
     try {
@@ -1636,6 +1714,7 @@ const AITeacher = () => {
         style: voicePrefsRef.current.style,
         level: voicePrefsRef.current.level,
         language: voicePrefsRef.current.language,
+        folders: userFoldersRef.current.map(f => f.name).filter(Boolean),
       };
 
       // ---- Fast path: stream the reply and start talking after the first sentence ----
@@ -1672,7 +1751,7 @@ const AITeacher = () => {
           if (!diagramSeen) {
             // Never speak the diagram: stop feeding the speech buffer once its tag shows up.
             buffer += t;
-            const at = buffer.indexOf('[DIAGRAM]');
+            const at = buffer.search(/\[DIAGRAM\]|\[USE_FOLDER:/);
             if (at >= 0) { buffer = buffer.slice(0, at); diagramSeen = true; }
           }
           if (raw.length < 40) {
@@ -1700,7 +1779,7 @@ const AITeacher = () => {
       if (streamed) {
         if (currentAudioSessionRef.current === speech.sessionId) flushSentences(true);
         speech.end();
-        const { aiText, wantsUpload } = finishReply(raw);
+        const { aiText, wantsUpload, folderName } = finishReply(raw);
         if (aiText) {
           messagesRef.current.push({ role: 'ai', content: aiText });
           saveSessionState();
@@ -1711,6 +1790,7 @@ const AITeacher = () => {
         }
         await speech.done;
         if (wantsUpload) setShowUploadDrawer(true);
+        if (folderName) await openFolderByName(folderName);
         if (stepRef.current === 4) { setEyeEmotion('sleep'); openRecap(); }
         return;
       }
@@ -1721,10 +1801,11 @@ const AITeacher = () => {
       if (response.data.voice) setVoiceUsage(response.data.voice);
       const content = response.data.choices?.[0]?.message?.content || response.data.choices?.[0]?.text;
       if (!content) throw new Error('Invalid API response');
-      const { aiText, wantsUpload } = finishReply(content);
+      const { aiText, wantsUpload, folderName } = finishReply(content);
       stopThinking();
       await speakAndAdvance(aiText);
       if (wantsUpload) setShowUploadDrawer(true);
+      if (folderName) await openFolderByName(folderName);
       if (stepRef.current === 4) { setEyeEmotion('sleep'); openRecap(); }
 
     } catch (error) {
@@ -2477,9 +2558,77 @@ const AITeacher = () => {
               </div>
             )}
 
+            {files.length === 0 && (
+              <div className="mt-5">
+                <div className="mb-3 flex items-center gap-3 text-xs uppercase tracking-wider text-gray-500">
+                  <div className="h-px flex-1 bg-gray-700" /> or <div className="h-px flex-1 bg-gray-700" />
+                </div>
+                <button
+                  onClick={() => setShowFolderPicker(v => !v)}
+                  aria-expanded={showFolderPicker}
+                  className="flex w-full items-center justify-between rounded-xl border border-gray-700 bg-gray-800 px-4 py-3 text-left text-sm font-semibold text-gray-100 hover:border-blue-500/60"
+                >
+                  <span>Use my saved folders</span>
+                  <span className="text-xs font-normal text-gray-400">{foldersLoaded ? `${userFolders.length} folder${userFolders.length === 1 ? '' : 's'}` : 'loading...'}</span>
+                </button>
+
+                {showFolderPicker && (
+                  <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
+                    {foldersLoaded && userFolders.length === 0 && <p className="text-sm text-gray-500">No saved folders yet.</p>}
+                    {userFolders.map(f => {
+                      const c = countsOf(f);
+                      const total = c.notes + c.docs + c.quizzes + c.cards;
+                      const pick = folderPick[f.id];
+                      const toggleFolder = () => setFolderPick(p => {
+                        const n = { ...p };
+                        if (n[f.id]) delete n[f.id]; else n[f.id] = { notes: true, docs: true, quizzes: true, cards: true };
+                        return n;
+                      });
+                      return (
+                        <div key={f.id} className={`rounded-xl border p-3 ${pick ? 'border-blue-500/60 bg-blue-500/5' : 'border-gray-700 bg-gray-800/60'} ${total === 0 ? 'opacity-50' : ''}`}>
+                          <label className="flex cursor-pointer items-center gap-3">
+                            <input type="checkbox" checked={!!pick} disabled={total === 0} onChange={toggleFolder} className="h-4 w-4 accent-blue-500" />
+                            <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-100">{f.name}</span>
+                            <span className="text-xs text-gray-500">{total === 0 ? 'empty' : `${total} items`}</span>
+                          </label>
+                          {pick && (
+                            <div className="mt-2 flex flex-wrap gap-1.5 pl-7">
+                              {[['notes', 'Notes', c.notes], ['docs', 'Documents', c.docs], ['quizzes', 'Quizzes', c.quizzes], ['cards', 'Flashcards', c.cards]]
+                                .filter(([, , n]) => n > 0)
+                                .map(([key, label, n]) => (
+                                  <button
+                                    key={key}
+                                    onClick={() => setFolderPick(p => ({ ...p, [f.id]: { ...p[f.id], [key]: !p[f.id][key] } }))}
+                                    aria-pressed={pick[key]}
+                                    className={`rounded-full px-2.5 py-1 text-xs font-medium ${pick[key] ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-400'}`}
+                                  >
+                                    {label} ({n})
+                                  </button>
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {showFolderPicker && Object.keys(folderPick).length > 0 && (
+                  <button
+                    onClick={useSelectedFolders}
+                    disabled={uploadLoading}
+                    className="mt-3 w-full rounded-xl bg-blue-600 py-3 font-bold text-white hover:bg-blue-500 disabled:opacity-50 transition"
+                  >
+                    {uiStep === 3 ? 'Add to my lesson' : 'Start with these'}
+                  </button>
+                )}
+                <p className="mt-2 text-xs text-gray-500">No downloading or re-uploading. During a lesson you can also just say "use my Biology folder".</p>
+              </div>
+            )}
+
             {files.length > 0 && (
               <button
-                onClick={handleFileUpload}
+                onClick={() => handleFileUpload()}
                 disabled={uploadLoading}
                 className="mt-6 w-full py-3.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-xl transition shadow-lg shadow-blue-600/30 text-lg"
               >
