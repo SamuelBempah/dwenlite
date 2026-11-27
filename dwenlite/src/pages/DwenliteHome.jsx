@@ -68,6 +68,7 @@ export default function DwenliteHome() {
   const [maxMinutes, setMaxMinutes] = useState(() => Number(readJson('dwenliteMaxMinutes', 0)) || 0); // 0 = no time limit
   const [project, setProject] = useState(() => readJson('dwenliteProject', null));
   const [pending, setPending] = useState([]);
+  const [shareSkills, setShareSkills] = useState(true);
   const [wakeOn, setWakeOn] = useState(() => readJson('dwenliteWake', false) === true);
   const [panel, setPanel] = useState(null); // devices | memory | settings | activity | routines
   const [routineDraft, setRoutineDraft] = useState(null);
@@ -139,6 +140,7 @@ export default function DwenliteHome() {
   }, []);
 
   const loadDevices = useCallback(async () => { try { setDevices((await homeCall('device_list')).devices || []); } catch { /* keep the last list */ } }, []);
+  useEffect(() => { if (gate === 'ok') homeCall('settings_get').then((r) => setShareSkills(r.shareSkills !== false)).catch(() => {}); }, [gate]);
   const loadMemory = useCallback(async () => { try { { const m = await homeCall('memory_get'); setMemory(m.facts || []); setPending(m.pending || []); } } catch { /* optional */ } }, []);
   useEffect(() => {
     if (gate !== 'ok') return undefined;
@@ -826,6 +828,9 @@ export default function DwenliteHome() {
                 <span className="shrink-0 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold">{googleOn ? 'Disconnect' : 'Connect Google'}</span>
               </button>
             </div>
+            <label className="mt-3 flex items-center justify-between gap-3 text-sm text-slate-300"><span>Help it learn for everyone<span className="block text-xs text-slate-500">It learns general methods from jobs that went well, like the steps for sorting photos, and shares them so it gets better for all users. Never your files, names, messages or anything personal.</span></span>
+              <button type="button" role="switch" aria-checked={shareSkills} onClick={() => { const v = !shareSkills; setShareSkills(v); homeCall('settings_set', { shareSkills: v }).catch(() => {}); }} className={`h-6 w-11 shrink-0 rounded-full p-0.5 transition-colors ${shareSkills ? 'bg-violet-600' : 'bg-slate-700'}`}><span className={`block h-5 w-5 rounded-full bg-white transition-transform ${shareSkills ? 'translate-x-5' : ''}`} /></button>
+            </label>
             <label className="mt-3 flex items-center justify-between gap-3 text-sm text-slate-300"><span>Hands-free<span className="block text-xs text-slate-500">Say "Hey Dwen" while this page is open. The microphone listens only on this page.</span></span>
               <button type="button" role="switch" aria-checked={wakeOn} onClick={toggleWake} className={`h-6 w-11 shrink-0 rounded-full p-0.5 transition-colors ${wakeOn ? 'bg-violet-600' : 'bg-slate-700'}`}><span className={`block h-5 w-5 rounded-full bg-white transition-transform ${wakeOn ? 'translate-x-5' : ''}`} /></button>
             </label>

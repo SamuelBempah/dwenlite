@@ -7,7 +7,7 @@
 const crypto = require("crypto");
 const routines = require("./routines");
 
-const JOB_TYPES = new Set(["shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows", "show_home", "browser", "undo", "web_search", "android", "network_scan", "lan_http", "git", "run_tests", "preview_write", "send_file", "fetch_file", "document", "app_ui", "find_files", "pc_health", "github"]);
+const JOB_TYPES = new Set(["shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows", "show_home", "browser", "undo", "web_search", "android", "network_scan", "lan_http", "git", "run_tests", "preview_write", "send_file", "fetch_file", "document", "app_ui", "find_files", "pc_health", "github", "clipboard", "pc_control"]);
 const ONLINE_MS = 25000;
 const MAX_OUTPUT = 150000; // characters stored per job result (a Firestore document must stay under 1 MB)
 
@@ -80,6 +80,9 @@ const TOOLS = [
   { name: "network_scan", description: "List the devices on the same Wi-Fi/local network as the device's computer (phones, TVs, printers, cameras, routers): address, name, and which common services answer (such as android debug on 5555).", properties: { device: dev, ports: { type: "array", items: { type: "number" } } }, required: [] },
   { name: "lan_http", description: "Send an HTTP request from the device's computer to another device on its own network (router page, printer, smart device, local server). Private addresses only. If the device needs a sign-in, pass login with the name of a saved login (see the browser tool's logins action); it is applied on the computer and you never see the password.", properties: { device: dev, url: { type: "string" }, method: { type: "string", enum: ["GET", "POST"] }, body: { type: "string" }, login: { type: "string" } }, required: ["url"] },
   { name: "find_files", description: "Find files on the owner's computer, in the folders they allowed. Search by part of the name (query), words inside the file (text; works in documents, spreadsheets, PDFs and text files), type (ext, like pdf or docx), size (min_mb) or age (older_than_days, newer_than_days). folder narrows it to one place (a full path, or ~Documents, ~Desktop, ~Downloads). Read-only.", properties: { device: dev, query: { type: "string" }, text: { type: "string" }, ext: { type: "string" }, folder: { type: "string" }, min_mb: { type: "number" }, older_than_days: { type: "number" }, newer_than_days: { type: "number" }, max: { type: "number" } }, required: [] },
+  { name: "clipboard", description: "Read or set the clipboard of the owner's computer. action read: what is copied there now. action write: put text there so the owner can paste it. Ask before reading it unless they asked you to: it can hold private things.", properties: { device: dev, action: { type: "string", enum: ["read", "write"] }, text: { type: "string" } }, required: ["action"] },
+  { name: "pc_control", description: "Basic controls on the owner's computer: lock it, put it to sleep, volume up or down (times), mute, play/pause, next and previous track.", properties: { device: dev, action: { type: "string", enum: ["lock", "sleep", "volume_up", "volume_down", "mute", "play_pause", "next", "previous"] }, times: { type: "number" } }, required: ["action"] },
+  { name: "notify_phone", description: "Send a notification to the owner's phone right now. Use it when a long task finishes, when something needs their attention, or when they say 'tell my phone' or 'ping me'. Short title and body.", properties: { title: { type: "string" }, body: { type: "string" } }, required: ["body"] },
   { name: "pc_health", description: "Check how the owner's computer is doing: free disk space, memory, how much is in temporary files, Downloads and the bin, large old downloads, start-up programs, virus protection and pending restarts. Read-only: it never deletes anything. For a clean-up, report first, then ask before deleting anything and move things to the bin rather than wiping them.", properties: { device: dev, kind: { type: "string", enum: ["quick", "full"] } }, required: [] },
   { name: "github", description: "The owner's GitHub (uses a token saved on their computer as a login called github). Actions: my_repos, repo, issues, pulls, issue (number), commits, create_issue (title, body), comment (number, body). repo is owner/name. Ask before creating issues or comments.", properties: { device: dev, action: { type: "string", enum: ["my_repos", "repo", "issues", "pulls", "issue", "commits", "create_issue", "comment"] }, repo: { type: "string" }, number: { type: "number" }, state: { type: "string", enum: ["open", "closed"] }, title: { type: "string" }, body: { type: "string" } }, required: ["action"] },
   { name: "reminder", description: "Set, list or delete reminders for the owner; each one sends a notification to their phone at the time. action add: text and EITHER at (the owner's LOCAL date and time, like 2026-12-01T09:00) OR in_minutes; optional repeat (none, daily, weekdays, weekly). action list: shows the pending reminders with ids. action delete: id. Use the owner's time zone and local time given in your instructions.", properties: { action: { type: "string", enum: ["add", "list", "delete"] }, text: { type: "string" }, at: { type: "string" }, in_minutes: { type: "number" }, repeat: { type: "string", enum: ["none", "daily", "weekdays", "weekly"] }, id: { type: "string" } }, required: ["action"] },
@@ -126,7 +129,7 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
   const GEMINI_MODEL = defineString("GEMINI_MODEL", { default: "gemini-3.5-flash" });
 
   // Anyone signed in may use Home (no admin list). To protect the AI budget each person gets a daily allowance.
-  const SERVER_TOOLS = new Set(["reminder", "todo", "project_note", "suggest_memory"]);
+  const SERVER_TOOLS = new Set(["reminder", "todo", "project_note", "suggest_memory", "notify_phone"]);
 const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30, bgtask: 25, chatsave: 400 };
   // Admins (ADMIN_EMAILS) have no limits anywhere in Home.
   const isAdminDecoded = (decoded) => adminsApi.isAdmin(decoded);
@@ -298,7 +301,7 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
   }
 
   // ---- unattended runs (saved routines, on a schedule or on demand) ----
-  const DEVICE_TOOLS = new Set(["document", "app_ui", "run_shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows", "browser", "android", "network_scan", "lan_http", "git", "run_tests", "find_files", "pc_health", "github"]);
+  const DEVICE_TOOLS = new Set(["document", "app_ui", "run_shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows", "browser", "android", "network_scan", "lan_http", "git", "run_tests", "find_files", "pc_health", "github", "clipboard", "pc_control"]);
   const MIXED = new Set(["browser", "git", "android", "lan_http", "document", "app_ui", "github"]);
   async function runTask({ uid, prompt, deviceId, allowActions, watch = false, previous = "", maxSteps = 10, deadline = Date.now() + 360000 }) {
     const tools = TOOLS.filter((t) => { const n = t.function.name; return n !== "run_js" && n !== "send_file" && n !== "project_note" && !n.startsWith("google_") && (SERVER_TOOLS.has(n) || MIXED.has(n) || routines.allowedUnattended(n, {}, allowActions)); });
@@ -389,6 +392,47 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
     return { status, text, steps, runId: runRef.id };
   }
 
+  // ---- skills: the assistant learns how jobs get done and keeps the method for everyone (never anything personal) ----
+  const STOP = new Set("about after again also been before being could does from have into just like make more need please some than that them then there these they this those what when where which will with would your you the and for are can has not but out all any get got let new one our use via want how why who".split(" "));
+  const words = (t) => [...new Set(String(t || "").toLowerCase().replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter((w) => w.length > 3 && !STOP.has(w)))];
+  let skillsCache = { at: 0, list: [] };
+  async function allSkills(force) {
+    if (!force && Date.now() - skillsCache.at < 300000) return skillsCache.list;
+    try { const q = await db.collection("homeSkills").where("active", "==", true).limit(800).get(); skillsCache = { at: Date.now(), list: q.docs.map((d) => ({ id: d.id, ...d.data() })) }; } catch (e) { /* keep the old list */ }
+    return skillsCache.list;
+  }
+  async function findSkills(query) {
+    const q = words(query); if (q.length < 2) return [];
+    const list = await allSkills();
+    return list.map((k) => { const kw = new Set(words(`${k.title} ${k.when}`)); const hit = q.filter((w) => kw.has(w)).length; const trust = 1 + Math.min(5, (k.wins || 0) * 0.4 + (k.confirmed || 0) * 0.3) - (k.fails || 0) * 0.8; return { k, hit, score: hit * Math.max(0.2, trust) }; })
+      .filter((x) => x.hit >= 2 && (x.k.fails || 0) <= (x.k.wins || 0) + 2).sort((a, b) => b.score - a.score).slice(0, 3).map((x) => x.k);
+  }
+  const tooPersonal = (t) => /[\w.+-]+@[\w-]+\.[\w.]+|https?:\/\/|www\.|\b\d{5,}\b|[a-z]:\\|\/(users|home)\/|\\users\\|[A-Za-z0-9_-]{24,}/i.test(t);
+  async function learnSkill(uid, prompt, trail, errors) {
+    try {
+      if ((await getSettings(uid)).shareSkills === false) return;
+      const acts = trail.filter((t) => t.ok); if (acts.length < 3 || errors > 2) return;
+      const r = await axios.post("https://api.deepseek.com/chat/completions", { model: "deepseek-chat", max_tokens: 700, temperature: 0.1, response_format: { type: "json_object" }, messages: [
+        { role: "system", content: "You turn a finished assistant task into a reusable, general method that can help OTHER people with similar jobs. Reply with JSON only: {\"learn\":bool,\"title\":string,\"when\":string,\"steps\":[string]}. Set learn=false unless this is a reusable kind of job (not casual chat, a one-off personal question, a reminder or a to-do). title: at most 8 words, generic. when: one sentence describing the kind of request this applies to. steps: 3 to 8 short imperative sentences describing the approach that worked and any pitfall found. NEVER include names, emails, phone numbers, addresses, file or folder names, account or company names, passwords, keys, links, amounts or any detail that belongs to one person: say 'the file', 'the website', 'the person'." },
+        { role: "user", content: `Request: ${clip(prompt, 600)}\nWhat was done, in order:\n${trail.slice(0, 30).map((t, i) => `${i + 1}. ${t.name}${t.what ? " - " + clip(t.what, 100) : ""}${t.ok ? "" : " (failed)"}`).join("\n")}` }] },
+        { headers: { Authorization: `Bearer ${DEEPSEEK_API_KEY.value()}`, "Content-Type": "application/json" }, timeout: 40000 });
+      let j; try { j = JSON.parse(r.data.choices[0].message.content); } catch (e) { return; }
+      if (!j || j.learn !== true) return;
+      const title = clip(j.title, 80).trim(); const when = clip(j.when, 240).trim(); const steps = (Array.isArray(j.steps) ? j.steps : []).map((x) => clip(x, 220).trim()).filter(Boolean).slice(0, 8);
+      if (!title || !when || steps.length < 2 || tooPersonal([title, when, ...steps].join("\n"))) return;
+      const tools = [...new Set(trail.map((t) => t.name))].filter((n) => TOOLS.some((x) => x.function.name === n)).slice(0, 12);
+      const mine = new Set(words(`${title} ${when}`)); const list = await allSkills(true);
+      const twin = list.find((k) => { const o = new Set(words(`${k.title} ${k.when}`)); const inter = [...mine].filter((w) => o.has(w)).length; return inter / Math.max(1, new Set([...mine, ...o]).size) >= 0.55; });
+      if (twin) { await db.collection("homeSkills").doc(twin.id).update({ confirmed: (twin.confirmed || 0) + 1, lastUsed: Date.now() }); skillsCache.at = 0; return; }
+      if (list.length >= 800) { const weakest = list.slice().sort((a, b) => ((a.wins || 0) + (a.confirmed || 0)) - ((b.wins || 0) + (b.confirmed || 0)))[0]; if (weakest) await db.collection("homeSkills").doc(weakest.id).delete(); }
+      await db.collection("homeSkills").doc().set({ active: true, title, when, steps, tools, confirmed: 1, wins: 0, fails: 0, createdAt: Date.now(), lastUsed: Date.now() });
+      skillsCache.at = 0;
+    } catch (e) { logger.warn("learning failed", e.message); }
+  }
+  async function scoreSkills(ids, ok) {
+    for (const id of (ids || []).slice(0, 3)) { try { const ref = db.collection("homeSkills").doc(id); const d = await ref.get(); if (!d.exists) continue; const x = d.data(); const up = ok ? { wins: (x.wins || 0) + 1, lastUsed: Date.now() } : { fails: (x.fails || 0) + 1 }; if (!ok && (x.fails || 0) + 1 > (x.wins || 0) + 3) up.active = false; await ref.update(up); skillsCache.at = 0; } catch (e) { /* optional */ } }
+  }
+
   // ---- reminders, to-dos, projects, habits: small things the assistant keeps for the owner ----
   const settingsRef = (uid) => db.collection("homeSettings").doc(uid);
   async function getSettings(uid) { try { const d = await settingsRef(uid).get(); return d.exists ? d.data() : {}; } catch (e) { return {}; } }
@@ -456,6 +500,11 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
       if (a.action === "delete") { await ref.delete(); return "Removed from the list."; }
       return "Error: to-do actions are add, list, done, delete.";
     }
+    if (name === "notify_phone") {
+      const body = clip(a.body, 180).trim(); if (!body) return "Error: what should the notification say?";
+      const n = await notify(uid, { title: clip(a.title, 80) || "Dwenlite Home", body });
+      return n ? "Sent to the owner's phone." : "The owner's phone is not set up for notifications (they can turn them on in Dwenlite Home).";
+    }
     if (name === "project_note") {
       if (!ctx.projectId) return "There is no current project, so there is nowhere to put the note.";
       const ref = db.collection("homeProjects").doc(ctx.projectId); const d = await ref.get();
@@ -503,7 +552,9 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
     const st = await getSettings(uid); const tz = validZone(opts.tz || st.tz);
     let project = "";
     if (opts.projectId) { try { const pd = await db.collection("homeProjects").doc(opts.projectId).get(); if (pd.exists && pd.data().ownerUid === uid) project = `\n\nCURRENT PROJECT: ${clip(pd.data().name, 80)}${pd.data().folder ? ` (folder on the computer: ${clip(pd.data().folder, 200)})` : ""}\nPROJECT NOTES:\n${clip(pd.data().notes, 3000) || "(none yet)"}\nStay inside this project's context. Add important decisions and progress to its notes with project_note.`; } catch (e) { /* optional */ } }
-    return { tz, system: `${HOME_SYSTEM}\n\nTODAY: ${new Date().toISOString().slice(0, 10)}\nOWNER'S TIME ZONE: ${tz}. THEIR LOCAL TIME NOW: ${localString(Date.now(), tz)}.\nDEVICES:\n${list}${memory}${project}\n\nSMALL THINGS YOU KEEP FOR THEM: use the reminder tool for "remind me..." (give at as their local time), the todo tool for their list, and suggest_memory when you notice a stable habit.\n\nYou are working in the cloud while the owner may be away from the screen. They can watch, stop you, or tell you something new while you work: if a message starting with [The owner says while you work] appears, follow it.`, devs };
+    let methods = ""; let skills = [];
+    if (opts.query) { try { skills = await findSkills(opts.query); } catch (e) { /* optional */ } if (skills.length) methods = "\n\nMETHODS THAT HAVE WORKED BEFORE (learned from similar jobs; use them as a head start and adapt, do not follow them blindly):\n" + skills.map((k) => `- ${k.title}: ${k.steps.join(" ")}`).join("\n"); }
+    return { tz, skillIds: skills.map((k) => k.id), system: `${HOME_SYSTEM}\n\nTODAY: ${new Date().toISOString().slice(0, 10)}\nOWNER'S TIME ZONE: ${tz}. THEIR LOCAL TIME NOW: ${localString(Date.now(), tz)}.\nDEVICES:\n${list}${memory}${project}${methods}\n\nSMALL THINGS YOU KEEP FOR THEM: use the reminder tool for "remind me..." (give at as their local time), the todo tool for their list, and suggest_memory when you notice a stable habit.\n\nYou are working in the cloud while the owner may be away from the screen. They can watch, stop you, or tell you something new while you work: if a message starting with [The owner says while you work] appears, follow it.`, devs };
   }
   const clipMsgs = (msgs) => msgs.map((m) => (m.role === "tool" ? { role: "tool", tool_call_id: m.tool_call_id, content: clip(m.content, 1500) } : m.role === "assistant" ? { role: "assistant", content: clip(m.content, 6000), ...(m.tool_calls ? { tool_calls: m.tool_calls.map((c) => ({ id: c.id, type: "function", function: { name: c.function.name, arguments: clip(c.function.arguments, 1500) } })) } : {}) } : { role: "user", content: clip(m.content, 4000) }));
   const compact = (msgs) => { let size = JSON.stringify(msgs).length; for (let i = 0; i < msgs.length && size > 800000; i++) if (msgs[i].role === "tool" && msgs[i].content.length > 300) { size -= msgs[i].content.length - 300; msgs[i].content = msgs[i].content.slice(0, 300); } return msgs; };
@@ -514,12 +565,15 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
     if (!snap.exists || snap.data().kind !== "chat" || !["queued", "running"].includes(snap.data().status)) return;
     const run = snap.data(); const uid = run.ownerUid; const started = Date.now();
     await ref.update({ status: "running", startedAt: run.startedAt || started });
+    let trail = []; try { trail = JSON.parse(run.trail || "[]"); } catch (e) { trail = []; }
     let messages = JSON.parse(run.msgs); let n = run.eventCount || 0; let step = run.step || 0;
     const emit = async (ev) => { n++; await db.collection("homeEvents").doc(`${runId}_${n}`).set({ ownerUid: uid, runId, n, at: Date.now(), ...ev }); await ref.update({ eventCount: n }); };
     const finish = async (status, text) => {
       await emit({ type: "done", status, text: clip(text, 6000), messages: clipMsgs(messages.slice(run.baseLen)) });
       await ref.update({ status, text: clip(text, 4000), finishedAt: Date.now(), msgs: "", note: "" });
       if (run.quick) { try { const prompt = run.prompt || run.name; await db.collection("homeChats").doc().set({ ownerUid: uid, title: clip(prompt, 70), preview: clip(text, 150), search: clip(`${prompt} ${text}`, 6000).toLowerCase(), data: JSON.stringify({ v: 1, items: [{ id: "q1", type: "user", text: prompt }, { id: "q2", type: "ai", content: text }], convo: [{ role: "user", content: prompt }, { role: "assistant", content: text }] }), updatedAt: Date.now(), createdAt: Date.now() }); } catch (e) { /* optional */ } }
+      if (status === "done" || status === "error") { await scoreSkills(run.skillIds, status === "done"); }
+      if (status === "done") { const lastUser = [...messages.slice(0, run.baseLen)].reverse().find((m) => m.role === "user"); await learnSkill(uid, lastUser ? lastUser.content : run.name, trail, trail.filter((t) => !t.ok).length); }
       const cur = (await ref.get()).data();
       if (Date.now() - (cur.lastPoll || 0) > 20000) { try { await notify(uid, { title: status === "error" ? "Dwenlite Home hit a problem" : status === "stopped" ? "Stopped" : "Dwenlite Home finished", body: text || "Finished." }); } catch (e) { /* optional */ } }
     };
@@ -533,7 +587,7 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
         if (cur.steer && cur.steer.length) { messages.push({ role: "user", content: `[The owner says while you work] ${cur.steer.join(" / ")}` }); await ref.update({ steer: [] }); }
         if (run.maxMinutes && Date.now() - (run.startedAt || started) > run.maxMinutes * 60000) { await finish("done", `I reached the ${run.maxMinutes} minute limit you set, so I stopped here. Tell me to carry on if you want me to continue.`); return; }
         if (Date.now() - started > 400000) { // out of time for this turn: save progress and carry on in a fresh one
-          await ref.update({ msgs: JSON.stringify(compact(messages)), step, status: "running" });
+          await ref.update({ msgs: JSON.stringify(compact(messages)), step, status: "running", trail: JSON.stringify(trail.slice(-40)) });
           try { await enqueueTask({ runId, googleToken: ctx.googleToken || "" }); return; } catch (e) { await finish("error", "The task took too long and could not be continued."); return; }
         }
         const r = await axios.post("https://api.deepseek.com/chat/completions", { model: "deepseek-chat", messages, tools, tool_choice: "auto", max_tokens: 4000, temperature: 0.3 }, { headers: { Authorization: `Bearer ${DEEPSEEK_API_KEY.value()}`, "Content-Type": "application/json" }, timeout: 150000 });
@@ -560,9 +614,10 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
           try { out = await execUnattended({ uid, name, args, devs, deviceId: dev ? dev.id : "", allowActions: true, deadline: started + 420000, googleToken: ctx.googleToken, shouldStop, tz: run.tz, projectId: run.projectId }); } catch (e) { out = `Error: ${clip(e.message, 300)}`; }
           const failed = /^(Error:|ERROR:)/.test(String(out)) || /^Stopped by the owner/.test(String(out));
           await emit({ type: "tool_end", id: c.id, status: failed ? "error" : "done", output: clip(out, 1500) });
+          if (name !== "update_plan" && !SERVER_TOOLS.has(name)) trail.push({ name, ok: !failed, what: clip(args.summary || "", 100) });
           messages.push({ role: "tool", tool_call_id: c.id, content: clip(out, 7000) });
         }
-        await ref.update({ step: step + 1, msgs: JSON.stringify(compact(messages)) });
+        await ref.update({ step: step + 1, msgs: JSON.stringify(compact(messages)), trail: JSON.stringify(trail.slice(-40)) });
       }
       await finish("done", (messages.slice().reverse().find((m) => m.role === "assistant" && m.content) || {}).content || "I stopped after many steps. Tell me to carry on if you want me to continue.");
     } catch (e) {
@@ -687,6 +742,8 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
       case "network_scan": return { ports: (Array.isArray(a.ports) ? a.ports : []).filter((p) => Number.isInteger(p) && p > 0 && p < 65536).slice(0, 20) };
       case "lan_http": return typeof a.url === "string" && /^https?:\/\/[^\s]+$/i.test(a.url) && a.url.length <= 1000 ? { url: a.url, method: a.method === "POST" ? "POST" : "GET", body: clip(a.body, 20000), ...(typeof a.login === "string" && /^[\w .-]{1,60}$/.test(a.login) ? { login: a.login } : {}) } : null;
       case "find_files": return { query: clip(a.query, 200), text: clip(a.text, 200), ext: clip(a.ext, 60), folder: clip(a.folder, 500), min_mb: num(a.min_mb, 0, 100000) ? a.min_mb : 0, older_than_days: num(a.older_than_days, 0, 36500) ? a.older_than_days : 0, newer_than_days: num(a.newer_than_days, 0, 36500) ? a.newer_than_days : 0, max: num(a.max, 1, 60) ? a.max : 25 };
+      case "clipboard": { if (a.action === "read") return { action: "read" }; return a.action === "write" && typeof a.text === "string" && a.text && a.text.length <= 100000 ? { action: "write", text: a.text } : null; }
+      case "pc_control": return ["lock", "sleep", "volume_up", "volume_down", "mute", "play_pause", "next", "previous"].includes(a.action) ? { action: a.action, times: num(a.times, 1, 10) ? a.times : 0 } : null;
       case "pc_health": return { kind: a.kind === "quick" ? "quick" : "full" };
       case "github": {
         const act = String(a.action || "");
@@ -1062,10 +1119,10 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
             if (tz) settingsRef(uid).set({ tz }, { merge: true }).catch(() => {});
             let projectId = ""; if (body.projectId) { const pd = await db.collection("homeProjects").doc(String(body.projectId)).get(); if (pd.exists && pd.data().ownerUid === uid) projectId = pd.id; }
             const maxMinutes = Math.min(240, Math.max(0, Math.floor(Number(body.maxMinutes) || 0)));
-            const { system } = await buildSystemPrompt(uid, { tz, projectId });
+            const { system, skillIds } = await buildSystemPrompt(uid, { tz, projectId, query: messages[messages.length - 1].content });
             const msgs = [{ role: "system", content: system }, ...messages];
             const ref = db.collection("homeRuns").doc();
-            await ref.set({ ownerUid: uid, kind: "chat", name: clip(messages[messages.length - 1].content, 60), chatId: clip(body.chatId, 40), status: "queued", text: "", createdAt: Date.now(), finishedAt: 0, eventCount: 0, step: 0, maxSteps: Math.min(500, Math.max(3, Number(body.maxSteps) || 300)), baseLen: msgs.length, msgs: JSON.stringify(compact(msgs)), stop: false, steer: [], note: "", lastPoll: Date.now(), tz, projectId, maxMinutes });
+            await ref.set({ ownerUid: uid, kind: "chat", name: clip(messages[messages.length - 1].content, 60), chatId: clip(body.chatId, 40), status: "queued", text: "", createdAt: Date.now(), finishedAt: 0, eventCount: 0, step: 0, maxSteps: Math.min(500, Math.max(3, Number(body.maxSteps) || 300)), baseLen: msgs.length, msgs: JSON.stringify(compact(msgs)), stop: false, steer: [], note: "", lastPoll: Date.now(), tz, projectId, maxMinutes, skillIds });
             try { await enqueueTask({ runId: ref.id, googleToken: clip(body.googleToken, 2500) }); }
             catch (e) { logger.warn("cloud queue unavailable", e.message); await ref.update({ status: "error", text: "queue unavailable" }); return res.status(200).json({ fallback: true }); }
             return res.status(200).json({ runId: ref.id });
@@ -1215,6 +1272,13 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
             return res.status(200).json({ ok: true, facts, pending });
           }
 
+          if (action === "skills_list" || action === "skills_delete") {
+            if (!(await uidIsAdmin(uid))) return res.status(403).json({ error: "Only admins can manage learned skills." });
+            if (action === "skills_delete") { await db.collection("homeSkills").doc(String(body.id || "x")).delete(); skillsCache.at = 0; return res.status(200).json({ ok: true }); }
+            return res.status(200).json({ skills: (await allSkills(true)).sort((a, b) => (b.wins || 0) - (a.wins || 0)).slice(0, 200) });
+          }
+          if (action === "settings_get") { const st = await getSettings(uid); return res.status(200).json({ shareSkills: st.shareSkills !== false }); }
+          if (action === "settings_set") { await settingsRef(uid).set({ shareSkills: body.shareSkills !== false }, { merge: true }); return res.status(200).json({ ok: true }); }
           // ---- reminders, to-dos, projects, settings, briefing ----
           if (action === "tool_run") {
             if (!SERVER_TOOLS.has(body.name)) return res.status(400).json({ error: "Unknown tool." });
@@ -1318,7 +1382,7 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
     ? onSchedule({ schedule: "every 1 minutes", timeoutSeconds: 60, memory: "256MiB", maxInstances: 1 }, async () => { await remindersTick(); })
     : null;
 
-  return { homeApi, homeScheduler, homeReminderTick, runTaskWorker, _test: { remindersTick, serverTool, runChat, runAdhoc, schedulerTick, runTask, notify, vapid, validateJob, cleanMessages, hash, TOOLS, JOB_TYPES } };
+  return { homeApi, homeScheduler, homeReminderTick, runTaskWorker, _test: { learnSkill, findSkills, allSkills, remindersTick, serverTool, runChat, runAdhoc, schedulerTick, runTask, notify, vapid, validateJob, cleanMessages, hash, TOOLS, JOB_TYPES } };
 }
 
 module.exports = { create };

@@ -22,7 +22,7 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import dns from 'node:dns/promises';
 
-export const VERSION = '2.1.0';
+export const VERSION = '2.2.0';
 export const DEFAULT_URL = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/homeApi';
 export const SITE = 'https://www.dwenlite.space';
 const MAX_OUT = 100000;      // characters of command output sent back
@@ -1501,6 +1501,52 @@ export function createAgent(opts) {
       const roots = a.folder ? [safePath(root, presetFolder(a.folder), extra())] : [fs.realpathSync(root), ...extra()];
       if (!a.query && !a.text && !a.ext && !a.min_mb && !a.older_than_days && !a.newer_than_days) throw new Error('Say what to look for: part of a name, some text inside, a file type, a size or an age.');
       return await findFiles(roots, a, { docx: readDocx, xlsx: readXlsx, pdf: readPdf });
+    },
+    async clipboard(a) {
+      needShell();
+      const pick = async (list) => { for (const c of list) if (await have(c[0])) return c; return null; };
+      if (a.action === 'read') {
+        let r;
+        if (IS_WIN) r = await run('powershell', ['-NoProfile', '-Command', '[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-Clipboard -Raw'], { timeout: 10000 });
+        else if (process.platform === 'darwin') r = await run('pbpaste', [], { timeout: 8000 });
+        else { const c = await pick([['wl-paste', '--no-newline'], ['xclip', '-selection', 'clipboard', '-o'], ['xsel', '-b']]); if (!c) throw new Error('Reading the clipboard needs xclip, xsel or wl-clipboard installed on this computer.'); r = await run(c[0], c.slice(1), { timeout: 8000 }); }
+        const t = String(r.stdout || '').replace(/\r\n/g, '\n').replace(/\s+$/, '');
+        return t ? clip(t, 20000) : '(The clipboard is empty or holds something that is not text, such as a picture.)';
+      }
+      if (a.action === 'write') {
+        const t = String(a.text || '').slice(0, 100000); if (!t) throw new Error('There is nothing to copy.');
+        if (IS_WIN) await run('powershell', ['-NoProfile', '-Command', '[Console]::InputEncoding=[Text.Encoding]::UTF8; $t=[Console]::In.ReadToEnd(); Set-Clipboard -Value $t'], { timeout: 10000, input: t });
+        else if (process.platform === 'darwin') await run('pbcopy', [], { timeout: 8000, input: t });
+        else { const c = await pick([['wl-copy'], ['xclip', '-selection', 'clipboard', '-i'], ['xsel', '-b', '-i']]); if (!c) throw new Error('Copying needs xclip, xsel or wl-clipboard installed on this computer.'); await run(c[0], c.slice(1), { timeout: 8000, input: t }); }
+        return `Copied ${t.length} characters to the computer's clipboard.`;
+      }
+      throw new Error('Clipboard actions: read, write.');
+    },
+    async pc_control(a) {
+      needShell();
+      const act = String(a.action || ''); const win = (cmd) => run('powershell', ['-NoProfile', '-Command', cmd], { timeout: 15000 });
+      const key = (code) => `(New-Object -ComObject WScript.Shell).SendKeys([char]${code})`;
+      const KEYS = { volume_up: 175, volume_down: 174, mute: 173, play_pause: 179, next: 176, previous: 177 };
+      if (!['lock', 'sleep', 'volume_up', 'volume_down', 'mute', 'play_pause', 'next', 'previous'].includes(act)) throw new Error('Choose lock, sleep, volume_up, volume_down, mute, play_pause, next or previous.');
+      const times = Math.min(10, Math.max(1, Number(a.times) || (act.startsWith('volume') ? 3 : 1)));
+      if (IS_WIN) {
+        if (act === 'lock') await run('rundll32.exe', ['user32.dll,LockWorkStation'], { timeout: 8000 });
+        else if (act === 'sleep') { await run('rundll32.exe', ['powrprof.dll,SetSuspendState', '0,1,0'], { timeout: 8000 }); }
+        else await win(Array.from({ length: times }, () => key(KEYS[act])).join('; '));
+      } else if (process.platform === 'darwin') {
+        if (act === 'lock') await run('pmset', ['displaysleepnow'], { timeout: 8000 });
+        else if (act === 'sleep') await run('pmset', ['sleepnow'], { timeout: 8000 });
+        else if (act === 'mute') await run('osascript', ['-e', 'set volume output muted not (output muted of (get volume settings))'], { timeout: 8000 });
+        else if (act.startsWith('volume')) await run('osascript', ['-e', `set volume output volume ((output volume of (get volume settings)) ${act === 'volume_up' ? '+' : '-'} ${times * 6})`], { timeout: 8000 });
+        else throw new Error('Music controls are not available on this kind of computer yet.');
+      } else {
+        if (act === 'lock') await run('loginctl', ['lock-session'], { timeout: 8000 });
+        else if (act === 'sleep') await run('systemctl', ['suspend'], { timeout: 8000 });
+        else if (act === 'mute') await run('pactl', ['set-sink-mute', '@DEFAULT_SINK@', 'toggle'], { timeout: 8000 });
+        else if (act.startsWith('volume')) await run('pactl', ['set-sink-volume', '@DEFAULT_SINK@', `${act === 'volume_up' ? '+' : '-'}${times * 5}%`], { timeout: 8000 });
+        else await run('playerctl', [act === 'play_pause' ? 'play-pause' : act], { timeout: 8000 });
+      }
+      return { lock: 'Locked the computer.', sleep: 'Putting the computer to sleep.', mute: 'Toggled mute.', volume_up: 'Turned the volume up.', volume_down: 'Turned the volume down.', play_pause: 'Pressed play/pause.', next: 'Skipped to the next track.', previous: 'Went back a track.' }[act];
     },
     async pc_health(a) { needShell(); return await pcHealth(run, a.kind === 'quick' ? 'quick' : 'full'); },
     async github(a) {

@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { homeCall } from '../../lib/homeClient';
 import { plainText } from '../../lib/homePlain';
 import DwenLogo from './DwenLogo';
+import PhoneLink from './PhoneLink';
 import { Sheet, Spinner, Tap, motion, spring } from './motion';
 
 const clock = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
@@ -76,6 +77,8 @@ export default function RemotePanel({ devices, onClose, onStopAll }) {
             </div>
           ))}
         </div>
+
+        <PhoneLink devices={devices} />
 
         <Tap onClick={stopAll} className="mt-5 flex w-full items-center justify-center gap-2 rounded-2xl border border-red-500/40 bg-red-500/10 py-3 text-sm font-semibold text-red-200 hover:bg-red-500/20"><OctagonX size={18} /> Stop everything</Tap>
         <p className="mt-2 text-center text-xs text-slate-500">Tasks keep running on our servers even if you close the app. You will get a notification when they finish.</p>

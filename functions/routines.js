@@ -53,7 +53,7 @@ function allowedUnattended(name, args = {}, allowActions = false) {
   if (name === "app_ui") return allowActions || args.action === "read";
   if (name.startsWith("google_")) return !!allowActions;
   if (name === "lan_http") return allowActions || String(args.method || "GET").toUpperCase() === "GET";
-  if (["run_shell", "write_file", "click", "type_text", "press_key", "scroll", "open_url", "run_tests", "send_file"].includes(name)) return !!allowActions;
+  if (["run_shell", "write_file", "click", "type_text", "press_key", "scroll", "open_url", "run_tests", "send_file", "clipboard", "pc_control"].includes(name)) return !!allowActions;
   return false;
 }
 
