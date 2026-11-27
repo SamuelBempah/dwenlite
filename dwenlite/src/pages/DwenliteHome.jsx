@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Home, Monitor, Brain, SlidersHorizontal, RotateCcw, History, Repeat, Mic, Volume2, VolumeX, Bell, BookmarkPlus, FileUp, MessagesSquare, CloudCog, Mail, Paperclip, Camera, Send, Square, X, Wifi, WifiOff, ShieldAlert, Trash2, Sparkles } from 'lucide-react';
+import { Home, Monitor, Brain, SlidersHorizontal, RotateCcw, History, Repeat, Mic, Volume2, VolumeX, Bell, BookmarkPlus, FileUp, MessagesSquare, Radio, Mail, Paperclip, Camera, Send, Square, X, Wifi, WifiOff, ShieldAlert, Trash2, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { auth } from '../firebase';
 import ChatAnswer from '../components/ChatAnswer';
@@ -12,7 +12,8 @@ import ChatsPanel from '../components/home/ChatsPanel';
 import DwenLogo from '../components/home/DwenLogo';
 import { plainText } from '../lib/homePlain';
 import { packChat, unpackChat } from '../lib/homeChats';
-import { googleStatus, connectGoogle, disconnectGoogle, runGoogleTool } from '../lib/homeGoogle';
+import { googleStatus, connectGoogle, disconnectGoogle, runGoogleTool, googleToken } from '../lib/homeGoogle';
+import RemotePanel from '../components/home/RemotePanel';
 import { pushSupported, pushState, enablePush, disablePush, pingMe } from '../lib/push';
 import { micSupported, listenOnce, speak, forSpeech } from '../lib/homeVoice';
 import { uploadPieces, downloadPieces, MAX_FILE } from '../lib/homeFiles';
@@ -67,15 +68,17 @@ export default function DwenliteHome() {
   const [rules, setRules] = useState(() => readJson('dwenliteHomeRules', {})); // category -> 'ask' | 'allow'
   const [autoTimer, setAutoTimer] = useState(() => Number(readJson('dwenliteAutoTimer', 0)) || 0);
   const [autoUntil, setAutoUntil] = useState(() => Number(readJson('dwenliteAutoUntil', 0)) || 0);
-  const [bg, setBg] = useState(() => readJson('dwenliteHomeBg', false));
   const [googleOn, setGoogleOn] = useState(() => googleStatus().connected);
   const mounted = useRef(true);
   useEffect(() => () => { mounted.current = false; }, []);
-  const bgRef = useRef(false);
+  const itemsRef = useRef([]);
+  const runRef = useRef(null); // the task running in the cloud right now: { id, after, stopping }
+  const [live, setLive] = useState(null); // { note, startedAt, stopping } while a cloud task runs
+  const [, forceTick] = useState(0);
+  const cloudDown = useRef(false);
   const chatIdRef = useRef('');
   const [chatId, setChatId] = useState('');
   const rulesRef = useRef(rules); rulesRef.current = rules;
-  bgRef.current = bg;
   const autoUntilRef = useRef(autoUntil); autoUntilRef.current = autoUntil;
   const [savable, setSavable] = useState('');
   const [pushOn, setPushOn] = useState('off');
@@ -110,6 +113,7 @@ export default function DwenliteHome() {
   modeRef.current = mode;
 
   const add = (item) => setItems((p) => [...p, item]);
+  useEffect(() => { itemsRef.current = items; }, [items]);
   const patch = useCallback((id, p) => setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...p } : i))), []);
 
   // ---------------------------------------------------------------- access (admin only, checked by the server)
@@ -389,6 +393,7 @@ export default function DwenliteHome() {
 
   function stopNow() {
     voiceRef.current && voiceRef.current.stop(); setSpeaking(false);
+    if (runRef.current) { runRef.current.stopping = true; setLive((l) => (l ? { ...l, stopping: true } : l)); homeCall('run_stop', { id: runRef.current.id }).catch(() => {}); return; }
     stopRef.current = true;
     abortRef.current?.abort();
     Object.keys(approvals.current).forEach((id) => decide(id, false));
@@ -427,6 +432,7 @@ export default function DwenliteHome() {
 
   async function send(textOverride) {
     let t = (textOverride ?? input).trim();
+    if (runRef.current && t) { await sayToRun(t); return; }
     if (busy || (!t && !images.length)) return;
     micRef.current && micRef.current.stop(); setListening(false);
     lastPrompt.current = t;
@@ -453,29 +459,76 @@ export default function DwenliteHome() {
     const notes = pendingNotes.current.splice(0).join('\n');
     const full = notes ? `${notes}\n\n${content}` : content;
     convo.current.push({ role: 'user', content: full });
-    if (bgRef.current) { await startBackground(full); return; }
+    if (!cloudDown.current && (await startCloud())) return;
     await runLoop();
   }
 
-  // a task that keeps running on our server, even if this page is closed
-  async function startBackground(prompt) {
-    const pick = pickDevice(''); const noteId = uid();
-    add({ id: noteId, type: 'info', text: 'Working on it in the background. You can leave this page: you will get a notification when it is done.' });
-    try {
-      const r = await homeCall('task_start', { prompt, deviceId: pick.d ? pick.d.id : '', allowActions: true });
-      setBusy(false);
-      if (r.mode === 'inline') { finishBg(r.status, r.text); return; }
-      pollBg(r.runId);
-    } catch (e) { setBusy(false); patch(noteId, { text: `Could not start it in the background: ${e.message}` }); toast.error(e.message); }
+  // ---- every task runs in the cloud; this page just watches and steers ----
+  const stealsFor = (name, args = {}) => name === 'open_url' || (name === 'browser' && !!args.visible) || (['click', 'type_text', 'press_key', 'scroll'].includes(name) && (args.foreground || !args.app)) || (name === 'run_shell' && /\b(start|start-process|explorer|invoke-item|ii)\b/i.test(String(args.command || '')));
+  async function saveNow() {
+    await sleep(60); // let the page finish showing the message that was just sent
+    try { const p = packChat(itemsRef.current, convo.current); const r = await homeCall('chat_save', { id: chatIdRef.current || undefined, ...p }); if (r.id && r.id !== chatIdRef.current) { chatIdRef.current = r.id; setChatId(r.id); } } catch { /* saving is a bonus */ }
   }
-  const finishBg = (status, text) => { const t = text || (status === 'error' ? 'The task ran into a problem.' : '(no answer)'); add({ id: uid(), type: 'ai', content: t, typing: false }); convo.current.push({ role: 'assistant', content: t }); };
-  const pollBg = async (runId) => {
-    for (let i = 0; i < 400; i++) {
-      await sleep(3000);
-      if (!mounted.current) return;
-      try { const j = await homeCall('run_get', { id: runId }); if (j.status === 'done' || j.status === 'error') { finishBg(j.status, j.text); return; } } catch { /* keep trying */ }
+  async function startCloud() {
+    try {
+      await saveNow(); // so the conversation is kept even if the page closes now
+      const r = await homeCall('chat_send', { messages: convo.current, chatId: chatIdRef.current, maxSteps, googleToken: googleToken() || undefined });
+      if (r.fallback || !r.runId) { cloudDown.current = true; add({ id: uid(), type: 'info', text: 'Working from this page (the cloud helper is not available right now).' }); return false; }
+      watchRun(r.runId, 0);
+      return true;
+    } catch (e) {
+      if (e.status === 429 || (e.status === 400 && !/Unknown action/i.test(e.message || ''))) { setBusy(false); toast.error(e.message); convo.current.pop(); return true; }
+      cloudDown.current = true; return false;
     }
-  };
+  }
+  async function sayToRun(text) {
+    setInput('');
+    add({ id: uid(), type: 'user', text });
+    try { await homeCall('run_say', { id: runRef.current.id, text }); } catch (e) { toast.error(e.message); }
+  }
+  async function watchRun(runId, after) {
+    runRef.current = { id: runId, after, stopping: false };
+    actionsThisTurn.current = 0; stopRef.current = false; setBusy(true); setLive({ note: 'Starting...', startedAt: Date.now(), stopping: false });
+    voiceRef.current && voiceRef.current.stop();
+    let finalText = ''; let fails = 0;
+    while (mounted.current && runRef.current && runRef.current.id === runId) {
+      let j;
+      try { j = await homeCall('run_poll', { id: runId, after: runRef.current.after }); fails = 0; }
+      catch (e) { if (e.status === 404 || ++fails > 40) { toast.error('Lost track of the task.'); break; } await sleep(2500); continue; }
+      for (const ev of j.events) {
+        runRef.current.after = Math.max(runRef.current.after, ev.n);
+        if (ev.type === 'text') add({ id: uid(), type: 'ai', content: ev.text, typing: false });
+        else if (ev.type === 'plan') setItems((p) => { const last = [...p].reverse().find((i) => i.type === 'plan'); if (last && !last.steps.every((x) => x.status === 'done')) return p.map((i) => (i.id === last.id ? { ...i, steps: ev.steps } : i)); return [...p, { id: uid(), type: 'plan', steps: ev.steps }]; });
+        else if (ev.type === 'tool_start') { actionsThisTurn.current += 1; add({ id: ev.id, type: 'action', tool: ev.name, args: ev.args, deviceName: ev.deviceName, deviceId: ev.deviceId, status: 'running' }); if (stealsFor(ev.name, ev.args)) awayFrom.current = ev.deviceId; }
+        else if (ev.type === 'tool_end') { const fm = /\[file:([\w-]+):(\d+):(\d+)\]/.exec(ev.output || ''); setItems((p) => p.map((i) => (i.id === ev.id ? { ...i, status: ev.status, output: ev.output, ...(fm && i.tool === 'send_file' ? { fileMeta: { jobId: fm[1], total: Number(fm[2]), size: Number(fm[3]), name: String((i.args && i.args.path) || 'file').split(/[\\/]/).pop() } } : {}) } : i))); }
+        else if (ev.type === 'done') {
+          (ev.messages || []).forEach((m) => convo.current.push(m));
+          finalText = ev.status === 'done' ? ev.text : '';
+          if (ev.status === 'stopped') add({ id: uid(), type: 'info', text: 'Stopped.' });
+          if (ev.status === 'error') add({ id: uid(), type: 'info', text: ev.text || 'It ran into a problem.' });
+        }
+      }
+      setLive((l) => (l ? { ...l, note: j.note || l.note, startedAt: j.startedAt || l.startedAt, stopping: l.stopping || j.stop } : l));
+      if (['done', 'error', 'stopped'].includes(j.status) && runRef.current.after >= (j.eventCount || 0)) break;
+      await sleep(j.events.length ? 600 : 1500);
+    }
+    const mine = runRef.current && runRef.current.id === runId;
+    if (mine) runRef.current = null;
+    setLive(null); setBusy(false); returnHome();
+    if (mine && actionsThisTurn.current > 0 && lastPrompt.current) setSavable(lastPrompt.current); else setSavable('');
+    if (mine && finalText && speakRef.current) { const say = forSpeech(finalText); if (say) voiceRef.current = speak(say, { onStart: () => setSpeaking(true), onEnd: (stopped) => { setSpeaking(false); if (!stopped && fromMic.current && speakRef.current) startMic(); } }); }
+  }
+  // a task may still be running from before the page was closed: pick it up again
+  useEffect(() => {
+    if (gate !== 'ok') return;
+    homeCall('run_active').then(async (r) => {
+      const run = (r.runs || [])[0]; if (!run || runRef.current) return;
+      if (run.chatId) { try { const c = await homeCall('chat_get', { id: run.chatId }); const d = unpackChat(c.data); convo.current = d.convo; setItems(d.items); chatIdRef.current = run.chatId; setChatId(run.chatId); } catch { /* start from an empty page */ } }
+      add({ id: uid(), type: 'info', text: 'A task is still working. Picking it up...' });
+      watchRun(run.id, 0);
+    }).catch(() => {});
+  }, [gate]);
+  useEffect(() => { if (!live) return undefined; const t = setInterval(() => forceTick((x) => x + 1), 1000); return () => clearInterval(t); }, [live]);
 
   async function openChat(id) {
     try {
@@ -530,7 +583,6 @@ export default function DwenliteHome() {
     setItems([]);
   }
 
-  const toggleBg = () => { const v = !bg; setBg(v); try { localStorage.setItem('dwenliteHomeBg', JSON.stringify(v)); } catch { /* ignore */ } };
   const doConnectGoogle = async () => { try { await connectGoogle(); setGoogleOn(true); toast.success('Google connected for about an hour.'); } catch (e) { toast.error(e.message || 'Could not connect Google.'); } };
 
   // ---------------------------------------------------------------- screens
@@ -572,6 +624,7 @@ export default function DwenliteHome() {
           <span className="hidden sm:inline">{devices.length ? `${onlineCount}/${devices.length} online` : 'Add a computer'}</span>
           <Monitor size={13} className="sm:hidden" />
         </motion.button>
+        <IconBtn icon={Radio} anim="pulse" onClick={() => setPanel('remote')} aria-label="Remote" title="See and control what is running" className={`rounded-full border p-2 transition-colors ${live ? 'border-violet-400/60 bg-violet-500/20 text-violet-200' : 'border-white/10 bg-slate-800/70 hover:border-violet-500/50'}`} />
         <IconBtn icon={MessagesSquare} anim="pop" onClick={() => setPanel('chats')} aria-label="Earlier chats" title="Your earlier conversations" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
         <IconBtn icon={Repeat} anim="spin" onClick={() => { setRoutineDraft(null); setPanel('routines'); }} aria-label="Routines" title="Saved and scheduled tasks" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
         <IconBtn icon={History} anim="clock" onClick={() => setPanel('activity')} aria-label="Activity" title="What it did recently" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
@@ -636,6 +689,15 @@ export default function DwenliteHome() {
       </div>
 
       <AnimatePresence initial={false}>
+        {live && (
+          <motion.div key="live" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={spring} style={{ overflow: 'hidden' }} className="border-t border-violet-500/20 bg-violet-500/10 px-3">
+            <div className="flex items-center gap-2.5 py-2">
+              <DwenLogo size={26} working />
+              <div className="min-w-0 flex-1"><p className="truncate text-sm text-violet-100">{live.stopping ? 'Stopping...' : plainText(live.note) || 'Working on it...'}</p><p className="text-[11px] text-violet-300/70">Running in the cloud · {Math.floor((Date.now() - live.startedAt) / 60000)}:{String(Math.floor(((Date.now() - live.startedAt) % 60000) / 1000)).padStart(2, '0')} · you can type to tell it something new</p></div>
+              <Tap onClick={stopNow} disabled={live.stopping} aria-label="Stop the task" className="shrink-0 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold hover:bg-red-500 disabled:opacity-50">Stop</Tap>
+            </div>
+          </motion.div>
+        )}
         {savable && !busy && (
           <motion.div key="save" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={spring} style={{ overflow: 'hidden' }} className="flex justify-center px-3">
             <Tap onClick={() => { setRoutineDraft({ name: savable.slice(0, 40), prompt: savable }); setPanel('routines'); }} className="mb-1 flex items-center gap-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 px-3 py-1.5 text-xs text-violet-100 hover:bg-violet-500/20"><BookmarkPlus size={13} /> Save this as a routine</Tap>
@@ -665,7 +727,6 @@ export default function DwenliteHome() {
           <input ref={camRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { addImages(e.target.files); e.target.value = ''; }} />
           <IconBtn icon={Paperclip} size={20} anim="tilt" onClick={() => fileRef.current?.click()} aria-label="Attach an image or a file" title="Attach an image, or send a file to your computer" className="rounded-xl p-2.5 text-slate-400 hover:bg-white/10 hover:text-white" />
           <IconBtn icon={Camera} size={20} anim="pop" onClick={() => camRef.current?.click()} aria-label="Take a photo" className="rounded-xl p-2.5 text-slate-400 hover:bg-white/10 hover:text-white" />
-          <IconBtn icon={CloudCog} size={20} anim="pulse" onClick={toggleBg} aria-pressed={bg} aria-label="Keep going in the background" title={bg ? 'Background mode is on: the next task keeps running on our server even if you close this page (it can only read and search unless Auto is on).' : 'Run the next task in the background, so it keeps going if you close this page'} className={`rounded-xl p-2.5 transition-colors ${bg ? 'bg-violet-500/25 text-violet-200' : 'text-slate-400 hover:bg-white/10 hover:text-white'}`} />
           <IconBtn icon={listening ? Mic : Mic} size={20} anim="pulse" onClick={toggleMic} aria-label={listening ? 'Stop listening' : 'Talk'} title="Talk instead of typing" className={`rounded-xl p-2.5 transition-colors ${listening ? 'bg-red-500/20 text-red-300' : 'text-slate-400 hover:bg-white/10 hover:text-white'}`} />
           <textarea
             value={input}
@@ -673,10 +734,10 @@ export default function DwenliteHome() {
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && window.innerWidth >= 768) { e.preventDefault(); send(); } }}
             onPaste={(e) => { const f = Array.from(e.clipboardData?.files || []); if (f.length) { e.preventDefault(); addImages(f); } }}
             rows={1}
-            placeholder="Ask me anything, or tell me what to do on your computer..."
+            placeholder={live ? 'Tell it something new while it works...' : 'Ask me anything, or tell me what to do on your computer...'}
             className="max-h-40 min-h-[2.75rem] flex-1 resize-none rounded-2xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm outline-none focus:border-violet-500"
           />
-          {busy
+          {busy && !live
             ? <motion.button key="stop" initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: [1, 1.07, 1], opacity: 1 }} transition={{ scale: { repeat: Infinity, duration: 1.4 }, opacity: { duration: 0.15 } }} whileTap={{ scale: 0.88 }} onClick={stopNow} aria-label="Stop" className="rounded-xl bg-red-600 p-3 hover:bg-red-500"><Square size={18} fill="currentColor" /></motion.button>
             : <IconBtn key="send" icon={Send} size={18} anim="fly" onClick={() => send()} disabled={!input.trim() && !images.length} aria-label="Send" className="rounded-xl bg-violet-600 p-3 hover:bg-violet-500 disabled:opacity-40" />}
         </div>
@@ -684,6 +745,7 @@ export default function DwenliteHome() {
 
       {/* panels */}
       <AnimatePresence>
+      {panel === 'remote' && <RemotePanel key="remote" devices={devices} onClose={() => setPanel(null)} onStopAll={() => { if (runRef.current) runRef.current.stopping = true; }} />}
       {panel === 'chats' && <ChatsPanel key="chats" currentId={chatId} onOpen={openChat} onClose={() => setPanel(null)} />}
       {panel === 'routines' && <RoutinesPanel key="routines" devices={devices} draft={routineDraft} onClose={() => setPanel(null)} onRunHere={(p) => { setPanel(null); send(p); }} />}
       {panel === 'activity' && <ActivityPanel key="activity" devices={devices} onClose={() => setPanel(null)} />}

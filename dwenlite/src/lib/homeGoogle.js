@@ -21,6 +21,7 @@ export async function connectGoogle() {
   return true;
 }
 export const disconnectGoogle = () => { try { sessionStorage.removeItem(KEY); } catch { /* ignore */ } };
+export const googleToken = () => token();
 const token = () => { try { const j = JSON.parse(sessionStorage.getItem(KEY) || 'null'); if (j && j.exp > Date.now()) return j.token; } catch { /* ignore */ } return ''; };
 const NOT_CONNECTED = 'Google is not connected (or the permission ran out). Ask the owner to open Settings in Dwenlite Home and tap "Connect Google", then try again.';
 
