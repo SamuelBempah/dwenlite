@@ -18,7 +18,7 @@ import { pathToFileURL } from 'node:url';
 import net from 'node:net';
 import dns from 'node:dns/promises';
 
-export const VERSION = '1.7.0';
+export const VERSION = '1.8.0';
 const MAX_OUT = 100000;      // characters of command output sent back
 const MAX_READ = 200000;     // bytes read from a file
 const IS_WIN = process.platform === 'win32';
@@ -721,6 +721,41 @@ export async function scanHosts(hosts, ports) {
 }
 const PORT_NAMES = { 22: 'ssh', 80: 'web', 443: 'web (https)', 554: 'camera/stream', 5555: 'android debug', 8008: 'chromecast', 8080: 'web', 9100: 'printer', 1883: 'mqtt', 3389: 'remote desktop', 445: 'windows share', 62078: 'iphone' };
 
+// ----------------------------------------------------------------------------- coding helpers
+// A small line diff (longest common subsequence) so a file change can be reviewed before it is written.
+export function lineDiff(oldText, newText, context = 2) {
+  const a = String(oldText).split('\n'); const b = String(newText).split('\n');
+  if (a.length > 2500 || b.length > 2500) return `Large file: ${a.length} lines before, ${b.length} lines after.`;
+  const dp = Array.from({ length: a.length + 1 }, () => new Uint16Array(b.length + 1));
+  for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+  const ops = []; let i = 0; let j = 0;
+  while (i < a.length && j < b.length) { if (a[i] === b[j]) { ops.push([' ', a[i]]); i++; j++; } else if (dp[i + 1][j] >= dp[i][j + 1]) ops.push(['-', a[i++]]); else ops.push(['+', b[j++]]); }
+  while (i < a.length) ops.push(['-', a[i++]]); while (j < b.length) ops.push(['+', b[j++]]);
+  const keep = new Set();
+  ops.forEach((o, k) => { if (o[0] !== ' ') for (let d = -context; d <= context; d++) keep.add(k + d); });
+  const out = []; let last = -2;
+  ops.forEach((o, k) => { if (!keep.has(k)) return; if (k > last + 1 && out.length) out.push('...'); out.push(o[0] + ' ' + o[1]); last = k; });
+  const added = ops.filter((o) => o[0] === '+').length; const removed = ops.filter((o) => o[0] === '-').length;
+  return added || removed ? `+${added} -${removed}\n${out.join('\n')}` : 'No changes: the file already has this content.';
+}
+const GIT_REF = /^[\w./~^@{}-]{1,100}$/;
+export function detectTestCommand(dir) {
+  const has = (f) => fs.existsSync(path.join(dir, f));
+  if (has('package.json')) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+      const t = pkg.scripts && pkg.scripts.test;
+      if (t && !/no test specified/i.test(t)) return has('pnpm-lock.yaml') ? 'pnpm test' : has('yarn.lock') ? 'yarn test' : 'npm test';
+    } catch { /* fall through */ }
+  }
+  if (has('pytest.ini') || has('tox.ini') || has('pyproject.toml') || has('setup.cfg') || has('tests') || has('test')) return IS_WIN ? 'python -m pytest -q' : 'python3 -m pytest -q';
+  if (has('go.mod')) return 'go test ./...';
+  if (has('Cargo.toml')) return 'cargo test';
+  if (has('pom.xml')) return 'mvn -q test';
+  if (has('build.gradle') || has('build.gradle.kts')) return IS_WIN ? 'gradlew.bat test' : './gradlew test';
+  return '';
+}
+
 // ----------------------------------------------------------------------------- the agent
 export function createAgent(opts) {
   const root = opts.root;
@@ -933,6 +968,63 @@ export function createAgent(opts) {
       const text = await r.text();
       return `HTTP ${r.status} ${r.headers.get('content-type') || ''}\n\n${clip(text, 8000)}`;
     },
+    async git(a) {
+      needShell();
+      const cwd = a.repo ? safePath(root, a.repo, extra()) : root;
+      const act = String(a.action || '');
+      const clean = (arr) => (Array.isArray(arr) ? arr : []).map(String).filter((p) => p && !p.startsWith('-') && p.length < 300).slice(0, 50);
+      let args;
+      if (act === 'status') args = ['status', '--short', '--branch'];
+      else if (act === 'diff') args = ['diff', ...(a.staged ? ['--cached'] : []), ...(a.stat ? ['--stat'] : []), ...(clean(a.paths).length ? ['--', ...clean(a.paths)] : [])];
+      else if (act === 'log') args = ['log', '--oneline', '--decorate', '-n', String(Math.min(50, Math.max(1, Number(a.count) || 15)))];
+      else if (act === 'show') { if (!GIT_REF.test(a.ref || 'HEAD') || String(a.ref || '').startsWith('-')) throw new Error('Give a commit, branch or tag name.'); args = ['show', '--stat', '--format=fuller', a.ref || 'HEAD']; }
+      else if (act === 'branch') args = ['branch', '-vv'];
+      else if (act === 'add') args = a.all ? ['add', '-A'] : ['add', '--', ...clean(a.paths)];
+      else if (act === 'commit') { const m = String(a.message || '').trim(); if (!m || m.length > 500) throw new Error('Give a commit message (up to 500 characters).'); args = ['commit', ...(a.all ? ['-a'] : []), '-m', m]; }
+      else throw new Error('Supported git actions: status, diff, log, show, branch, add, commit. (Pushing and discarding changes are not available.)');
+      if (act === 'add' && !a.all && args.length <= 2) throw new Error('Give the paths to add, or all=true.');
+      return await new Promise((resolve) => {
+        execFile('git', ['-c', 'core.pager=cat', '-c', 'color.ui=false', ...args], { cwd, timeout: 60000, maxBuffer: 20 * 1024 * 1024, windowsHide: true, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true' } }, (err, stdout, stderr) => {
+          const out = `${stdout || ''}${stderr ? (stdout ? '\n' : '') + stderr : ''}`.trim();
+          if (err && err.code === 'ENOENT') return resolve('Git is not installed on this computer.');
+          resolve(clip(out || (err ? err.message : '(no output)'), MAX_OUT) + (err && err.code ? `\n[exit code ${err.code}]` : ''));
+        });
+      });
+    },
+    async run_tests(a) {
+      needShell();
+      const dir = a.path ? safePath(root, a.path, extra()) : root;
+      const cmd = String(a.command || '').trim() || detectTestCommand(dir);
+      if (!cmd) throw new Error('Could not tell how to run the tests here. Tell me the command (for example "npm test" or "pytest").');
+      const out = await actions.shell({ command: cmd, cwd: dir, timeout_s: Math.min(600, Number(a.timeout_s) || 300) });
+      return `Ran: ${cmd}\n\n${out}`;
+    },
+    async preview_write(a) {
+      const f = safePath(root, a.path, extra());
+      if (!fs.existsSync(f)) return `New file: ${f}\n${String(a.content || '').split('\n').length} lines, ${Buffer.byteLength(String(a.content || ''))} bytes.\n\n${clip(String(a.content || '').split('\n').slice(0, 40).join('\n'), 4000)}`;
+      const old = fs.readFileSync(f, 'utf8');
+      return a.append ? `Adds to the end of ${f}:\n\n${clip(String(a.content || ''), 4000)}` : `Changes to ${f}\n${lineDiff(old, String(a.content || ''))}`;
+    },
+    // a file from the owner's browser, delivered in pieces through the server
+    async fetch_file(a) {
+      const name = path.basename(String(a.name || 'file')).replace(/[^\w. ()-]/g, '_').slice(0, 120) || 'file';
+      const total = Math.min(20, Math.max(1, Number(a.total) || 1));
+      const dest = safePath(root, path.join(String(a.folder || 'uploads'), name), extra());
+      fs.mkdirSync(path.dirname(dest), { recursive: true });
+      const fd = fs.openSync(dest, 'w');
+      try { for (let i = 0; i < total; i++) { const r = await api('agent_file_get', { fileId: String(a.fileId), index: i }); fs.writeSync(fd, Buffer.from(r.data || '', 'base64')); } } finally { fs.closeSync(fd); }
+      return `Saved ${dest} (${fs.statSync(dest).size} bytes)`;
+    },
+    // a file from this computer to the owner's browser
+    async send_file(a, job) {
+      const f = safePath(root, a.path, extra());
+      const st = fs.statSync(f);
+      if (!st.isFile()) throw new Error('That is not a file.');
+      if (st.size > 8 * 1024 * 1024) throw new Error(`That file is ${(st.size / 1048576).toFixed(1)} MB. Files up to 8 MB can be sent.`);
+      const buf = fs.readFileSync(f); const CH = 500 * 1024; const total = Math.max(1, Math.ceil(buf.length / CH));
+      for (let i = 0; i < total; i++) await api('agent_file_put', { jobId: job.id, index: i, total, data: buf.subarray(i * CH, (i + 1) * CH).toString('base64') });
+      return `Sent ${path.basename(f)} (${buf.length} bytes) [file:${job.id}:${total}:${buf.length}]`;
+    },
     async web_search(a) { return await webSearch(String(a.query || '')); },
     async undo(a) {
       const list = loadUndo();
@@ -1117,7 +1209,7 @@ Start-Process $u`;
   async function runJob(job) {
     const fn = actions[job.type];
     if (!fn) throw new Error(`Unknown action "${job.type}".`);
-    const r = await fn(job.args || {});
+    const r = await fn(job.args || {}, job);
     return typeof r === 'string' ? { text: r, image: '' } : r;
   }
 

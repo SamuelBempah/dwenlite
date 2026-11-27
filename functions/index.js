@@ -701,4 +701,7 @@ exports.generateNotesProxy = onRequest(
 );
 
 // Dwenlite Home (admin only): personal assistant that codes, sees images and operates the owner's devices.
-exports.homeApi = require("./home").create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPSEEK_API_KEY, ADMIN_EMAILS }).homeApi;
+const { onSchedule } = require("firebase-functions/v2/scheduler");
+const homeParts = require("./home").create({ admin, db, logger, axios, cors, onRequest, onSchedule, defineString, DEEPSEEK_API_KEY, ADMIN_EMAILS });
+exports.homeApi = homeParts.homeApi;
+exports.homeScheduler = homeParts.homeScheduler; // runs saved routines every 5 minutes

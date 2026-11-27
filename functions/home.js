@@ -5,8 +5,9 @@
 // its own secret token. Jobs (run a command, read a file, take a screenshot, click...) are only created
 // by an admin-authenticated request, which the web app sends only after the owner approves each action.
 const crypto = require("crypto");
+const routines = require("./routines");
 
-const JOB_TYPES = new Set(["shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows", "show_home", "browser", "undo", "web_search", "android", "network_scan", "lan_http"]);
+const JOB_TYPES = new Set(["shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows", "show_home", "browser", "undo", "web_search", "android", "network_scan", "lan_http", "git", "run_tests", "preview_write", "send_file", "fetch_file"]);
 const ONLINE_MS = 25000;
 const MAX_OUTPUT = 150000; // characters stored per job result (a Firestore document must stay under 1 MB)
 
@@ -68,6 +69,9 @@ const TOOLS = [
   { name: "android", description: "Control an Android phone or tablet connected to the device's computer by USB debugging or Wi-Fi debugging. Actions: devices (list), setup (download the Android tools if adb is missing), pair (host=ip:port, code=6 digits) and connect (host=ip or ip:port) for Wi-Fi debugging, info, read (list everything on the phone screen as numbered elements, no picture needed: use this first), tap (element number, or x,y), scroll (direction), swipe (x,y,x2,y2), text (type into the focused field, submit=true to press Enter), key (home, back, recents, enter, power, volume_up, volume_down), open_app (package or url), apps (installed apps; text filters), screenshot (look; only when read is not enough), shell (a command on the phone), install (local=.apk path), push/pull (local, remote). After any tap, text, key or scroll the new screen is returned. Messages and purchases still need the owner's go-ahead.", properties: { device: dev, action: { type: "string", enum: ["devices", "setup", "pair", "connect", "disconnect", "info", "read", "tap", "scroll", "swipe", "text", "key", "open_app", "apps", "screenshot", "shell", "install", "push", "pull"] }, serial: { type: "string", description: "Phone serial from devices. Optional when only one phone is connected." }, host: { type: "string" }, code: { type: "string" }, element: { type: "number" }, x: { type: "number" }, y: { type: "number" }, x2: { type: "number" }, y2: { type: "number" }, direction: { type: "string", enum: ["up", "down"] }, duration: { type: "number" }, text: { type: "string" }, submit: { type: "boolean" }, key: { type: "string" }, package: { type: "string" }, url: { type: "string" }, command: { type: "string" }, local: { type: "string" }, remote: { type: "string" }, look: { type: "string" } }, required: ["action"] },
   { name: "network_scan", description: "List the devices on the same Wi-Fi/local network as the device's computer (phones, TVs, printers, cameras, routers): address, name, and which common services answer (such as android debug on 5555).", properties: { device: dev, ports: { type: "array", items: { type: "number" } } }, required: [] },
   { name: "lan_http", description: "Send an HTTP request from the device's computer to another device on its own network (router page, printer, smart device, local server). Private addresses only.", properties: { device: dev, url: { type: "string" }, method: { type: "string", enum: ["GET", "POST"] }, body: { type: "string" } }, required: ["url"] },
+  { name: "git", description: "Run a git command in a project folder on a device. Actions: status, diff (staged, stat, paths), log (count), show (ref), branch, add (paths or all), commit (message, all). Pushing and discarding changes are not available. Always look at status and diff before committing.", properties: { device: dev, repo: { type: "string", description: "Project folder (inside the work folder or an allowed folder). Default: the work folder." }, action: { type: "string", enum: ["status", "diff", "log", "show", "branch", "add", "commit"] }, paths: { type: "array", items: { type: "string" } }, all: { type: "boolean" }, staged: { type: "boolean" }, stat: { type: "boolean" }, count: { type: "number" }, ref: { type: "string" }, message: { type: "string" } }, required: ["action"] },
+  { name: "run_tests", description: "Run a project's tests on a device and return the results. It works out the command itself (npm test, pytest, go test, cargo test...) unless you give one.", properties: { device: dev, path: { type: "string", description: "Project folder." }, command: { type: "string" }, timeout_s: { type: "number" } }, required: [] },
+  { name: "send_file", description: "Send a file from a device to the owner's browser as a download (up to 8 MB). Use it when the owner asks you to give them a file from their computer.", properties: { device: dev, path: { type: "string" } }, required: ["path"] },
   { name: "web_search", description: "Search the web (no device needed). Returns titles, links and snippets. Follow up with read_page on the best results.", properties: { query: { type: "string" } }, required: ["query"] },
   { name: "read_page", description: "Fetch a web page and return its text and main links (no device needed). Good for articles, documentation and search results. For pages that need clicking or logging in use the browser tool.", properties: { url: { type: "string" } }, required: ["url"] },
   { name: "update_plan", description: "Show the owner a checklist for a bigger job. Call it FIRST for any task with 3 or more steps, then call it again whenever a step changes. Each call replaces the whole list. status is pending, doing or done.", properties: { steps: { type: "array", items: { type: "object", properties: { text: { type: "string" }, status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["text", "status"] } } }, required: ["steps"] },
@@ -92,12 +96,14 @@ const normEmail = (e) => {
   return m ? `${m[1].split("+")[0].replace(/\./g, "")}@gmail.com` : x;
 };
 
-function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPSEEK_API_KEY, ADMIN_EMAILS }) {
+function create({ admin, db, logger, axios, cors, onRequest, onSchedule, webpush, defineString, DEEPSEEK_API_KEY, ADMIN_EMAILS }) {
+  const JOB_POLL_MS = 1500;
+  const NEVER = 9e15; // nextRun for routines that are not scheduled
   const GEMINI_API_KEY = defineString("GEMINI_API_KEY", { default: "" });
   const GEMINI_MODEL = defineString("GEMINI_MODEL", { default: "gemini-3.5-flash" });
 
   // Anyone signed in may use Home (no admin list). To protect the AI budget each person gets a daily allowance.
-  const DAILY = { chat: 150, see: 100, web: 150 };
+  const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30 };
   async function capUsage(uid, kind) {
     const ref = db.collection("homeUsage").doc(uid);
     const day = new Date().toISOString().slice(0, 10);
@@ -229,6 +235,137 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
     return text;
   }
 
+  // ---- phone / desktop notifications (web push; the sending keys are derived from a server secret, so there is nothing to set up) ----
+  const b64url = (buf) => Buffer.from(buf).toString("base64url");
+  const vapid = () => {
+    const priv = crypto.createHmac("sha256", DEEPSEEK_API_KEY.value()).update("dwenlite-vapid-v1").digest();
+    const ecdh = crypto.createECDH("prime256v1"); ecdh.setPrivateKey(priv);
+    return { privateKey: b64url(priv), publicKey: b64url(ecdh.getPublicKey()) };
+  };
+  const wp = () => webpush || require("web-push");
+  async function notify(uid, { title, body, url }) {
+    const ref = db.collection("homePush").doc(uid);
+    const snap = await ref.get();
+    const subs = (snap.exists && snap.data().subs) || [];
+    if (!subs.length) return 0;
+    const keys = vapid(); const lib = wp();
+    const payload = JSON.stringify({ title: clip(title, 80), body: clip(body, 180), url: url || "/dwenlite-home" });
+    const dead = []; let sent = 0;
+    await Promise.all(subs.map(async (sub) => {
+      try { await lib.sendNotification(sub, payload, { vapidDetails: { subject: "https://www.dwenlite.space", publicKey: keys.publicKey, privateKey: keys.privateKey }, TTL: 3600 }); sent++; }
+      catch (e) { if (e && (e.statusCode === 404 || e.statusCode === 410)) dead.push(sub.endpoint); else logger.warn("push failed", e && e.statusCode, e && e.message); }
+    }));
+    if (dead.length) await ref.set({ subs: subs.filter((x) => !dead.includes(x.endpoint)) });
+    return sent;
+  }
+
+  // ---- unattended runs (saved routines, on a schedule or on demand) ----
+  const DEVICE_TOOLS = new Set(["run_shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows", "browser", "android", "network_scan", "lan_http", "git", "run_tests"]);
+  const MIXED = new Set(["browser", "git", "android", "lan_http"]);
+  async function runTask({ uid, prompt, deviceId, allowActions, maxSteps = 10, deadline = Date.now() + 360000 }) {
+    const tools = TOOLS.filter((t) => { const n = t.function.name; return n !== "run_js" && n !== "send_file" && (MIXED.has(n) || routines.allowedUnattended(n, {}, allowActions)); });
+    const dq = await db.collection("homeDevices").where("ownerUid", "==", uid).get();
+    const now = Date.now();
+    const devs = dq.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, online: now - (x.lastSeen || 0) < ONLINE_MS, platform: x.platform || "" }; });
+    let memory = "";
+    try { const m = await db.collection("homeMemory").doc(uid).get(); const f = (m.exists && m.data().facts) || []; if (f.length) memory = "\n\nWHAT YOU REMEMBER ABOUT THE OWNER:\n" + f.map((x) => `- ${clip(x.text, 400)}`).join("\n"); } catch (e) { /* optional */ }
+    const system = `${HOME_SYSTEM}\n\nTODAY: ${new Date().toISOString().slice(0, 10)}\nDEVICES:\n${devs.map((d) => `- ${d.name} (id ${d.id}, ${d.online ? "ONLINE" : "offline"})`).join("\n") || "- none"}${memory}\n\n` +
+      `YOU ARE RUNNING UNATTENDED as a saved routine. Nobody can answer questions or approve anything. ${allowActions ? "The owner allowed you to change things on their devices; be careful and keep changes minimal." : "You may only read, look and search: do not try to change anything."} ` +
+      `Do the task, then finish with a short plain-English report of what you found or did (no jargon). If something could not be done, say so honestly.`;
+    const messages = [{ role: "system", content: system }, { role: "user", content: clip(prompt, 4000) }];
+    let text = ""; let steps = 0;
+    for (; steps < maxSteps && Date.now() < deadline; steps++) {
+      const r = await axios.post("https://api.deepseek.com/chat/completions", { model: "deepseek-chat", messages, tools, tool_choice: "auto", max_tokens: 2500, temperature: 0.2 }, { headers: { Authorization: `Bearer ${DEEPSEEK_API_KEY.value()}`, "Content-Type": "application/json" }, timeout: 120000 });
+      const msg = r.data.choices[0].message || {};
+      const calls = (msg.tool_calls || []).slice(0, 6);
+      messages.push({ role: "assistant", content: msg.content || "", ...(calls.length ? { tool_calls: calls } : {}) });
+      if (!calls.length) { text = String(msg.content || "").trim(); break; }
+      for (const c of calls) {
+        let args = {}; try { args = JSON.parse(c.function.arguments || "{}"); } catch (e) { /* bad json */ }
+        let out;
+        try { out = await execUnattended({ uid, name: c.function.name, args, devs, deviceId, allowActions, deadline }); } catch (e) { out = `Error: ${clip(e.message, 300)}`; }
+        messages.push({ role: "tool", tool_call_id: c.id, content: clip(out, 7000) });
+      }
+    }
+    if (!text) { const last = [...messages].reverse().find((m) => m.role === "assistant" && m.content); text = last ? last.content : `Stopped after ${steps} steps without a final answer.`; }
+    return { text: clip(text, 4000), steps };
+  }
+  async function execUnattended({ uid, name, args, devs, deviceId, allowActions, deadline }) {
+    if (!routines.allowedUnattended(name, args, allowActions)) return "Not allowed in an unattended routine. The owner has not allowed changes for this routine.";
+    if (name === "web_search") return await web.search(clip(args.query, 300));
+    if (name === "read_page") return await web.readPage(args.url);
+    if (name === "update_plan") return "ok";
+    if (name === "remember") {
+      const ref = db.collection("homeMemory").doc(uid); const m = await ref.get();
+      const facts = ((m.exists && m.data().facts) || []).concat({ text: clip(args.fact, 400), at: Date.now() }).slice(-60);
+      await ref.set({ facts }); return "Saved to memory.";
+    }
+    if (!DEVICE_TOOLS.has(name)) return `Unknown tool ${name}.`;
+    const hint = String(args.device || "").toLowerCase();
+    let dev = devs.find((d) => d.id === hint || d.name.toLowerCase() === hint) || (deviceId && devs.find((d) => d.id === deviceId));
+    if (!dev) { const on = devs.filter((d) => d.online); dev = on.length === 1 ? on[0] : null; }
+    if (!dev) return "No single device could be chosen. The routine needs a device picked.";
+    if (!dev.online) return `${dev.name} is offline, so this could not run.`;
+    const type = name === "run_shell" ? "shell" : name;
+    const clean = { ...args }; delete clean.device; delete clean.summary;
+    const jobArgs = validateJob(type, clean);
+    if (!jobArgs) return "Those arguments were not valid.";
+    const jref = db.collection("homeJobs").doc();
+    await jref.set({ ownerUid: uid, deviceId: dev.id, type, args: jobArgs, summary: "Saved routine", status: "pending", createdAt: Date.now() });
+    const limit = Math.min(deadline, Date.now() + (type === "shell" || type === "run_tests" ? 330000 : 150000));
+    while (Date.now() < limit) {
+      await new Promise((r) => setTimeout(r, JOB_POLL_MS));
+      const j = await jref.get();
+      const st = j.data().status;
+      if (st === "done" || st === "error") return `${st === "error" ? "ERROR: " : ""}${clip(j.data().result || "(no output)", 6000)}`;
+    }
+    await jref.update({ status: "cancelled", finishedAt: Date.now() });
+    return `${dev.name} did not finish in time (is the agent running?).`;
+  }
+
+  async function runRoutine(routine, id, { manual = false } = {}) {
+    const startedAt = Date.now();
+    const runRef = db.collection("homeRuns").doc();
+    let status = "done"; let text = ""; let steps = 0;
+    try {
+      const out = await runTask({ uid: routine.ownerUid, prompt: routine.prompt, deviceId: routine.deviceId || "", allowActions: !!routine.allowActions, deadline: startedAt + (manual ? 240000 : 380000) });
+      text = out.text; steps = out.steps;
+    } catch (e) {
+      status = "error"; text = e.response && e.response.status === 402 ? "The AI balance is empty." : `The routine could not finish: ${clip(e.message, 200)}`;
+      logger.error("routine failed", id, e.message);
+    }
+    const finishedAt = Date.now();
+    await runRef.set({ ownerUid: routine.ownerUid, routineId: id, name: routine.name, status, text, steps, manual, startedAt, finishedAt });
+    const patch = { lastRun: finishedAt, lastStatus: status, lastText: clip(text, 1500), running: 0 };
+    await db.collection("homeRoutines").doc(id).update(patch).catch(() => {});
+    try { await notify(routine.ownerUid, { title: `${routine.name}${status === "error" ? " (problem)" : ""}`, body: text || "Finished." }); } catch (e) { logger.warn("notify failed", e.message); }
+    return { status, text, steps, runId: runRef.id };
+  }
+
+  async function schedulerTick() {
+    const now = Date.now();
+    const snap = await db.collection("homeRoutines").where("nextRun", "<=", now).limit(12).get();
+    const claimed = [];
+    for (const d of snap.docs) {
+      const got = await db.runTransaction(async (tx) => {
+        const cur = await tx.get(d.ref);
+        const x = cur.exists ? cur.data() : null;
+        if (!x || !x.enabled || !x.schedule || (x.nextRun || NEVER) > now || (x.running && now - x.running < 600000)) return null;
+        tx.update(d.ref, { nextRun: routines.computeNextRun(x.schedule, now) || NEVER, running: now });
+        return x;
+      });
+      if (got) claimed.push([d.id, got]);
+      if (claimed.length >= 4) break;
+    }
+    await Promise.all(claimed.map(async ([id, x]) => {
+      try {
+        if (!(await capUsage(x.ownerUid, "routine"))) { await db.collection("homeRoutines").doc(id).update({ lastStatus: "skipped", lastText: "Skipped: the daily allowance for routines was used up.", running: 0 }); return; }
+        await runRoutine(x, id);
+      } catch (e) { logger.error("scheduler run failed", id, e.message); }
+    }));
+    return claimed.length;
+  }
+
   // ---- DeepSeek chat with tools, streamed ----
   async function streamChat(messages, onEvent) {
     const r = await axios.post(
@@ -320,6 +457,21 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
         return o;
       }
       case "web_search": return typeof a.query === "string" && a.query.trim() && a.query.length <= 300 ? { query: a.query.trim() } : null;
+      case "git": {
+        const act = String(a.action || "");
+        if (!["status", "diff", "log", "show", "branch", "add", "commit"].includes(act)) return null;
+        const o = { action: act, repo: clip(a.repo, 500) };
+        if (Array.isArray(a.paths)) o.paths = a.paths.map((x) => clip(x, 300)).filter(Boolean).slice(0, 50);
+        if (a.all) o.all = true; if (a.staged) o.staged = true; if (a.stat) o.stat = true;
+        if (num(a.count, 1, 50)) o.count = a.count;
+        if (typeof a.ref === "string") o.ref = clip(a.ref, 100);
+        if (act === "commit") { if (typeof a.message !== "string" || !a.message.trim() || a.message.length > 500) return null; o.message = a.message; }
+        return o;
+      }
+      case "run_tests": return { path: clip(a.path, 500), command: clip(a.command, 1000), timeout_s: num(a.timeout_s, 1, 600) ? a.timeout_s : 300 };
+      case "preview_write": return typeof a.path === "string" && a.path && typeof a.content === "string" && a.content.length <= 250000 ? { path: clip(a.path, 1000), content: a.content, append: !!a.append } : null;
+      case "send_file": return typeof a.path === "string" && a.path ? { path: clip(a.path, 1000) } : null;
+      case "fetch_file": return typeof a.fileId === "string" && /^[\w-]{6,40}$/.test(a.fileId) && typeof a.name === "string" && a.name && Number.isInteger(a.total) && a.total >= 1 && a.total <= 20 ? { fileId: a.fileId, name: clip(a.name, 120), total: a.total, folder: clip(a.folder || "uploads", 200) } : null;
       case "undo": return typeof a.id === "string" && /^[\w-]{3,40}$/.test(a.id) ? { id: a.id } : null;
       case "browser": {
         const act = String(a.action || "");
@@ -399,6 +551,20 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
                 return res.status(e.code === "no_vision" ? 501 : 502).json({ error: e.message });
               }
             }
+            if (action === "agent_file_get") {
+              const c = await db.collection("homeFileChunks").doc(`in_${String(body.fileId || "x").replace(/[^\w-]/g, "")}_${Number(body.index) | 0}`).get();
+              if (!c.exists || c.data().ownerUid !== snap.data().ownerUid) return res.status(404).json({ error: "No such file piece." });
+              return res.status(200).json({ data: c.data().data });
+            }
+            if (action === "agent_file_put") {
+              const jref = db.collection("homeJobs").doc(String(body.jobId || "x"));
+              const j = await jref.get();
+              if (!j.exists || j.data().deviceId !== ref.id) return res.status(404).json({ error: "No such job." });
+              const index = Number(body.index) | 0; const total = Number(body.total) | 0;
+              if (typeof body.data !== "string" || body.data.length > 720000 || index < 0 || index >= 20 || total < 1 || total > 20) return res.status(400).json({ error: "Bad file piece." });
+              await db.collection("homeFileChunks").doc(`out_${jref.id}_${index}`).set({ ownerUid: j.data().ownerUid, data: body.data, createdAt: Date.now() });
+              return res.status(200).json({ ok: true });
+            }
             return res.status(400).json({ error: "Unknown agent action." });
           }
 
@@ -446,6 +612,95 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
             return res.status(200).json({ ok: true });
           }
 
+          // ---- files (up to 8 MB, in pieces) ----
+          if (action === "file_put") {
+            const fileId = String(body.fileId || ""); const index = Number(body.index); const total = Number(body.total);
+            if (!/^[\w-]{6,40}$/.test(fileId) || !Number.isInteger(index) || !Number.isInteger(total) || index < 0 || index >= 20 || total < 1 || total > 20 || typeof body.data !== "string" || body.data.length > 720000) return res.status(400).json({ error: "Bad file piece." });
+            if (!(await capUsage(uid, "file"))) return res.status(429).json({ error: "You have used today's file transfer allowance. It resets tomorrow." });
+            await db.collection("homeFileChunks").doc(`in_${fileId}_${index}`).set({ ownerUid: uid, data: body.data, createdAt: Date.now() });
+            return res.status(200).json({ ok: true });
+          }
+          if (action === "file_get") {
+            const c = await db.collection("homeFileChunks").doc(`out_${String(body.jobId || "x").replace(/[^\w-]/g, "")}_${Number(body.index) | 0}`).get();
+            if (!c.exists || c.data().ownerUid !== uid) return res.status(404).json({ error: "No such file piece." });
+            return res.status(200).json({ data: c.data().data });
+          }
+
+          // ---- notifications ----
+          if (action === "push_key") return res.status(200).json({ publicKey: vapid().publicKey });
+          if (action === "push_subscribe") {
+            const sub = body.subscription || {};
+            if (typeof sub.endpoint !== "string" || !/^https:\/\//.test(sub.endpoint) || sub.endpoint.length > 600 || !sub.keys || typeof sub.keys.p256dh !== "string" || typeof sub.keys.auth !== "string") return res.status(400).json({ error: "Bad subscription." });
+            const ref = db.collection("homePush").doc(uid);
+            const cur = await ref.get();
+            const subs = ((cur.exists && cur.data().subs) || []).filter((x) => x.endpoint !== sub.endpoint);
+            subs.push({ endpoint: sub.endpoint, keys: { p256dh: clip(sub.keys.p256dh, 200), auth: clip(sub.keys.auth, 100) }, at: Date.now() });
+            await ref.set({ subs: subs.slice(-5) });
+            return res.status(200).json({ ok: true, count: Math.min(5, subs.length) });
+          }
+          if (action === "push_unsubscribe") {
+            const ref = db.collection("homePush").doc(uid);
+            const cur = await ref.get();
+            await ref.set({ subs: ((cur.exists && cur.data().subs) || []).filter((x) => x.endpoint !== body.endpoint) });
+            return res.status(200).json({ ok: true });
+          }
+          if (action === "push_notify") {
+            if (!(await capUsage(uid, "push"))) return res.status(200).json({ sent: 0 });
+            return res.status(200).json({ sent: await notify(uid, { title: clip(body.title, 80) || "Dwenlite Home", body: clip(body.body, 180) }) });
+          }
+
+          // ---- saved routines ----
+          if (action === "routine_list") {
+            const q = await db.collection("homeRoutines").where("ownerUid", "==", uid).get();
+            return res.status(200).json({ routines: q.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, prompt: x.prompt, deviceId: x.deviceId || "", schedule: x.schedule || null, allowActions: !!x.allowActions, enabled: x.enabled !== false, nextRun: x.nextRun && x.nextRun < NEVER ? x.nextRun : 0, lastRun: x.lastRun || 0, lastStatus: x.lastStatus || "", lastText: x.lastText || "", running: !!(x.running && Date.now() - x.running < 600000) }; }).sort((a, b) => a.name.localeCompare(b.name)) });
+          }
+          if (action === "routine_save") {
+            const name = clip(body.name, 60).trim(); const prompt = clip(body.prompt, 2000).trim();
+            if (!name || !prompt) return res.status(400).json({ error: "Give the routine a name and instructions." });
+            let schedule = null;
+            const sc = body.schedule;
+            if (sc && sc.kind) {
+              if (sc.kind === "interval") schedule = { kind: "interval", everyMinutes: Math.max(15, Math.min(1440, Number(sc.everyMinutes) || 60)) };
+              else if ((sc.kind === "daily" || sc.kind === "weekdays") && /^\d{1,2}:\d{2}$/.test(sc.time || "")) schedule = { kind: sc.kind, time: sc.time, tz: routines.validTz(sc.tz) ? sc.tz : "UTC" };
+              if (!schedule || (schedule.kind !== "interval" && !routines.computeNextRun(schedule))) return res.status(400).json({ error: "That schedule is not valid." });
+            }
+            let deviceId = "";
+            if (body.deviceId) { const d = await db.collection("homeDevices").doc(String(body.deviceId)).get(); if (d.exists && d.data().ownerUid === uid) deviceId = d.id; }
+            const enabled = body.enabled !== false;
+            const doc = { ownerUid: uid, name, prompt, deviceId, schedule, allowActions: !!body.allowActions, enabled, nextRun: enabled && schedule ? routines.computeNextRun(schedule) : NEVER };
+            if (body.id) {
+              const ref = db.collection("homeRoutines").doc(String(body.id)); const cur = await ref.get();
+              if (!cur.exists || cur.data().ownerUid !== uid) return res.status(404).json({ error: "No such routine." });
+              await ref.update(doc);
+              return res.status(200).json({ id: ref.id });
+            }
+            const mine = await db.collection("homeRoutines").where("ownerUid", "==", uid).get();
+            if (mine.docs.length >= 20) return res.status(400).json({ error: "You can keep up to 20 routines. Delete one first." });
+            const ref = db.collection("homeRoutines").doc();
+            await ref.set({ ...doc, createdAt: Date.now(), lastRun: 0, lastStatus: "", lastText: "", running: 0 });
+            return res.status(200).json({ id: ref.id });
+          }
+          if (action === "routine_delete") {
+            const ref = db.collection("homeRoutines").doc(String(body.id || "x")); const cur = await ref.get();
+            if (!cur.exists || cur.data().ownerUid !== uid) return res.status(404).json({ error: "No such routine." });
+            await ref.delete();
+            return res.status(200).json({ ok: true });
+          }
+          if (action === "routine_run") {
+            const ref = db.collection("homeRoutines").doc(String(body.id || "x")); const cur = await ref.get();
+            if (!cur.exists || cur.data().ownerUid !== uid) return res.status(404).json({ error: "No such routine." });
+            if (!(await capUsage(uid, "routine"))) return res.status(429).json({ error: "You have used today's routine allowance. It resets tomorrow." });
+            await ref.update({ running: Date.now() });
+            const out = await runRoutine(cur.data(), ref.id, { manual: true });
+            return res.status(200).json(out);
+          }
+          if (action === "run_list") {
+            const q = await db.collection("homeRuns").where("ownerUid", "==", uid).get();
+            const now = Date.now();
+            q.docs.filter((d) => (d.data().finishedAt || 0) < now - 14 * 86400000).forEach((d) => d.ref.delete().catch(() => {}));
+            return res.status(200).json({ runs: q.docs.map((d) => ({ id: d.id, ...d.data() })).filter((r) => r.finishedAt >= now - 14 * 86400000).sort((a, b) => b.finishedAt - a.finishedAt).slice(0, 30).map((r) => ({ id: r.id, routineId: r.routineId, name: r.name, status: r.status, text: r.text, finishedAt: r.finishedAt })) });
+          }
+
           // ---- jobs ----
           if (action === "job_create") {
             const type = String(body.type || "");
@@ -468,6 +723,7 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
             const old = snap.docs.filter((d) => (d.data().createdAt || 0) < now - 3 * 86400000).slice(0, 200);
             if (old.length) { const batch = db.batch ? db.batch() : null; if (batch) { old.forEach((d) => batch.delete(d.ref)); batch.commit().catch(() => {}); } else old.forEach((d) => d.ref.delete().catch(() => {})); }
             const gone = new Set(old.map((d) => d.id));
+            try { const fq = await db.collection("homeFileChunks").where("ownerUid", "==", uid).get(); fq.docs.filter((d) => (d.data().createdAt || 0) < now - 86400000).forEach((d) => d.ref.delete().catch(() => {})); } catch (e) { /* cleanup is best effort */ }
             const jobs = snap.docs.filter((d) => !gone.has(d.id)).map((d) => { const x = d.data(); return { id: d.id, type: x.type, status: x.status, summary: x.summary || "", createdAt: x.createdAt || 0, deviceId: x.deviceId, detail: x.type === "shell" ? clip(x.args && x.args.command, 200) : x.type === "browser" ? clip(`${x.args && x.args.action} ${(x.args && (x.args.url || x.args.text)) || ""}`, 200) : clip((x.args && (x.args.path || x.args.url || x.args.text || x.args.keys)) || "", 200) }; }).sort((a, b) => b.createdAt - a.createdAt).slice(0, 60);
             return res.status(200).json({ jobs });
           }
@@ -571,7 +827,11 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
     }
   );
 
-  return { homeApi, _test: { validateJob, cleanMessages, hash, TOOLS, JOB_TYPES } };
+  const homeScheduler = onSchedule
+    ? onSchedule({ schedule: "every 5 minutes", timeoutSeconds: 540, memory: "512MiB", maxInstances: 1, secrets: [DEEPSEEK_API_KEY] }, async () => { await schedulerTick(); })
+    : null;
+
+  return { homeApi, homeScheduler, _test: { schedulerTick, runTask, notify, vapid, validateJob, cleanMessages, hash, TOOLS, JOB_TYPES } };
 }
 
 module.exports = { create };
