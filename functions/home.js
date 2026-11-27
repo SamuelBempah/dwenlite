@@ -141,6 +141,7 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
     });
   }
   const web = require("./web").create({ axios, logger });
+  const googleApi = require("./google").create({ axios });
   const hash = (t) => crypto.createHash("sha256").update(String(t)).digest("hex");
   const clip = (t, n) => String(t == null ? "" : t).slice(0, n);
 
@@ -315,7 +316,8 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
     if (!text) { const last = [...messages].reverse().find((m) => m.role === "assistant" && m.content); text = last ? last.content : `Stopped after ${steps} steps without a final answer.`; }
     return { text: clip(text, 4000), steps };
   }
-  async function execUnattended({ uid, name, args, devs, deviceId, allowActions, deadline }) {
+  async function execUnattended({ uid, name, args, devs, deviceId, allowActions, deadline, googleToken, shouldStop }) {
+    if (name.startsWith("google_")) return await googleApi.run(name, args, googleToken);
     if (!routines.allowedUnattended(name, args, allowActions)) return "Not allowed in an unattended routine. The owner has not allowed changes for this routine.";
     if (name === "web_search") return await web.search(clip(args.query, 300));
     if (name === "read_page") return await web.readPage(args.url);
@@ -340,6 +342,7 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
     const limit = Math.min(deadline, Date.now() + (type === "shell" || type === "run_tests" ? 330000 : 150000));
     while (Date.now() < limit) {
       await new Promise((r) => setTimeout(r, JOB_POLL_MS));
+      if (shouldStop && (await shouldStop())) { await jref.update({ status: "cancelled", finishedAt: Date.now() }).catch(() => {}); return "Stopped by the owner."; }
       const j = await jref.get();
       const st = j.data().status;
       if (st === "done" || st === "error") return `${st === "error" ? "ERROR: " : ""}${clip(j.data().result || "(no output)", 6000)}`;
@@ -371,6 +374,80 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
     return { status, text, steps, runId: runRef.id };
   }
 
+  // ---- the live chat: every message from the app runs here, in the cloud, and the phone is the remote control ----
+  async function buildSystemPrompt(uid) {
+    const dq = await db.collection("homeDevices").where("ownerUid", "==", uid).get();
+    const now = Date.now();
+    const devs = dq.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, online: now - (x.lastSeen || 0) < ONLINE_MS, platform: x.platform || "", caps: x.caps || {} }; });
+    const list = devs.map((d) => `- ${clip(d.name, 60)} (id ${d.id}, ${d.online ? "ONLINE" : "offline"}${d.platform ? ", " + clip(d.platform, 20) : ""}, shell ${d.caps.shell ? "allowed" : "NOT allowed"}, screen/mouse/keyboard ${d.caps.gui ? "allowed" : "NOT allowed"})`).join("\n") || "- none connected yet";
+    let memory = "";
+    try { const m = await db.collection("homeMemory").doc(uid).get(); const f = (m.exists && m.data().facts) || []; if (f.length) memory = "\n\nWHAT YOU REMEMBER ABOUT THE OWNER:\n" + f.map((x) => `- ${clip(x.text, 400)}`).join("\n"); } catch (e) { /* optional */ }
+    return { system: `${HOME_SYSTEM}\n\nTODAY: ${new Date().toISOString().slice(0, 10)}\nDEVICES:\n${list}${memory}\n\nYou are working in the cloud while the owner may be away from the screen. They can watch, stop you, or tell you something new while you work: if a message starting with [The owner says while you work] appears, follow it.`, devs };
+  }
+  const clipMsgs = (msgs) => msgs.map((m) => (m.role === "tool" ? { role: "tool", tool_call_id: m.tool_call_id, content: clip(m.content, 1500) } : m.role === "assistant" ? { role: "assistant", content: clip(m.content, 6000), ...(m.tool_calls ? { tool_calls: m.tool_calls.map((c) => ({ id: c.id, type: "function", function: { name: c.function.name, arguments: clip(c.function.arguments, 1500) } })) } : {}) } : { role: "user", content: clip(m.content, 4000) }));
+  const compact = (msgs) => { let size = JSON.stringify(msgs).length; for (let i = 0; i < msgs.length && size > 800000; i++) if (msgs[i].role === "tool" && msgs[i].content.length > 300) { size -= msgs[i].content.length - 300; msgs[i].content = msgs[i].content.slice(0, 300); } return msgs; };
+
+  async function runChat(runId, ctx = {}) {
+    const ref = db.collection("homeRuns").doc(runId);
+    const snap = await ref.get();
+    if (!snap.exists || snap.data().kind !== "chat" || !["queued", "running"].includes(snap.data().status)) return;
+    const run = snap.data(); const uid = run.ownerUid; const started = Date.now();
+    await ref.update({ status: "running", startedAt: run.startedAt || started });
+    let messages = JSON.parse(run.msgs); let n = run.eventCount || 0; let step = run.step || 0;
+    const emit = async (ev) => { n++; await db.collection("homeEvents").doc(`${runId}_${n}`).set({ ownerUid: uid, runId, n, at: Date.now(), ...ev }); await ref.update({ eventCount: n }); };
+    const finish = async (status, text) => {
+      await emit({ type: "done", status, text: clip(text, 6000), messages: clipMsgs(messages.slice(run.baseLen)) });
+      await ref.update({ status, text: clip(text, 4000), finishedAt: Date.now(), msgs: "", note: "" });
+      const cur = (await ref.get()).data();
+      if (Date.now() - (cur.lastPoll || 0) > 20000) { try { await notify(uid, { title: status === "error" ? "Dwenlite Home hit a problem" : status === "stopped" ? "Stopped" : "Dwenlite Home finished", body: text || "Finished." }); } catch (e) { /* optional */ } }
+    };
+    const dq = await buildSystemPrompt(uid); const devs = dq.devs;
+    const tools = TOOLS.filter((t) => t.function.name !== "run_js" && (!t.function.name.startsWith("google_") || ctx.googleToken));
+    const shouldStop = async () => !!(await ref.get()).data().stop;
+    try {
+      for (; step < run.maxSteps; step++) {
+        const cur = (await ref.get()).data();
+        if (cur.stop) { await finish("stopped", "Stopped."); return; }
+        if (cur.steer && cur.steer.length) { messages.push({ role: "user", content: `[The owner says while you work] ${cur.steer.join(" / ")}` }); await ref.update({ steer: [] }); }
+        if (Date.now() - started > 400000) { // out of time for this turn: save progress and carry on in a fresh one
+          await ref.update({ msgs: JSON.stringify(compact(messages)), step, status: "running" });
+          try { await enqueueTask({ runId, googleToken: ctx.googleToken || "" }); return; } catch (e) { await finish("error", "The task took too long and could not be continued."); return; }
+        }
+        const r = await axios.post("https://api.deepseek.com/chat/completions", { model: "deepseek-chat", messages, tools, tool_choice: "auto", max_tokens: 4000, temperature: 0.3 }, { headers: { Authorization: `Bearer ${DEEPSEEK_API_KEY.value()}`, "Content-Type": "application/json" }, timeout: 150000 });
+        const msg = r.data.choices[0].message || {};
+        const calls = (msg.tool_calls || []).slice(0, 6);
+        messages.push({ role: "assistant", content: msg.content || "", ...(calls.length ? { tool_calls: calls } : {}) });
+        if (msg.content && msg.content.trim()) await emit({ type: "text", text: clip(msg.content, 12000) });
+        if (!calls.length) { await finish("done", String(msg.content || "").trim()); return; }
+        for (const c of calls) {
+          let args = {}; try { args = JSON.parse(c.function.arguments || "{}"); } catch (e) { /* bad json */ }
+          const name = c.function.name;
+          if (name === "update_plan") {
+            const steps = (Array.isArray(args.steps) ? args.steps : []).map((x) => ({ text: clip(x && x.text, 200), status: ["pending", "doing", "done"].includes(x && x.status) ? x.status : "pending" })).filter((x) => x.text).slice(0, 12);
+            if (steps.length) await emit({ type: "plan", steps });
+            messages.push({ role: "tool", tool_call_id: c.id, content: "Plan updated." });
+            continue;
+          }
+          const hint = String(args.device || "").toLowerCase();
+          const dev = devs.find((d) => d.id === hint || d.name.toLowerCase() === hint) || (DEVICE_TOOLS.has(name) ? (devs.filter((d) => d.online).length === 1 ? devs.find((d) => d.online) : null) : null);
+          const shown = { ...args }; if (shown.content) shown.content = clip(shown.content, 300); if (shown.code) shown.code = clip(shown.code, 300);
+          await emit({ type: "tool_start", id: c.id, name, args: shown, deviceId: dev ? dev.id : "", deviceName: dev ? dev.name : "" });
+          await ref.update({ note: clip(args.summary || "", 120) });
+          let out;
+          try { out = await execUnattended({ uid, name, args, devs, deviceId: dev ? dev.id : "", allowActions: true, deadline: started + 420000, googleToken: ctx.googleToken, shouldStop }); } catch (e) { out = `Error: ${clip(e.message, 300)}`; }
+          const failed = /^(Error:|ERROR:)/.test(String(out)) || /^Stopped by the owner/.test(String(out));
+          await emit({ type: "tool_end", id: c.id, status: failed ? "error" : "done", output: clip(out, 1500) });
+          messages.push({ role: "tool", tool_call_id: c.id, content: clip(out, 7000) });
+        }
+        await ref.update({ step: step + 1, msgs: JSON.stringify(compact(messages)) });
+      }
+      await finish("done", (messages.slice().reverse().find((m) => m.role === "assistant" && m.content) || {}).content || "I stopped after many steps. Tell me to carry on if you want me to continue.");
+    } catch (e) {
+      logger.error("cloud chat failed", runId, e.message);
+      await finish("error", e.response && e.response.status === 402 ? "The AI balance is empty." : "The assistant ran into a problem. Please try again.");
+    }
+  }
+
   // a task started from the chat that keeps going on the server, even if the page is closed
   async function runAdhoc(runId) {
     const ref = db.collection("homeRuns").doc(runId);
@@ -388,6 +465,12 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
   async function schedulerTick() {
     const now = Date.now();
     const snap = await db.collection("homeRoutines").where("nextRun", "<=", now).limit(12).get();
+    try { // tidy up: live-feed events and finished cloud chats older than 2 days
+      const old = await db.collection("homeEvents").where("at", "<=", now - 2 * 86400000).limit(300).get();
+      await Promise.all(old.docs.map((d) => d.ref.delete()));
+      const oldRuns = await db.collection("homeRuns").where("createdAt", "<=", now - 3 * 86400000).limit(100).get();
+      await Promise.all(oldRuns.docs.filter((d) => d.data().kind === "chat").map((d) => d.ref.delete()));
+    } catch (e) { /* best effort */ }
     const claimed = [];
     for (const d of snap.docs) {
       const got = await db.runTransaction(async (tx) => {
@@ -549,7 +632,7 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
         if (act === "screenshot") out.look = clip(a.look || "Describe the page.", 1000);
         return out;
       }
-      case "screenshot": return { look: clip(a.look || "Describe what is on the screen.", 1000), app: clip(a.app, 80), foreground: !!a.foreground };
+      case "screenshot": return { look: clip(a.look || "Describe what is on the screen.", 1000), app: clip(a.app, 80), foreground: !!a.foreground, novision: !!a.novision };
       case "click": return num(a.x, 0, 20000) && num(a.y, 0, 20000) ? { x: a.x, y: a.y, button: a.button === "right" ? "right" : "left", double: !!a.double, app: clip(a.app, 80), foreground: !!a.foreground } : null;
       case "type_text": return typeof a.text === "string" && a.text.length > 0 && a.text.length <= 4000 ? { text: a.text, app: clip(a.app, 80), foreground: !!a.foreground } : null;
       case "press_key": return typeof a.keys === "string" && /^[\w+\- ]{1,60}$/.test(a.keys) ? { keys: a.keys, app: clip(a.app, 80), foreground: !!a.foreground } : null;
@@ -795,6 +878,54 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
             const out = await runRoutine(cur.data(), ref.id, { manual: true });
             return res.status(200).json(out);
           }
+          if (action === "chat_send") {
+            const messages = cleanMessages(Array.isArray(body.messages) ? body.messages : []);
+            if (!messages.length || messages[messages.length - 1].role !== "user") return res.status(400).json({ error: "Nothing to answer." });
+            if (!(await capUsage(uid, "chat"))) return res.status(429).json({ error: "You have used today's Dwenlite Home allowance. It resets tomorrow." });
+            if (!enqueueTask) return res.status(200).json({ fallback: true });
+            const { system } = await buildSystemPrompt(uid);
+            const msgs = [{ role: "system", content: system }, ...messages];
+            const ref = db.collection("homeRuns").doc();
+            await ref.set({ ownerUid: uid, kind: "chat", name: clip(messages[messages.length - 1].content, 60), chatId: clip(body.chatId, 40), status: "queued", text: "", createdAt: Date.now(), finishedAt: 0, eventCount: 0, step: 0, maxSteps: Math.min(40, Math.max(3, Number(body.maxSteps) || 25)), baseLen: msgs.length, msgs: JSON.stringify(compact(msgs)), stop: false, steer: [], note: "", lastPoll: Date.now() });
+            try { await enqueueTask({ runId: ref.id, googleToken: clip(body.googleToken, 2500) }); }
+            catch (e) { logger.warn("cloud queue unavailable", e.message); await ref.update({ status: "error", text: "queue unavailable" }); return res.status(200).json({ fallback: true }); }
+            return res.status(200).json({ runId: ref.id });
+          }
+          if (action === "run_poll") {
+            const ref = db.collection("homeRuns").doc(String(body.id || "x")); const snap = await ref.get();
+            if (!snap.exists || snap.data().ownerUid !== uid) return res.status(404).json({ error: "No such task." });
+            const r = snap.data(); const after = Math.max(0, Number(body.after) || 0); const upto = Math.min(r.eventCount || 0, after + 40);
+            const events = [];
+            if (upto > after) { const docs = await Promise.all(Array.from({ length: upto - after }, (_, i) => db.collection("homeEvents").doc(`${ref.id}_${after + i + 1}`).get())); docs.forEach((d) => { if (d.exists) { const { ownerUid, runId, ...ev } = d.data(); events.push(ev); } }); }
+            if (Date.now() - (r.lastPoll || 0) > 8000) ref.update({ lastPoll: Date.now() }).catch(() => {});
+            return res.status(200).json({ status: r.status, stop: !!r.stop, note: r.note || "", step: r.step || 0, startedAt: r.startedAt || r.createdAt || 0, eventCount: r.eventCount || 0, events });
+          }
+          if (action === "run_stop") {
+            const ref = db.collection("homeRuns").doc(String(body.id || "x")); const snap = await ref.get();
+            if (!snap.exists || snap.data().ownerUid !== uid) return res.status(404).json({ error: "No such task." });
+            await ref.update({ stop: true });
+            return res.status(200).json({ ok: true });
+          }
+          if (action === "run_stop_all") {
+            const q = await db.collection("homeRuns").where("ownerUid", "==", uid).get();
+            const live = q.docs.filter((d) => ["queued", "running"].includes(d.data().status));
+            await Promise.all(live.map((d) => d.ref.update({ stop: true })));
+            const jq = await db.collection("homeJobs").where("ownerUid", "==", uid).get();
+            await Promise.all(jq.docs.filter((d) => ["pending", "running"].includes(d.data().status)).map((d) => d.ref.update({ status: "cancelled", finishedAt: Date.now() })));
+            return res.status(200).json({ ok: true, stopped: live.length });
+          }
+          if (action === "run_say") {
+            const ref = db.collection("homeRuns").doc(String(body.id || "x")); const snap = await ref.get();
+            if (!snap.exists || snap.data().ownerUid !== uid) return res.status(404).json({ error: "No such task." });
+            if (!["queued", "running"].includes(snap.data().status)) return res.status(409).json({ error: "That task has already finished." });
+            const text = clip(body.text, 1000).trim(); if (!text) return res.status(400).json({ error: "Say something first." });
+            await ref.update({ steer: [...(snap.data().steer || []), text].slice(-5) });
+            return res.status(200).json({ ok: true });
+          }
+          if (action === "run_active") {
+            const q = await db.collection("homeRuns").where("ownerUid", "==", uid).get();
+            return res.status(200).json({ runs: q.docs.map((d) => ({ id: d.id, ...d.data() })).filter((r) => r.kind === "chat" && ["queued", "running"].includes(r.status)).sort((a, b) => b.createdAt - a.createdAt).slice(0, 10).map((r) => ({ id: r.id, name: r.name, status: r.status, note: r.note || "", startedAt: r.startedAt || r.createdAt, chatId: r.chatId || "", eventCount: r.eventCount || 0 })) });
+          }
           if (action === "task_start") {
             const prompt = clip(body.prompt, 4000).trim();
             if (!prompt) return res.status(400).json({ error: "Nothing to do." });
@@ -818,7 +949,7 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
             const now = Date.now();
             const t = (d) => d.finishedAt || d.createdAt || d.startedAt || 0;
             q.docs.filter((d) => t(d.data()) < now - 14 * 86400000).forEach((d) => d.ref.delete().catch(() => {}));
-            return res.status(200).json({ runs: q.docs.map((d) => ({ id: d.id, ...d.data() })).filter((r) => t(r) >= now - 14 * 86400000).sort((a, b) => t(b) - t(a)).slice(0, 30).map((r) => ({ id: r.id, routineId: r.routineId, name: r.name, status: r.status, text: r.text, adhoc: !!r.adhoc, finishedAt: r.finishedAt || 0, createdAt: r.createdAt || 0 })) });
+            return res.status(200).json({ runs: q.docs.map((d) => ({ id: d.id, ...d.data() })).filter((r) => r.kind !== "chat" && t(r) >= now - 14 * 86400000).sort((a, b) => t(b) - t(a)).slice(0, 30).map((r) => ({ id: r.id, routineId: r.routineId, name: r.name, status: r.status, text: r.text, adhoc: !!r.adhoc, finishedAt: r.finishedAt || 0, createdAt: r.createdAt || 0 })) });
           }
 
           // ---- jobs ----
@@ -948,14 +1079,14 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
   );
 
   const runTaskWorker = onTaskDispatched
-    ? onTaskDispatched({ retryConfig: { maxAttempts: 1 }, rateLimits: { maxConcurrentDispatches: 3 }, timeoutSeconds: 540, memory: "512MiB", secrets: [DEEPSEEK_API_KEY] }, async (req) => { await runAdhoc(String((req.data && req.data.runId) || "")); })
+    ? onTaskDispatched({ retryConfig: { maxAttempts: 1 }, rateLimits: { maxConcurrentDispatches: 3 }, timeoutSeconds: 540, memory: "512MiB", secrets: [DEEPSEEK_API_KEY] }, async (req) => { const id = String((req.data && req.data.runId) || ""); const d = await db.collection("homeRuns").doc(id).get(); if (d.exists && d.data().kind === "chat") await runChat(id, { googleToken: String((req.data && req.data.googleToken) || "") }); else await runAdhoc(id); })
     : null;
 
   const homeScheduler = onSchedule
     ? onSchedule({ schedule: "every 5 minutes", timeoutSeconds: 540, memory: "512MiB", maxInstances: 1, secrets: [DEEPSEEK_API_KEY] }, async () => { await schedulerTick(); })
     : null;
 
-  return { homeApi, homeScheduler, runTaskWorker, _test: { runAdhoc, schedulerTick, runTask, notify, vapid, validateJob, cleanMessages, hash, TOOLS, JOB_TYPES } };
+  return { homeApi, homeScheduler, runTaskWorker, _test: { runChat, runAdhoc, schedulerTick, runTask, notify, vapid, validateJob, cleanMessages, hash, TOOLS, JOB_TYPES } };
 }
 
 module.exports = { create };

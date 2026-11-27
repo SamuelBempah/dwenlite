@@ -1470,6 +1470,7 @@ Start-Process $u`;
       const sz = imageSize(buf) || { w: screenW, h: screenH };
       lastShot = { shotW: sz.w, shotH: sz.h, screenW: pointsW || screenW, screenH: pointsH || screenH, offX: offX || 0, offY: offY || 0 };
       try { fs.unlinkSync(out); if (file !== out) fs.unlinkSync(file); } catch { /* ignore */ }
+      if (a.novision) return { text: 'Screen picture for the owner.', image: buf.length < 520000 ? buf.toString('base64') : '' }; // a live peek: no image model needed
       let text = '';
       try {
         const r = await api('agent_see', { image: buf.toString('base64'), mime: buf[0] === 0xff ? 'image/jpeg' : 'image/png', look: a.look, width: sz.w, height: sz.h });
