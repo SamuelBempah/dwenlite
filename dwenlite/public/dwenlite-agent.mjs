@@ -15,8 +15,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import net from 'node:net';
+import dns from 'node:dns/promises';
 
-export const VERSION = '1.6.0';
+export const VERSION = '1.7.0';
 const MAX_OUT = 100000;      // characters of command output sent back
 const MAX_READ = 200000;     // bytes read from a file
 const IS_WIN = process.platform === 'win32';
@@ -659,6 +661,66 @@ export function createBrowser({ root, api, log }) {
   return { run, close: closeAll };
 }
 
+// ----------------------------------------------------------------------------- other devices: Android phones over USB or Wi-Fi debugging, and things on the local network
+const ADB_HINT = 'No Android device is connected. On the phone: Settings > About phone > tap "Build number" 7 times, then Settings > Developer options > turn on USB debugging (plug it in and accept the prompt) or Wireless debugging (then use pair/connect with the IP and port shown there).';
+const KEYS_ANDROID = { home: 'KEYCODE_HOME', back: 'KEYCODE_BACK', recents: 'KEYCODE_APP_SWITCH', recent: 'KEYCODE_APP_SWITCH', enter: 'KEYCODE_ENTER', power: 'KEYCODE_POWER', wake: 'KEYCODE_WAKEUP', volume_up: 'KEYCODE_VOLUME_UP', volume_down: 'KEYCODE_VOLUME_DOWN', mute: 'KEYCODE_VOLUME_MUTE', delete: 'KEYCODE_DEL', backspace: 'KEYCODE_DEL', tab: 'KEYCODE_TAB', up: 'KEYCODE_DPAD_UP', down: 'KEYCODE_DPAD_DOWN', left: 'KEYCODE_DPAD_LEFT', right: 'KEYCODE_DPAD_RIGHT', menu: 'KEYCODE_MENU', search: 'KEYCODE_SEARCH', play_pause: 'KEYCODE_MEDIA_PLAY_PAUSE', camera: 'KEYCODE_CAMERA' };
+// extra things that are never run on a phone
+const ANDROID_BLOCKED = [[/\b(wipe|factory.?reset|masterclear)\b/i, 'a factory reset'], [/\brecovery\s+--wipe/i, 'wiping the phone'], [/\breboot\b[^\n]*(bootloader|recovery|fastboot)/i, 'rebooting into the bootloader or recovery'], [/\bflash(ing)?\b/i, 'flashing firmware'], [/\bsvc\s+power\s+shutdown\b/i, 'shutting the phone down']];
+export function dangerousAndroid(cmd) { const t = String(cmd || ''); for (const [re, why] of ANDROID_BLOCKED) if (re.test(t)) return why; return dangerousCommand(t); }
+
+export function parseAdbDevices(out) {
+  return String(out).split(/\r?\n/).slice(1).map((l) => l.trim()).filter((l) => l && !l.startsWith('*')).map((l) => {
+    const m = /^(\S+)\s+(\S+)\s*(.*)$/.exec(l); if (!m) return null;
+    const model = /model:(\S+)/.exec(m[3]); return { serial: m[1], state: m[2], model: model ? model[1].replace(/_/g, ' ') : '', wifi: /:\d+$/.test(m[1]) };
+  }).filter(Boolean);
+}
+const xmlAttr = (node, name) => { const m = new RegExp(`${name}="([^"]*)"`).exec(node); return m ? decodeHtml(m[1]) : ''; };
+// the phone's own screen description (uiautomator): every button, field and label with its position, no picture needed
+export function parseUiXml(xml) {
+  const out = [];
+  for (const node of String(xml).match(/<node [^>]*>/g) || []) {
+    const text = xmlAttr(node, 'text') || xmlAttr(node, 'content-desc');
+    const clickable = xmlAttr(node, 'clickable') === 'true' || xmlAttr(node, 'long-clickable') === 'true' || /EditText|Button|Switch|CheckBox|Tab/.test(xmlAttr(node, 'class'));
+    const b = /\[(\d+),(\d+)\]\[(\d+),(\d+)\]/.exec(xmlAttr(node, 'bounds'));
+    if (!b || (!text && !clickable) || xmlAttr(node, 'enabled') === 'false') continue;
+    const [x1, y1, x2, y2] = b.slice(1).map(Number);
+    if (x2 - x1 < 4 || y2 - y1 < 4) continue;
+    const cls = xmlAttr(node, 'class').split('.').pop();
+    out.push({ n: out.length + 1, kind: /EditText/.test(cls) ? 'field' : clickable ? 'button' : 'text', text: text.slice(0, 80), hint: xmlAttr(node, 'resource-id').split('/').pop(), x: Math.round((x1 + x2) / 2), y: Math.round((y1 + y2) / 2), checked: xmlAttr(node, 'checked') === 'true' });
+    if (out.length >= 140) break;
+  }
+  return out;
+}
+
+function ipv4Hosts() {
+  const hosts = [];
+  for (const list of Object.values(os.networkInterfaces())) for (const i of list || []) {
+    if (i.family !== 'IPv4' || i.internal || !/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(i.address)) continue;
+    const p = i.address.split('.').map(Number);
+    for (let n = 1; n < 255; n++) if (n !== p[3]) hosts.push(`${p[0]}.${p[1]}.${p[2]}.${n}`);
+  }
+  return [...new Set(hosts)].slice(0, 1024);
+}
+function probePort(host, port, ms = 450) {
+  return new Promise((resolve) => {
+    const s = net.connect({ host, port }); let done = false;
+    const fin = (ok) => { if (!done) { done = true; try { s.destroy(); } catch { /* ignore */ } resolve(ok); } };
+    s.setTimeout(ms); s.on('connect', () => fin(true)); s.on('timeout', () => fin(false)); s.on('error', () => fin(false));
+  });
+}
+export async function scanHosts(hosts, ports) {
+  const found = []; let i = 0;
+  await Promise.all(Array.from({ length: 96 }, async () => {
+    while (i < hosts.length) {
+      const h = hosts[i++]; const open = [];
+      for (const p of ports) if (await probePort(h, p)) open.push(p);
+      if (open.length) found.push({ ip: h, ports: open });
+    }
+  }));
+  return found.sort((a, b) => a.ip.localeCompare(b.ip, undefined, { numeric: true }));
+}
+const PORT_NAMES = { 22: 'ssh', 80: 'web', 443: 'web (https)', 554: 'camera/stream', 5555: 'android debug', 8008: 'chromecast', 8080: 'web', 9100: 'printer', 1883: 'mqtt', 3389: 'remote desktop', 445: 'windows share', 62078: 'iphone' };
+
 // ----------------------------------------------------------------------------- the agent
 export function createAgent(opts) {
   const root = opts.root;
@@ -708,6 +770,130 @@ export function createAgent(opts) {
     else if (await have('xdotool')) { try { await run('xdotool', ['search', '--name', app, 'windowactivate', '--sync']); } catch { /* keep going */ } }
   }
 
+  // ---- Android over USB / Wi-Fi debugging ----
+  let adbPath = ''; let uiEls = [];
+  async function findAdb() {
+    if (adbPath && (adbPath === 'adb' || fs.existsSync(adbPath))) return adbPath;
+    const exe = IS_WIN ? 'adb.exe' : 'adb';
+    const cands = [process.env.DWENLITE_ADB, path.join(root, 'platform-tools', exe), IS_WIN ? path.join(process.env.LOCALAPPDATA || '', 'Android', 'Sdk', 'platform-tools', exe) : '', IS_MAC ? path.join(os.homedir(), 'Library/Android/sdk/platform-tools/adb') : '', '/usr/bin/adb', '/usr/local/bin/adb'];
+    for (const c of cands) if (c && fs.existsSync(c)) { adbPath = c; return c; }
+    if (await have('adb')) { adbPath = 'adb'; return 'adb'; }
+    return '';
+  }
+  const adbExec = (args, { timeout = 30000, binary = false } = {}) => new Promise((resolve, reject) => {
+    execFile(adbPath, args, { timeout, maxBuffer: 40 * 1024 * 1024, encoding: binary ? 'buffer' : 'utf8', windowsHide: true }, (err, stdout, stderr) => {
+      if (err) return reject(new Error((String(stderr || '').trim() || err.message).slice(0, 400)));
+      resolve(stdout);
+    });
+  });
+  async function androidRun(a) {
+    const act = a.action;
+    if (act === 'setup') {
+      const url = `https://dl.google.com/android/repository/platform-tools-latest-${IS_WIN ? 'windows' : IS_MAC ? 'darwin' : 'linux'}.zip`;
+      const r = await fetch(url); if (!r.ok) throw new Error(`Download failed (${r.status}).`);
+      const zip = path.join(os.tmpdir(), 'dwenlite-platform-tools.zip');
+      fs.writeFileSync(zip, Buffer.from(await r.arrayBuffer()));
+      if (IS_WIN) await run('powershell.exe', ['-NoProfile', '-Command', `Expand-Archive -Force -LiteralPath '${zip.replace(/'/g, "''")}' -DestinationPath '${root.replace(/'/g, "''")}'`], { timeout: 120000 });
+      else { await run('unzip', ['-o', zip, '-d', root], { timeout: 120000 }); try { fs.chmodSync(path.join(root, 'platform-tools', 'adb'), 0o755); } catch { /* ignore */ } }
+      try { fs.unlinkSync(zip); } catch { /* ignore */ }
+      adbPath = ''; if (!(await findAdb())) throw new Error('The download finished but adb was not found.');
+      return `Android tools installed in ${path.join(root, 'platform-tools')}. ${(await adbExec(['version'])).split('\n')[0]}`;
+    }
+    if (!(await findAdb())) throw new Error('adb (Android Debug Bridge) is not installed on this computer. Run the android tool with action "setup" to download it, or install Android platform-tools.');
+    if (act === 'pair') {
+      if (!/^[\w.-]+:\d{2,5}$/.test(a.host || '') || !/^\d{6}$/.test(String(a.code || ''))) throw new Error('Give the pairing address as ip:port and the 6 digit pairing code shown on the phone (Developer options > Wireless debugging > Pair device with pairing code).');
+      return (await adbExec(['pair', a.host, String(a.code)], { timeout: 30000 })).trim();
+    }
+    if (act === 'connect' || act === 'disconnect') {
+      const host = /:\d+$/.test(a.host || '') ? a.host : `${a.host}:5555`;
+      if (!/^[\w.-]+:\d{2,5}$/.test(host)) throw new Error('Give the phone address like 192.168.1.20:5555 (Wireless debugging shows the exact IP and port).');
+      return (await adbExec([act, host], { timeout: 20000 })).trim() || 'Done.';
+    }
+    const list = parseAdbDevices(await adbExec(['devices', '-l']));
+    if (act === 'devices') return list.length ? list.map((d) => `${d.serial}  ${d.state}${d.model ? '  ' + d.model : ''}${d.wifi ? '  (wifi)' : '  (usb)'}${d.state === 'unauthorized' ? '  <- accept the "Allow USB debugging" prompt on the phone' : ''}`).join('\n') : ADB_HINT;
+    const ready = list.filter((d) => d.state === 'device');
+    let serial = a.serial;
+    if (!serial) {
+      if (ready.length === 1) serial = ready[0].serial;
+      else if (!ready.length) throw new Error(list.length ? `The phone is ${list[0].state}. If it says unauthorized, accept the debugging prompt on the phone.` : ADB_HINT);
+      else throw new Error(`Several phones are connected (${ready.map((d) => d.serial).join(', ')}). Say which serial to use.`);
+    }
+    if (!/^[\w.:-]+$/.test(serial)) throw new Error('Bad device serial.');
+    const S = ['-s', serial];
+    const sh = (cmd, t) => adbExec([...S, 'shell', cmd], { timeout: t || 30000 });
+    const readScreen = async () => {
+      await sh('uiautomator dump /sdcard/dwen-ui.xml', 25000);
+      uiEls = parseUiXml(await adbExec([...S, 'exec-out', 'cat', '/sdcard/dwen-ui.xml']));
+      const top = (await sh('dumpsys window | grep -E "mCurrentFocus" | head -1').catch(() => '')).trim().replace(/^.*\s(\S+\/\S+?)\}?$/, '$1');
+      return `ANDROID SCREEN${top ? ' (' + top + ')' : ''}\nELEMENTS (use the number with tap):\n${uiEls.map((e) => `[${e.n}] ${e.kind}${e.text ? ' "' + e.text + '"' : ''}${e.hint ? ' (' + e.hint + ')' : ''}${e.checked ? ' (on)' : ''}`).join('\n') || '(nothing readable: the app may block screen reading. Use a screenshot.)'}`;
+    };
+    const point = (e) => { const el = uiEls.find((x) => x.n === Number(e)); if (!el) throw new Error(`Element ${e} was not found. Call read again and use the new numbers.`); return el; };
+    if (act === 'info') return (await sh('getprop ro.product.model; getprop ro.build.version.release; dumpsys battery | grep -E "level|powered"; wm size')).trim();
+    if (act === 'read') return await readScreen();
+    if (act === 'screenshot') {
+      const buf = await adbExec([...S, 'exec-out', 'screencap', '-p'], { binary: true, timeout: 30000 });
+      const sz = imageSize(buf) || { w: 1080, h: 2400 };
+      if (buf.length > 2900000) return { text: `(The screenshot is ${(buf.length / 1e6).toFixed(1)} MB, too large for the image model. Use the read action instead: it lists what is on screen without a picture.)`, image: '' };
+      let text = '';
+      try { text = (await api('agent_see', { image: buf.toString('base64'), mime: 'image/png', look: a.look, width: sz.w, height: sz.h })).text; } catch (e) { text = `(The screenshot was taken but could not be read by the image model: ${e.message})`; }
+      return { text, image: buf.length < 520000 ? buf.toString('base64') : '' };
+    }
+    if (act === 'tap') {
+      const el = a.element ? point(a.element) : { x: Number(a.x), y: Number(a.y) };
+      if (!(el.x >= 0 && el.y >= 0)) throw new Error('Give an element number or x and y.');
+      await sh(`input tap ${Math.round(el.x)} ${Math.round(el.y)}`); await sleep(700); return await readScreen();
+    }
+    if (act === 'scroll' || act === 'swipe') {
+      let x1 = Number(a.x), y1 = Number(a.y), x2 = Number(a.x2), y2 = Number(a.y2);
+      if (act === 'scroll') {
+        const m = /(\d+)x(\d+)/.exec(await sh('wm size').catch(() => '')) || [0, 1080, 2400];
+        const w = Number(m[1]), h = Number(m[2]); x1 = x2 = w / 2; y1 = h * (a.direction === 'up' ? 0.3 : 0.7); y2 = h * (a.direction === 'up' ? 0.7 : 0.3);
+      }
+      if (![x1, y1, x2, y2].every((n) => n >= 0)) throw new Error('Give x, y, x2 and y2.');
+      await sh(`input swipe ${Math.round(x1)} ${Math.round(y1)} ${Math.round(x2)} ${Math.round(y2)} ${Math.min(2000, Math.max(80, Number(a.duration) || 300))}`); await sleep(600); return await readScreen();
+    }
+    if (act === 'text') {
+      const t = String(a.text || ''); if (!t || t.length > 500) throw new Error('Give text up to 500 characters.');
+      if (/[^\x20-\x7e]/.test(t)) throw new Error('Only plain letters, numbers and common symbols can be typed on a phone this way.');
+      await sh(`input text ${t.replace(/ /g, '%s').replace(/([&|;<>()$\`\\"'*?#~!{}[\]^])/g, '\\$1')}`);
+      if (a.submit) await sh('input keyevent KEYCODE_ENTER');
+      await sleep(500); return await readScreen();
+    }
+    if (act === 'key') {
+      const k = KEYS_ANDROID[String(a.key || '').toLowerCase()] || (/^(KEYCODE_[A-Z0-9_]+|\d{1,3})$/.test(String(a.key)) ? a.key : '');
+      if (!k) throw new Error(`Unknown key "${a.key}". Try home, back, recents, enter, power, volume_up, volume_down.`);
+      await sh(`input keyevent ${k}`); await sleep(600); return await readScreen();
+    }
+    if (act === 'open_app') {
+      if (a.url) { if (!/^https?:\/\/[^\s'"]+$/.test(a.url)) throw new Error('Give a full http link.'); await sh(`am start -a android.intent.action.VIEW -d '${a.url}'`); }
+      else if (/^[\w.]+$/.test(a.package || '')) await sh(`monkey -p ${a.package} -c android.intent.category.LAUNCHER 1`);
+      else throw new Error('Give a package name (like com.whatsapp) or a url.');
+      await sleep(1500); return await readScreen();
+    }
+    if (act === 'apps') {
+      const out = (await sh('pm list packages -3')).split(/\r?\n/).map((l) => l.replace('package:', '').trim()).filter(Boolean);
+      const q = String(a.text || '').toLowerCase();
+      return (q ? out.filter((p) => p.toLowerCase().includes(q)) : out).slice(0, 200).join('\n') || '(none)';
+    }
+    if (act === 'shell') {
+      const cmd = String(a.command || ''); const why = dangerousAndroid(cmd);
+      if (why) throw new Error(`Blocked for safety: this looks like ${why}. Dwenlite will not run it.`);
+      return clip((await sh(cmd, 60000)).trim() || '(no output)', MAX_OUT);
+    }
+    if (act === 'install') {
+      const f = safePath(root, a.local, extra());
+      if (!/\.apk$/i.test(f) || !fs.existsSync(f)) throw new Error('Give the path of an .apk file inside an allowed folder.');
+      return (await adbExec([...S, 'install', '-r', f], { timeout: 180000 })).trim();
+    }
+    if (act === 'push' || act === 'pull') {
+      const remote = String(a.remote || ''); if (!/^\/[\w./ -]+$/.test(remote) || remote.includes('..')) throw new Error('Give a phone path like /sdcard/Download/file.txt.');
+      const local = safePath(root, a.local, extra());
+      if (act === 'push') { if (!fs.existsSync(local)) throw new Error('That file does not exist on this computer.'); return (await adbExec([...S, 'push', local, remote], { timeout: 300000 })).trim(); }
+      fs.mkdirSync(path.dirname(local), { recursive: true }); return (await adbExec([...S, 'pull', remote, local], { timeout: 300000 })).trim();
+    }
+    throw new Error(`Unknown android action "${act}".`);
+  }
+
   const browser = createBrowser({ root, api: (action, body) => api(action, body), log: (m) => log(m) });
 
   // ---- actions ----
@@ -715,6 +901,37 @@ export function createAgent(opts) {
     async browser(a) {
       needGui();
       return await browser.run(a);
+    },
+    async android(a) { needShell(); return await androidRun(a); },
+    async network_scan(a) {
+      needShell();
+      const ports = Array.isArray(a.ports) && a.ports.length ? a.ports.map(Number).filter((p) => p > 0 && p < 65536).slice(0, 20) : [22, 80, 443, 445, 554, 1883, 3389, 5555, 8008, 8080, 9100];
+      const hosts = ipv4Hosts();
+      if (!hosts.length) return 'This computer is not on a home or office network (no private network address found).';
+      const found = await scanHosts(hosts, ports);
+      const byIp = new Map(found.map((f) => [f.ip, { ...f }]));
+      try { // the computer's address table also lists phones and other devices that answered but have no open port
+        const arp = (await run('arp', ['-a'], { timeout: 8000 })).stdout;
+        for (const m of arp.matchAll(/(\d+\.\d+\.\d+\.\d+)\)?\s+(?:at\s+)?([0-9a-f]{1,2}[:-][0-9a-f]{1,2}[:-][0-9a-f]{1,2}[:-][0-9a-f]{1,2}[:-][0-9a-f]{1,2}[:-][0-9a-f]{1,2})/gi)) {
+          const ip = m[1]; if (!hosts.includes(ip) || /^(ff[:-]){5}ff$/i.test(m[2])) continue;
+          const e = byIp.get(ip) || { ip, ports: [] }; e.mac = m[2].toLowerCase().replace(/-/g, ':'); byIp.set(ip, e);
+        }
+      } catch { /* arp is optional */ }
+      const list = [...byIp.values()].sort((x, y) => x.ip.localeCompare(y.ip, undefined, { numeric: true }));
+      await Promise.all(list.map(async (e) => { try { e.name = (await Promise.race([dns.reverse(e.ip), sleep(800).then(() => [])]))[0] || ''; } catch { e.name = ''; } }));
+      return list.length ? `${list.length} device(s) on the network:\n` + list.map((e) => `${e.ip}${e.name ? '  ' + e.name : ''}${e.mac ? '  ' + e.mac : ''}${e.ports.length ? '  open: ' + e.ports.map((p) => PORT_NAMES[p] ? `${p} (${PORT_NAMES[p]})` : p).join(', ') : ''}`).join('\n') : 'No devices answered.';
+    },
+    async lan_http(a) {
+      needShell();
+      let u; try { u = new URL(String(a.url)); } catch { throw new Error('Give a full http link.'); }
+      if (!/^https?:$/.test(u.protocol)) throw new Error('Only http and https links.');
+      const addrs = net.isIP(u.hostname.replace(/^\[|\]$/g, '')) ? [{ address: u.hostname.replace(/^\[|\]$/g, '') }] : await dns.lookup(u.hostname, { all: true });
+      const priv = (ip) => /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1$|f[cd][0-9a-f]{2}:)/i.test(ip);
+      if (!addrs.length || !addrs.every((x) => priv(x.address)) || addrs.some((x) => /^169\.254\./.test(x.address))) throw new Error('This tool only talks to devices on your own network (private addresses), not the internet. Use read_page or the browser for websites.');
+      const method = String(a.method || 'GET').toUpperCase() === 'POST' ? 'POST' : 'GET';
+      const r = await fetch(u, { method, body: method === 'POST' ? String(a.body || '').slice(0, 20000) : undefined, headers: a.body ? { 'Content-Type': a.content_type || 'application/json' } : {}, signal: AbortSignal.timeout(8000), redirect: 'manual' });
+      const text = await r.text();
+      return `HTTP ${r.status} ${r.headers.get('content-type') || ''}\n\n${clip(text, 8000)}`;
     },
     async web_search(a) { return await webSearch(String(a.query || '')); },
     async undo(a) {

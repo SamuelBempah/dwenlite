@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Terminal, FileText, FilePen, FolderOpen, Cpu, Camera, MousePointerClick, Keyboard, Globe, Code2, Check, X, Loader2, ChevronDown, ScrollText, Search, Undo2, Compass } from 'lucide-react';
+import { Terminal, FileText, FilePen, FolderOpen, Cpu, Camera, MousePointerClick, Keyboard, Globe, Code2, Check, X, Loader2, ChevronDown, ScrollText, Search, Undo2, Compass, Smartphone, Network } from 'lucide-react';
 
 const META = {
   run_shell: { icon: Terminal, doing: 'Running a task on the computer', done: 'Ran a task on the computer' },
@@ -12,6 +12,9 @@ const META = {
   type_text: { icon: Keyboard, doing: 'Typing', done: 'Typed' },
   press_key: { icon: Keyboard, doing: 'Pressing keys', done: 'Pressed keys' },
   browser: { icon: Compass, doing: 'Working in the browser', done: 'Used the browser' },
+  android: { icon: Smartphone, doing: 'Working on the phone', done: 'Used the phone' },
+  network_scan: { icon: Network, doing: 'Looking for devices on the network', done: 'Scanned the network' },
+  lan_http: { icon: Network, doing: 'Talking to a device on the network', done: 'Talked to a device on the network' },
   web_search: { icon: Search, doing: 'Searching the web', done: 'Searched the web' },
   read_page: { icon: Globe, doing: 'Reading a web page', done: 'Read a web page' },
   list_windows: { icon: Cpu, doing: 'Checking which programs are open', done: 'Checked which programs are open' },
@@ -32,6 +35,9 @@ function detail(name, a) {
     case 'scroll': return `${a.direction} ${a.amount || 5}`;
     case 'open_url': return a.url;
     case 'browser': return [a.action, a.url || (a.element ? `element ${a.element}` : ''), a.text ? `"${String(a.text).slice(0, 200)}"` : '', a.keys || '', a.look || ''].filter(Boolean).join(' ');
+    case 'android': return [a.action, a.serial || '', a.host || '', a.element ? `element ${a.element}` : '', a.text ? `"${String(a.text).slice(0, 200)}"` : '', a.key || '', a.package || a.url || '', a.command || '', a.local || '', a.remote || ''].filter(Boolean).join(' ');
+    case 'network_scan': return (a.ports || []).join(', ');
+    case 'lan_http': return `${a.method || 'GET'} ${a.url}${a.body ? '\n' + String(a.body).slice(0, 300) : ''}`;
     case 'web_search': return a.query;
     case 'read_page': return a.url;
     case 'run_js': return a.code;

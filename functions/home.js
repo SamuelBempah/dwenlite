@@ -6,7 +6,7 @@
 // by an admin-authenticated request, which the web app sends only after the owner approves each action.
 const crypto = require("crypto");
 
-const JOB_TYPES = new Set(["shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows", "show_home", "browser", "undo", "web_search"]);
+const JOB_TYPES = new Set(["shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows", "show_home", "browser", "undo", "web_search", "android", "network_scan", "lan_http"]);
 const ONLINE_MS = 25000;
 const MAX_OUTPUT = 150000; // characters stored per job result (a Firestore document must stay under 1 MB)
 
@@ -32,6 +32,8 @@ const HOME_SYSTEM =
   "- To test on a device, write files into its work folder and run them; fix errors until it works, then summarise.\n\n" +
   "MEMORY\n" +
   "- When the owner shares a lasting preference or fact about themselves, their setup or projects, call remember.\n\n" +
+  "PHONES AND OTHER DEVICES\n" +
+  "- To work on an Android phone use the android tool: devices, then read (it lists the screen as numbered elements, no picture), then tap/text/key by number, reading again after each step. For Wi-Fi use pair/connect with the address shown in Developer options > Wireless debugging. Use network_scan to find devices on the same network and lan_http to talk to them. Always ask before sending messages, calls or purchases from a phone.\n\n" +
   "WEB AND BROWSER\n" +
   "- For facts, news or documentation use web_search then read_page. Never open google.com in the browser to search (it blocks automated browsers): web_search already covers it. If a page shows a bot check, switch to another site instead of retrying. To DO things on a website (log in, fill forms, click) use the browser tool: open, read, then click/type by element number, and read again. Prefer the browser tool over screenshots and mouse clicks.\n" +
   "- Never enter passwords or payment details unless the owner gave them in this chat for this exact purpose. Stop and ask before anything that spends money, sends messages or deletes things.\n" +
@@ -63,6 +65,9 @@ const TOOLS = [
   { name: "scroll", description: "Scroll the window under the mouse.", properties: { device: dev, app, foreground, direction: { type: "string", enum: ["up", "down"] }, amount: { type: "number", description: "Notches, default 5." } }, required: ["direction"] },
   { name: "list_windows", description: "List the program windows open on a device (titles). Use it to pick the exact `app` to target, and to check that a new browser window opened.", properties: { device: dev }, required: [] },
   { name: "browser", description: "Control YOUR OWN browser on a device: a separate browser that runs in the background and never disturbs the owner's screen. This is the best way to do anything on the web. Actions: open (url), read (page text + a numbered list of clickable/typeable elements), click (element = number from the last read), type (element, text, optional submit=true to press Enter), press (keys, e.g. enter, tab, ctrl+a), scroll (direction), back, tabs, screenshot (look = what to check; only when text is not enough), close. After open or click always call read to see the result. Set visible=true only if the owner asks to watch.", properties: { device: dev, action: { type: "string", enum: ["open", "read", "click", "type", "press", "scroll", "back", "tabs", "screenshot", "close"] }, url: { type: "string" }, element: { type: "number", description: "Element number from the last read." }, text: { type: "string" }, submit: { type: "boolean" }, keys: { type: "string" }, direction: { type: "string", enum: ["up", "down"] }, look: { type: "string" }, visible: { type: "boolean" } }, required: ["action"] },
+  { name: "android", description: "Control an Android phone or tablet connected to the device's computer by USB debugging or Wi-Fi debugging. Actions: devices (list), setup (download the Android tools if adb is missing), pair (host=ip:port, code=6 digits) and connect (host=ip or ip:port) for Wi-Fi debugging, info, read (list everything on the phone screen as numbered elements, no picture needed: use this first), tap (element number, or x,y), scroll (direction), swipe (x,y,x2,y2), text (type into the focused field, submit=true to press Enter), key (home, back, recents, enter, power, volume_up, volume_down), open_app (package or url), apps (installed apps; text filters), screenshot (look; only when read is not enough), shell (a command on the phone), install (local=.apk path), push/pull (local, remote). After any tap, text, key or scroll the new screen is returned. Messages and purchases still need the owner's go-ahead.", properties: { device: dev, action: { type: "string", enum: ["devices", "setup", "pair", "connect", "disconnect", "info", "read", "tap", "scroll", "swipe", "text", "key", "open_app", "apps", "screenshot", "shell", "install", "push", "pull"] }, serial: { type: "string", description: "Phone serial from devices. Optional when only one phone is connected." }, host: { type: "string" }, code: { type: "string" }, element: { type: "number" }, x: { type: "number" }, y: { type: "number" }, x2: { type: "number" }, y2: { type: "number" }, direction: { type: "string", enum: ["up", "down"] }, duration: { type: "number" }, text: { type: "string" }, submit: { type: "boolean" }, key: { type: "string" }, package: { type: "string" }, url: { type: "string" }, command: { type: "string" }, local: { type: "string" }, remote: { type: "string" }, look: { type: "string" } }, required: ["action"] },
+  { name: "network_scan", description: "List the devices on the same Wi-Fi/local network as the device's computer (phones, TVs, printers, cameras, routers): address, name, and which common services answer (such as android debug on 5555).", properties: { device: dev, ports: { type: "array", items: { type: "number" } } }, required: [] },
+  { name: "lan_http", description: "Send an HTTP request from the device's computer to another device on its own network (router page, printer, smart device, local server). Private addresses only.", properties: { device: dev, url: { type: "string" }, method: { type: "string", enum: ["GET", "POST"] }, body: { type: "string" } }, required: ["url"] },
   { name: "web_search", description: "Search the web (no device needed). Returns titles, links and snippets. Follow up with read_page on the best results.", properties: { query: { type: "string" } }, required: ["query"] },
   { name: "read_page", description: "Fetch a web page and return its text and main links (no device needed). Good for articles, documentation and search results. For pages that need clicking or logging in use the browser tool.", properties: { url: { type: "string" } }, required: ["url"] },
   { name: "update_plan", description: "Show the owner a checklist for a bigger job. Call it FIRST for any task with 3 or more steps, then call it again whenever a step changes. Each call replaces the whole list. status is pending, doing or done.", properties: { steps: { type: "array", items: { type: "object", properties: { text: { type: "string" }, status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["text", "status"] } } }, required: ["steps"] },
@@ -293,6 +298,27 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
       case "system_info": return {};
       case "list_windows": return {};
       case "show_home": return {};
+      case "network_scan": return { ports: (Array.isArray(a.ports) ? a.ports : []).filter((p) => Number.isInteger(p) && p > 0 && p < 65536).slice(0, 20) };
+      case "lan_http": return typeof a.url === "string" && /^https?:\/\/[^\s]+$/i.test(a.url) && a.url.length <= 1000 ? { url: a.url, method: a.method === "POST" ? "POST" : "GET", body: clip(a.body, 20000) } : null;
+      case "android": {
+        const act = String(a.action || "");
+        if (!["devices", "setup", "pair", "connect", "disconnect", "info", "read", "tap", "scroll", "swipe", "text", "key", "open_app", "apps", "screenshot", "shell", "install", "push", "pull"].includes(act)) return null;
+        const o = { action: act };
+        if (typeof a.serial === "string" && /^[\w.:-]{1,60}$/.test(a.serial)) o.serial = a.serial;
+        if (act === "pair" || act === "connect" || act === "disconnect") { if (typeof a.host !== "string" || !/^[\w.-]+(:\d{2,5})?$/.test(a.host)) return null; o.host = a.host; if (act === "pair") { if (!/^\d{6}$/.test(String(a.code || ""))) return null; o.code = String(a.code); } }
+        if (act === "tap") { if (Number.isInteger(a.element) && a.element > 0 && a.element < 1000) o.element = a.element; else if (num(a.x, 0, 20000) && num(a.y, 0, 20000)) { o.x = a.x; o.y = a.y; } else return null; }
+        if (act === "swipe") { if (![a.x, a.y, a.x2, a.y2].every((n) => num(n, 0, 20000))) return null; Object.assign(o, { x: a.x, y: a.y, x2: a.x2, y2: a.y2, duration: num(a.duration, 50, 2000) ? a.duration : 300 }); }
+        if (act === "scroll") o.direction = a.direction === "up" ? "up" : "down";
+        if (act === "text") { if (typeof a.text !== "string" || !a.text || a.text.length > 500) return null; o.text = a.text; o.submit = !!a.submit; }
+        if (act === "apps") o.text = clip(a.text, 60);
+        if (act === "key") { if (typeof a.key !== "string" || !/^[\w]{1,40}$/.test(a.key)) return null; o.key = a.key; }
+        if (act === "open_app") { if (typeof a.package === "string" && /^[\w.]{1,100}$/.test(a.package)) o.package = a.package; else if (typeof a.url === "string" && /^https?:\/\/[^\s'"]{1,1000}$/.test(a.url)) o.url = a.url; else return null; }
+        if (act === "shell") { if (typeof a.command !== "string" || !a.command.trim() || a.command.length > 2000) return null; o.command = a.command; }
+        if (act === "install") { if (typeof a.local !== "string" || !a.local) return null; o.local = clip(a.local, 1000); }
+        if (act === "push" || act === "pull") { if (typeof a.local !== "string" || typeof a.remote !== "string" || !a.local || !a.remote) return null; o.local = clip(a.local, 1000); o.remote = clip(a.remote, 500); }
+        if (act === "screenshot") o.look = clip(a.look || "Describe the phone screen.", 1000);
+        return o;
+      }
       case "web_search": return typeof a.query === "string" && a.query.trim() && a.query.length <= 300 ? { query: a.query.trim() } : null;
       case "undo": return typeof a.id === "string" && /^[\w-]{3,40}$/.test(a.id) ? { id: a.id } : null;
       case "browser": {

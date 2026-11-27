@@ -119,9 +119,11 @@ export default function DwenliteHome() {
     return { error: online.length ? `Several devices are online (${online.map((x) => x.name).join(', ')}). Ask the owner which one to use.` : `No device is online. Known: ${list.map((x) => x.name).join(', ')}.` };
   };
 
-  const needsApproval = (name) => {
+  const ANDROID_FREE = new Set(['devices', 'info', 'read', 'tap', 'scroll', 'swipe', 'text', 'key', 'open_app', 'apps', 'screenshot']);
+  const needsApproval = (name, args = {}) => {
     const m = modeRef.current;
     if (m === 'auto') return false;
+    if (name === 'android') return m === 'screen' ? !ANDROID_FREE.has(args.action) : true;
     if (m === 'screen') return !(READ_ONLY.has(name) || SCREEN.has(name));
     return true;
   };
@@ -218,9 +220,9 @@ export default function DwenliteHome() {
     const jobArgs = { ...args }; delete jobArgs.device; delete jobArgs.summary;
     // real mouse/keyboard, a new window or a launched program pulls focus away from this page: remember to come back
     const steals = name === 'open_url' || (name === 'browser' && !!args.visible) || (SCREEN.has(name) && name !== 'screenshot' && (args.foreground || !args.app)) || (name === 'run_shell' && /\b(start|start-process|explorer|invoke-item|ii)\b/i.test(String(args.command || '')));
-    add({ id, type: 'action', tool: name, args, deviceName: dev.name, deviceId: dev.id, status: needsApproval(name) ? 'asking' : 'running', note: 'Starting...' });
+    add({ id, type: 'action', tool: name, args, deviceName: dev.name, deviceId: dev.id, status: needsApproval(name, args) ? 'asking' : 'running', note: 'Starting...' });
 
-    if (needsApproval(name)) {
+    if (needsApproval(name, args)) {
       returnHome(); // bring this page back so the question is seen
       const ok = await new Promise((resolve) => { approvals.current[id] = resolve; });
       if (!ok) { patch(id, { status: 'denied' }); return 'The owner denied this action. Do not try it again. Ask what they would like instead.'; }
