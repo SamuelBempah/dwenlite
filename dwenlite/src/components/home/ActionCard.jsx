@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Terminal, FileText, FilePen, FolderOpen, Cpu, Camera, MousePointerClick, Keyboard, Globe, Code2, Check, X, Loader2, ChevronDown, ScrollText } from 'lucide-react';
+import { Terminal, FileText, FilePen, FolderOpen, Cpu, Camera, MousePointerClick, Keyboard, Globe, Code2, Check, X, Loader2, ChevronDown, ScrollText, Search, Undo2, Compass } from 'lucide-react';
 
 const META = {
   run_shell: { icon: Terminal, doing: 'Running a task on the computer', done: 'Ran a task on the computer' },
@@ -11,6 +11,9 @@ const META = {
   click: { icon: MousePointerClick, doing: 'Clicking', done: 'Clicked' },
   type_text: { icon: Keyboard, doing: 'Typing', done: 'Typed' },
   press_key: { icon: Keyboard, doing: 'Pressing keys', done: 'Pressed keys' },
+  browser: { icon: Compass, doing: 'Working in the browser', done: 'Used the browser' },
+  web_search: { icon: Search, doing: 'Searching the web', done: 'Searched the web' },
+  read_page: { icon: Globe, doing: 'Reading a web page', done: 'Read a web page' },
   list_windows: { icon: Cpu, doing: 'Checking which programs are open', done: 'Checked which programs are open' },
   scroll: { icon: ScrollText, doing: 'Scrolling', done: 'Scrolled' },
   open_url: { icon: Globe, doing: 'Opening a link', done: 'Opened a link' },
@@ -28,13 +31,16 @@ function detail(name, a) {
     case 'press_key': return a.keys;
     case 'scroll': return `${a.direction} ${a.amount || 5}`;
     case 'open_url': return a.url;
+    case 'browser': return [a.action, a.url || (a.element ? `element ${a.element}` : ''), a.text ? `"${String(a.text).slice(0, 200)}"` : '', a.keys || '', a.look || ''].filter(Boolean).join(' ');
+    case 'web_search': return a.query;
+    case 'read_page': return a.url;
     case 'run_js': return a.code;
     default: return '';
   }
 }
 
 // One action the assistant takes: a plain one-line description, with the technical parts tucked under "Details".
-export default function ActionCard({ item, onDecide }) {
+export default function ActionCard({ item, onDecide, onUndo }) {
   const asking = item.status === 'asking';
   const [open, setOpen] = useState(false);
   const meta = META[item.tool] || { icon: Terminal, doing: 'Working', done: 'Done' };
@@ -44,6 +50,7 @@ export default function ActionCard({ item, onDecide }) {
   const finished = item.status === 'done' || item.status === 'error' || item.status === 'denied';
   const label = said || (finished ? meta.done : meta.doing);
   const showDetails = open;
+  const undoId = item.tool === 'write_file' && item.status === 'done' && !item.undone ? (/\[undo:([\w-]+)\]/.exec(item.output || '') || [])[1] : '';
   const hasMore = !!(d || item.output || item.image);
   const color = item.status === 'error' || item.status === 'denied' ? 'border-red-500/30' : item.status === 'done' ? 'border-emerald-500/20' : asking ? 'border-amber-400/50' : 'border-white/10';
 
@@ -60,6 +67,8 @@ export default function ActionCard({ item, onDecide }) {
         {item.status === 'running' && <Loader2 size={15} className="animate-spin text-violet-300" />}
         {item.status === 'done' && <Check size={15} className="text-emerald-400" />}
         {(item.status === 'error' || item.status === 'denied') && <X size={15} className="text-red-400" />}
+        {undoId && onUndo && <button onClick={() => onUndo(item, undoId)} className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-amber-300 hover:text-amber-200"><Undo2 size={12} /> Undo</button>}
+        {item.undone && <span className="text-xs text-slate-500">Undone</span>}
         {hasMore && (
           <button onClick={() => setOpen(!open)} aria-expanded={open} className="flex items-center gap-0.5 rounded-md px-1.5 py-1 text-xs text-slate-400 hover:text-slate-200">
             Details <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />

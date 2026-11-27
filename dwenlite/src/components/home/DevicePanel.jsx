@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Monitor, Plus, Trash2, Copy, Download, X, Wifi, WifiOff } from 'lucide-react';
+import { Fragment, useState } from 'react';
+import { Monitor, Plus, Trash2, Copy, Download, X, Wifi, WifiOff, FolderOpen } from 'lucide-react';
 import { HOME_URL, homeCall } from '../../lib/homeClient';
 import toast from 'react-hot-toast';
 
@@ -10,6 +10,11 @@ export default function DevicePanel({ devices, reload, onClose }) {
   const [gui, setGui] = useState(true);
   const [made, setMade] = useState(null); // { deviceId, token, name } shown once
   const [busy, setBusy] = useState(false);
+  const [foldersFor, setFoldersFor] = useState(null);
+  const [folderText, setFolderText] = useState('');
+  const saveFolders = async (d) => {
+    try { await homeCall('device_update', { id: d.id, folders: folderText.split('\n') }); toast.success('Saved. The computer picks it up within seconds.'); setFoldersFor(null); reload(); } catch (e) { toast.error(e.message); }
+  };
 
   const create = async () => {
     setBusy(true);
@@ -47,7 +52,8 @@ export default function DevicePanel({ devices, reload, onClose }) {
         <div className="space-y-2">
           {devices.length === 0 && <p className="text-sm text-slate-400">No devices yet. Add one below, then run the agent on that computer.</p>}
           {devices.map((d) => (
-            <div key={d.id} className="flex items-center gap-3 rounded-xl border border-white/10 bg-slate-900/70 p-3">
+            <Fragment key={d.id}>
+            <div className="flex items-center gap-3 rounded-xl border border-white/10 bg-slate-900/70 p-3">
               <Monitor size={20} className="shrink-0 text-violet-300" />
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold">{d.name}</p>
@@ -58,8 +64,18 @@ export default function DevicePanel({ devices, reload, onClose }) {
                 </p>
               </div>
               {!d.online && <button onClick={() => reconnect(d)} disabled={busy} className="shrink-0 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold hover:bg-violet-500 disabled:opacity-50">Reconnect</button>}
+              <button onClick={() => { setFoldersFor(foldersFor === d.id ? null : d.id); setFolderText((d.folders || []).join('\n')); }} aria-label={`Folders for ${d.name}`} title="Folders it may use" className="rounded-lg p-2 text-slate-500 hover:bg-white/10 hover:text-slate-200"><FolderOpen size={16} /></button>
               <button onClick={() => remove(d)} aria-label={`Remove ${d.name}`} className="rounded-lg p-2 text-slate-500 hover:bg-red-500/10 hover:text-red-400"><Trash2 size={16} /></button>
             </div>
+            {foldersFor === d.id && (
+              <div className="-mt-1 rounded-xl border border-white/10 bg-slate-900/50 p-3 text-xs">
+                <p className="mb-1.5 font-semibold text-slate-200">Folders it may read and change</p>
+                <p className="mb-2 text-slate-400">It always has its own work folder. Add full paths here (one per line) to let it use other folders too, for example C:\Users\you\Documents\Projects. File actions are limited to these. Commands run through the shell cannot be fully fenced, but dangerous ones (wiping disks, shutting down, running downloaded code) are always blocked.</p>
+                <textarea value={folderText} onChange={(e) => setFolderText(e.target.value)} rows={3} placeholder="C:\\Users\\you\\Documents\\Projects" className="w-full resize-none rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-2 font-mono outline-none focus:border-violet-500" />
+                <button onClick={() => saveFolders(d)} className="mt-2 rounded-lg bg-violet-600 px-3 py-1.5 font-semibold hover:bg-violet-500">Save</button>
+              </div>
+            )}
+            </Fragment>
           ))}
         </div>
 

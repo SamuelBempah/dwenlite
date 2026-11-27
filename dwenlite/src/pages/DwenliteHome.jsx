@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Home, Monitor, Brain, SlidersHorizontal, RotateCcw, Paperclip, Camera, Send, Square, X, Wifi, WifiOff, ShieldAlert, Trash2, Sparkles } from 'lucide-react';
+import { Home, Monitor, Brain, SlidersHorizontal, RotateCcw, History, Paperclip, Camera, Send, Square, X, Wifi, WifiOff, ShieldAlert, Trash2, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { auth } from '../firebase';
 import ChatAnswer from '../components/ChatAnswer';
 import ActionCard from '../components/home/ActionCard';
 import DevicePanel from '../components/home/DevicePanel';
+import PlanCard from '../components/home/PlanCard';
+import ActivityPanel from '../components/home/ActivityPanel';
 import { createLiveStream } from '../lib/liveStream';
 import { createTypewriter } from '../lib/typewriter';
 import { homeCall, homeChatStream, imageToText, IMAGE_MODES, runJs, formatJsResult } from '../lib/homeClient';
 
 const READ_ONLY = new Set(['read_file', 'list_dir', 'system_info', 'list_windows']);
-const SCREEN = new Set(['screenshot', 'click', 'type_text', 'press_key', 'scroll']);
+const SCREEN = new Set(['screenshot', 'click', 'type_text', 'press_key', 'scroll', 'browser']);
 const JOB_TYPE = { run_shell: 'shell' };
 const uid = () => Math.random().toString(36).slice(2, 10);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -131,6 +133,19 @@ export default function DwenliteHome() {
     awayFrom.current = null;
     homeCall('job_create', { deviceId: id, type: 'show_home', args: {} }).catch(() => {});
   }
+  // put a changed file back the way it was
+  async function undoAction(item, undoId) {
+    try {
+      const { id } = await homeCall('job_create', { deviceId: item.deviceId, type: 'undo', args: { id: undoId }, summary: 'Undoing a file change' });
+      for (let i = 0; i < 40; i++) {
+        await sleep(1200);
+        const j = await homeCall('job_get', { id });
+        if (j.status === 'done') { patch(item.id, { undone: true }); toast.success(j.result || 'Undone'); return; }
+        if (j.status === 'error' || j.status === 'cancelled') { toast.error(j.result || 'Could not undo.'); return; }
+      }
+      toast.error('The computer did not answer. Is the agent running?');
+    } catch (e) { toast.error(e.message); }
+  }
   const decide = (id, ok) => { const r = approvals.current[id]; if (r) { delete approvals.current[id]; r(ok); } };
 
   async function handleTool(call) {
@@ -141,7 +156,26 @@ export default function DwenliteHome() {
     if (name === 'remember') {
       try { await homeCall('memory_add', { fact: args.fact }); loadMemory(); return 'Saved to memory.'; } catch (e) { return `Error: ${e.message}`; }
     }
+    if (name === 'update_plan') {
+      const steps = (Array.isArray(args.steps) ? args.steps : []).map((s) => ({ text: String((s && s.text) || '').slice(0, 200), status: ['pending', 'doing', 'done'].includes(s && s.status) ? s.status : 'pending' })).filter((s) => s.text).slice(0, 12);
+      if (!steps.length) return 'Error: give at least one step.';
+      setItems((p) => {
+        const last = [...p].reverse().find((i) => i.type === 'plan');
+        if (last && !last.steps.every((s) => s.status === 'done')) return p.map((i) => (i.id === last.id ? { ...i, steps } : i));
+        return [...p, { id: uid(), type: 'plan', steps }];
+      });
+      return 'Plan updated.';
+    }
     const id = uid();
+    if (name === 'web_search' || name === 'read_page') {
+      add({ id, type: 'action', tool: name, args, status: 'running', note: name === 'web_search' ? 'Searching...' : 'Reading...' });
+      try {
+        const r = await homeCall('web', name === 'web_search' ? { kind: 'search', query: args.query } : { kind: 'read', url: args.url });
+        const bad = /^Error:/.test(r.text || '');
+        patch(id, { status: bad ? 'error' : 'done', output: r.text });
+        return String(r.text || '(nothing)').slice(0, 12000);
+      } catch (e) { patch(id, { status: 'error', output: e.message }); return `Error: ${e.message}`; }
+    }
     if (name === 'run_js') {
       add({ id, type: 'action', tool: name, args, status: 'running', note: 'Running in a sandbox...' });
       const r = await runJs(String(args.code || ''));
@@ -159,8 +193,8 @@ export default function DwenliteHome() {
     const jobType = JOB_TYPE[name] || name;
     const jobArgs = { ...args }; delete jobArgs.device; delete jobArgs.summary;
     // real mouse/keyboard, a new window or a launched program pulls focus away from this page: remember to come back
-    const steals = name === 'open_url' || (SCREEN.has(name) && name !== 'screenshot' && (args.foreground || !args.app)) || (name === 'run_shell' && /\b(start|start-process|explorer|invoke-item|ii)\b/i.test(String(args.command || '')));
-    add({ id, type: 'action', tool: name, args, deviceName: dev.name, status: needsApproval(name) ? 'asking' : 'running', note: 'Starting...' });
+    const steals = name === 'open_url' || (name === 'browser' && !!args.visible) || (SCREEN.has(name) && name !== 'screenshot' && (args.foreground || !args.app)) || (name === 'run_shell' && /\b(start|start-process|explorer|invoke-item|ii)\b/i.test(String(args.command || '')));
+    add({ id, type: 'action', tool: name, args, deviceName: dev.name, deviceId: dev.id, status: needsApproval(name) ? 'asking' : 'running', note: 'Starting...' });
 
     if (needsApproval(name)) {
       returnHome(); // bring this page back so the question is seen
@@ -172,7 +206,7 @@ export default function DwenliteHome() {
 
     if (steals) awayFrom.current = dev.id;
     let jobId;
-    try { jobId = (await homeCall('job_create', { deviceId: dev.id, type: jobType, args: jobArgs })).id; } catch (e) { patch(id, { status: 'error', output: e.message }); return `Error: ${e.message}`; }
+    try { jobId = (await homeCall('job_create', { deviceId: dev.id, type: jobType, args: jobArgs, summary: args.summary })).id; } catch (e) { patch(id, { status: 'error', output: e.message }); return `Error: ${e.message}`; }
     activeJob.current = jobId;
     const started = Date.now();
     const limit = ((Number(args.timeout_s) || 60) * 1000) + 150000;
@@ -336,7 +370,7 @@ export default function DwenliteHome() {
       <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2.5 md:px-6">
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600"><Home size={18} /></span>
-          <div className="min-w-0">
+          <div className="hidden min-w-0 sm:block">
             <p className="truncate font-bold leading-tight">Dwenlite Home</p>
             <p className="truncate text-[11px] text-slate-500">Your personal assistant</p>
           </div>
@@ -350,6 +384,7 @@ export default function DwenliteHome() {
           <span className="hidden sm:inline">{devices.length ? `${onlineCount}/${devices.length} online` : 'Add a computer'}</span>
           <Monitor size={13} className="sm:hidden" />
         </button>
+        <button onClick={() => setPanel('activity')} aria-label="Activity" title="What it did recently" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50"><History size={16} /></button>
         <button onClick={() => setPanel('memory')} aria-label="Memory" title="What it remembers" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50"><Brain size={16} /></button>
         <button onClick={() => setPanel('settings')} aria-label="Settings" title="How much it may do on its own" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50"><SlidersHorizontal size={16} /></button>
         <button onClick={newChat} aria-label="New chat" title="New chat" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50"><RotateCcw size={16} /></button>
@@ -400,7 +435,8 @@ export default function DwenliteHome() {
               <ChatAnswer content={m.content} typing={m.typing} live={m.live} />
             </div>
           );
-          if (m.type === 'action') return <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><ActionCard item={m} onDecide={decide} /></div>;
+          if (m.type === 'plan') return <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><PlanCard steps={m.steps} /></div>;
+          if (m.type === 'action') return <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><ActionCard item={m} onDecide={decide} onUndo={undoAction} /></div>;
           return <p key={m.id} className="text-center text-xs italic text-slate-500">{m.text}</p>;
         })}
       </div>
@@ -442,6 +478,7 @@ export default function DwenliteHome() {
       </div>
 
       {/* panels */}
+      {panel === 'activity' && <ActivityPanel devices={devices} onClose={() => setPanel(null)} />}
       {panel === 'devices' && <DevicePanel devices={devices} reload={loadDevices} onClose={() => setPanel(null)} />}
 
       {panel === 'memory' && (

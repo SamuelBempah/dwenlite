@@ -16,7 +16,7 @@ import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-export const VERSION = '1.5.0';
+export const VERSION = '1.6.0';
 const MAX_OUT = 100000;      // characters of command output sent back
 const MAX_READ = 200000;     // bytes read from a file
 const IS_WIN = process.platform === 'win32';
@@ -44,8 +44,8 @@ export function parseArgs(argv, env = process.env) {
 const clip = (t, n) => { const s = String(t ?? ''); return s.length > n ? s.slice(0, n) + `\n...[cut, ${s.length - n} more characters]` : s; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Resolve a path inside the work folder. Absolute paths and ".." are allowed only if they stay inside it.
-export function safePath(root, p) {
+// Resolve a path inside the work folder (or, for absolute paths, inside one of the extra folders the owner allowed).
+function insideRoot(root, p) {
   const realRoot = fs.realpathSync(root);
   const full = path.resolve(realRoot, p || '.');
   // follow symlinks of the nearest existing parent, so a link cannot lead outside the folder
@@ -53,10 +53,18 @@ export function safePath(root, p) {
   while (!fs.existsSync(probe)) { const up = path.dirname(probe); if (up === probe) break; probe = up; }
   const realProbe = fs.realpathSync(probe);
   const rel = path.relative(realRoot, realProbe);
-  if (rel.startsWith('..') || path.isAbsolute(rel)) throw new Error('That path is outside the work folder (' + realRoot + ').');
   const relFull = path.relative(realRoot, full);
-  if (relFull.startsWith('..') || path.isAbsolute(relFull)) throw new Error('That path is outside the work folder (' + realRoot + ').');
+  if (rel.startsWith('..') || path.isAbsolute(rel) || relFull.startsWith('..') || path.isAbsolute(relFull)) return null;
   return full;
+}
+export function safePath(root, p, extra = []) {
+  const first = insideRoot(root, p);
+  if (first) return first;
+  if (p && path.isAbsolute(String(p))) {
+    for (const r of extra) { try { const hit = insideRoot(r, p); if (hit) return hit; } catch { /* folder missing */ } }
+  }
+  const allowed = [fs.realpathSync(root), ...extra.filter((r) => { try { return fs.existsSync(r); } catch { return false; } })];
+  throw new Error('That path is outside the folders you allowed (' + allowed.join(', ') + ').');
 }
 
 export function jpegSize(buf) {
@@ -86,6 +94,31 @@ function run(cmd, args, { timeout = 30000, input } = {}) {
   });
 }
 const have = async (cmd) => { try { await run(IS_WIN ? 'where' : 'which', [cmd], { timeout: 5000 }); return true; } catch { return false; } };
+
+// ----------------------------------------------------------------------------- safety rails
+// Commands that are refused no matter who asks (they can wreck a computer or run unreviewed downloads). Cannot be bypassed from chat.
+const BLOCKED = [
+  [/\brm\s+(-[a-z]*\s+)*-[a-z]*r[a-z]*\s+(-[a-z]+\s+)*(\/|~|\$home|\/\*|\*|\.\.?)(\s|$|;|&|\|)/i, 'deleting a whole folder tree from the root, home or a wildcard'],
+  [/remove-item\b[^\n;|&]*-recurse[^\n;|&]*(\s|['"])([a-z]:\\?['"]?(\s|$)|\$home|~|\*|\\\*)/i, 'recursively deleting a drive or home folder'],
+  [/\b(del|erase)\b[^\n;|&]*\/[a-z]*[sq][a-z]*[^\n;|&]*\s[a-z]:\\?(\s|$|\*)/i, 'deleting a whole drive'],
+  [/\b(rd|rmdir)\b[^\n;|&]*\/s[^\n;|&]*\s[a-z]:\\?(\s|$)/i, 'deleting a whole drive'],
+  [/\bformat(\.com)?\s+[a-z]:/i, 'formatting a drive'],
+  [/\b(diskpart|bcdedit|mkfs(\.\w+)?|fdisk|parted)\b/i, 'disk or boot configuration tools'],
+  [/\b(clear-disk|format-volume|remove-partition|initialize-disk)\b/i, 'disk wiping commands'],
+  [/\bdd\s+[^\n;|&]*\bof=\/dev\//i, 'writing straight to a disk'],
+  [/:\(\)\s*\{\s*:\|:&\s*\};:/, 'a fork bomb'],
+  [/\b(shutdown|restart-computer|stop-computer|reboot|halt|poweroff)\b/i, 'shutting down or restarting the computer'],
+  [/\breg(\.exe)?\s+delete\s+hk(lm|cr)\b/i, 'deleting system registry keys'],
+  [/\bcipher\s+\/w/i, 'wiping free disk space'],
+  [/\bchmod\s+-r\s+[0-7]+\s+\/(\s|$)/i, 'changing permissions on the whole system'],
+  [/\b(curl|wget|iwr|invoke-webrequest|irm|invoke-restmethod)\b[^\n]*\|\s*(sh|bash|zsh|iex|invoke-expression|powershell|pwsh)\b/i, 'downloading and running code in one step'],
+  [/\b(iex|invoke-expression)\b\s*\(?\s*\(?\s*(new-object\s+net\.webclient|iwr|irm|invoke-webrequest|invoke-restmethod)/i, 'downloading and running code in one step'],
+];
+export function dangerousCommand(cmd) {
+  const text = String(cmd || '');
+  for (const [re, why] of BLOCKED) if (re.test(text)) return why;
+  return null;
+}
 
 // ----------------------------------------------------------------------------- keys
 const WIN_KEYS = { enter: '{ENTER}', return: '{ENTER}', tab: '{TAB}', esc: '{ESC}', escape: '{ESC}', backspace: '{BACKSPACE}', delete: '{DELETE}', del: '{DELETE}', up: '{UP}', down: '{DOWN}', left: '{LEFT}', right: '{RIGHT}', home: '{HOME}', end: '{END}', pageup: '{PGUP}', pgup: '{PGUP}', pagedown: '{PGDN}', pgdn: '{PGDN}', space: ' ', insert: '{INSERT}' };
@@ -365,12 +398,235 @@ switch ($Action) {
 const psFile = (name, content) => { const f = path.join(os.tmpdir(), `dwenlite-${name}.ps1`); fs.writeFileSync(f, content); return f; };
 const ps = (file, args) => run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file, ...args], { timeout: 30000 });
 
+// ----------------------------------------------------------------------------- the assistant's own browser (Chrome DevTools Protocol, no extra software)
+class Cdp {
+  constructor(wsUrl) { this.url = wsUrl; this.id = 0; this.pending = new Map(); this.handlers = new Map(); }
+  open() {
+    return new Promise((resolve, reject) => {
+      if (typeof WebSocket === 'undefined') return reject(new Error('The built-in browser needs Node.js 22 or newer.'));
+      this.ws = new WebSocket(this.url);
+      this.ws.onopen = () => resolve();
+      this.ws.onerror = () => reject(new Error('Could not talk to the browser.'));
+      this.ws.onclose = () => { for (const [, p] of this.pending) p.reject(new Error('The browser closed.')); this.pending.clear(); this.closed = true; };
+      this.ws.onmessage = (m) => {
+        let j; try { j = JSON.parse(m.data); } catch { return; }
+        if (j.id && this.pending.has(j.id)) { const p = this.pending.get(j.id); this.pending.delete(j.id); j.error ? p.reject(new Error(j.error.message || 'Browser error')) : p.resolve(j.result || {}); }
+        else if (j.method && this.handlers.has(j.method)) for (const f of [...this.handlers.get(j.method)]) f(j.params || {});
+      };
+    });
+  }
+  send(method, params = {}, timeout = 20000) {
+    return new Promise((resolve, reject) => {
+      if (this.closed) return reject(new Error('The browser closed.'));
+      const id = ++this.id;
+      const t = setTimeout(() => { this.pending.delete(id); reject(new Error(`Browser did not answer (${method}).`)); }, timeout);
+      this.pending.set(id, { resolve: (r) => { clearTimeout(t); resolve(r); }, reject: (e) => { clearTimeout(t); reject(e); } });
+      this.ws.send(JSON.stringify({ id, method, params }));
+    });
+  }
+  once(method, timeout = 15000) {
+    return new Promise((resolve) => {
+      const set = this.handlers.get(method) || new Set(); this.handlers.set(method, set);
+      const t = setTimeout(() => { set.delete(f); resolve(false); }, timeout);
+      const f = () => { clearTimeout(t); set.delete(f); resolve(true); };
+      set.add(f);
+    });
+  }
+  close() { try { this.ws && this.ws.close(); } catch { /* ignore */ } }
+}
+
+function findBrowser() {
+  if (process.env.DWENLITE_BROWSER && fs.existsSync(process.env.DWENLITE_BROWSER)) return process.env.DWENLITE_BROWSER;
+  const w = process.env;
+  const list = IS_WIN
+    ? [`${w['ProgramFiles']}\\Google\\Chrome\\Application\\chrome.exe`, `${w['ProgramFiles(x86)']}\\Google\\Chrome\\Application\\chrome.exe`, `${w.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe`, `${w['ProgramFiles(x86)']}\\Microsoft\\Edge\\Application\\msedge.exe`, `${w['ProgramFiles']}\\Microsoft\\Edge\\Application\\msedge.exe`, `${w['ProgramFiles']}\\BraveSoftware\\Brave-Browser\\Application\\brave.exe`]
+    : IS_MAC
+      ? ['/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge', '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser', '/Applications/Chromium.app/Contents/MacOS/Chromium']
+      : ['/usr/bin/google-chrome', '/usr/bin/google-chrome-stable', '/usr/bin/chromium', '/usr/bin/chromium-browser', '/snap/bin/chromium', '/usr/bin/microsoft-edge', '/usr/bin/brave-browser'];
+  return list.find((p) => p && fs.existsSync(p)) || '';
+}
+
+const READ_SCRIPT = `(() => {
+  document.querySelectorAll('[data-dw]').forEach((e) => e.removeAttribute('data-dw'));
+  const sel = 'a[href],button,input,textarea,select,summary,[role=button],[role=link],[role=checkbox],[role=tab],[role=menuitem],[role=option],[onclick],[contenteditable=true]';
+  const vis = (e) => { const r = e.getBoundingClientRect(); if (r.width < 3 || r.height < 3) return false; const s = getComputedStyle(e); return s.visibility !== 'hidden' && s.display !== 'none' && s.opacity !== '0'; };
+  const els = [...document.querySelectorAll(sel)].filter(vis).slice(0, 150);
+  const clip = (t, n) => String(t || '').replace(/\\s+/g, ' ').trim().slice(0, n);
+  const lines = els.map((e, i) => {
+    e.setAttribute('data-dw', String(i + 1));
+    const tag = e.tagName.toLowerCase();
+    const label = clip(e.getAttribute('aria-label') || e.innerText || e.value || e.getAttribute('title') || e.getAttribute('alt') || '', 70);
+    if (tag === 'input' || tag === 'textarea') return '[' + (i + 1) + '] ' + (tag === 'input' ? 'input[' + (e.type || 'text') + ']' : 'textarea') + ' ' + (clip(e.placeholder || e.getAttribute('name') || e.getAttribute('aria-label'), 50) ? 'placeholder/name "' + clip(e.placeholder || e.getAttribute('name') || e.getAttribute('aria-label'), 50) + '"' : '') + (e.type === 'checkbox' || e.type === 'radio' ? (e.checked ? ' (checked)' : ' (unchecked)') : e.value && e.type !== 'password' ? ' value "' + clip(e.value, 40) + '"' : '');
+    if (tag === 'select') return '[' + (i + 1) + '] select "' + clip(e.options[e.selectedIndex] && e.options[e.selectedIndex].text, 40) + '"';
+    if (tag === 'a') return '[' + (i + 1) + '] link "' + label + '" -> ' + clip(e.getAttribute('href'), 80);
+    return '[' + (i + 1) + '] ' + tag + ' "' + label + '"';
+  });
+  return { title: document.title, url: location.href, y: Math.round(scrollY), h: document.documentElement.scrollHeight, vh: innerHeight, text: clip((document.body && document.body.innerText || '').replace(/\\n{3,}/g, '\\n\\n'), 100000).slice(0, 7000), raw: (document.body && document.body.innerText || '').replace(/[ \\t]+/g, ' ').replace(/\\n{3,}/g, '\\n\\n').slice(0, 7000), lines };
+})()`;
+
+const KEYMAP = { enter: ['Enter', 'Enter', 13], return: ['Enter', 'Enter', 13], tab: ['Tab', 'Tab', 9], esc: ['Escape', 'Escape', 27], escape: ['Escape', 'Escape', 27], backspace: ['Backspace', 'Backspace', 8], delete: ['Delete', 'Delete', 46], up: ['ArrowUp', 'ArrowUp', 38], down: ['ArrowDown', 'ArrowDown', 40], left: ['ArrowLeft', 'ArrowLeft', 37], right: ['ArrowRight', 'ArrowRight', 39], home: ['Home', 'Home', 36], end: ['End', 'End', 35], pageup: ['PageUp', 'PageUp', 33], pagedown: ['PageDown', 'PageDown', 34], space: [' ', 'Space', 32] };
+const EDIT_CMDS = { a: 'selectAll', c: 'copy', v: 'paste', x: 'cut', z: 'undo', y: 'redo' };
+
+export function createBrowser({ root, api, log }) {
+  let proc = null; let browserWs = null; let page = null; let visible = false;
+  const profile = path.join(root, '.browser-profile');
+
+  async function httpJson(port, p, method = 'GET') {
+    const r = await fetch(`http://127.0.0.1:${port}${p}`, { method });
+    if (!r.ok) throw new Error(`Browser control error ${r.status}`);
+    return r.json();
+  }
+
+  async function launch(wantVisible) {
+    const exe = findBrowser();
+    if (!exe) throw new Error('No Chrome, Edge or Brave was found on this computer. Install one of them (or set DWENLITE_BROWSER to its path).');
+    fs.mkdirSync(profile, { recursive: true });
+    try { fs.unlinkSync(path.join(profile, 'DevToolsActivePort')); } catch { /* none */ }
+    const args = ['--remote-debugging-port=0', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--disable-features=Translate,MediaRouter', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--window-size=1280,900', '--remote-allow-origins=*'];
+    if (!wantVisible) args.push('--headless=new', '--hide-scrollbars', '--mute-audio');
+    if (!IS_WIN && !IS_MAC && process.getuid && process.getuid() === 0) args.push('--no-sandbox');
+    args.push('about:blank');
+    proc = spawn(exe, args, { stdio: 'ignore', detached: false, windowsHide: !wantVisible });
+    proc.on('exit', () => { proc = null; page = null; });
+    visible = wantVisible;
+    let port = 0;
+    for (let i = 0; i < 100 && !port; i++) {
+      await sleep(150);
+      try { port = Number(fs.readFileSync(path.join(profile, 'DevToolsActivePort'), 'utf8').split('\n')[0]); } catch { /* not yet */ }
+      if (!proc) throw new Error('The browser closed right after starting. Close other windows that use the same profile and try again.');
+    }
+    if (!port) throw new Error('The browser did not start in time.');
+    return port;
+  }
+
+  let portCache = 0;
+  async function ensurePage(wantVisible) {
+    if (proc && visible !== wantVisible) await closeAll();
+    if (!proc) { portCache = await launch(wantVisible); page = null; }
+    if (page && !page.closed) return page;
+    const list = (await httpJson(portCache, '/json/list')).filter((t) => t.type === 'page');
+    const t = list[0] || await httpJson(portCache, '/json/new?about:blank', 'PUT');
+    page = new Cdp(t.webSocketDebuggerUrl);
+    await page.open();
+    await page.send('Page.enable');
+    await page.send('Runtime.enable');
+    if (!wantVisible) await page.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+    return page;
+  }
+
+  async function closeAll() {
+    try { page && page.close(); } catch { /* ignore */ }
+    page = null;
+    if (proc) { try { proc.kill(); } catch { /* ignore */ } proc = null; await sleep(300); }
+  }
+
+  const evalJs = async (p, expression) => {
+    const r = await p.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+    if (r.exceptionDetails) throw new Error('The page raised an error: ' + clip((r.exceptionDetails.exception && r.exceptionDetails.exception.description) || r.exceptionDetails.text, 200));
+    return r.result && r.result.value;
+  };
+  const settle = async (p, ms = 900) => { await Promise.race([p.once('Page.loadEventFired', 6000), sleep(ms)]); await sleep(300); };
+
+  async function read(p) {
+    const r = await evalJs(p, READ_SCRIPT);
+    const pos = r.h > r.vh ? ` (scrolled ${r.y}px of ${r.h - r.vh}px)` : '';
+    return `PAGE: ${r.title || '(no title)'}\nURL: ${r.url}${pos}\n\nTEXT:\n${r.raw || '(no visible text)'}\n\nELEMENTS (use the number with click or type):\n${r.lines.join('\n') || '(none)'}`;
+  }
+
+  async function press(p, combo) {
+    const parts = String(combo).toLowerCase().split('+').map((x) => x.trim()).filter(Boolean);
+    const key = parts.pop();
+    let mods = 0;
+    for (const m of parts) mods |= ({ alt: 1, ctrl: 2, control: 2, meta: 4, cmd: 4, win: 4, shift: 8 })[m] || 0;
+    let k = KEYMAP[key];
+    if (!k && /^f([1-9]|1[0-2])$/.test(key)) k = [key.toUpperCase(), key.toUpperCase(), 111 + Number(key.slice(1))];
+    if (!k && key.length === 1) k = [mods & 8 ? key.toUpperCase() : key, /[a-z]/.test(key) ? 'Key' + key.toUpperCase() : /[0-9]/.test(key) ? 'Digit' + key : '', key.toUpperCase().charCodeAt(0)];
+    if (!k) throw new Error(`Unknown key "${key}".`);
+    const base = { modifiers: mods, key: k[0], code: k[1], windowsVirtualKeyCode: k[2], nativeVirtualKeyCode: k[2] };
+    const text = !(mods & 3) && (k[0].length === 1 || k[0] === 'Enter') ? (k[0] === 'Enter' ? '\r' : k[0]) : undefined;
+    const commands = (mods & 2) && EDIT_CMDS[key] ? [EDIT_CMDS[key]] : undefined;
+    await p.send('Input.dispatchKeyEvent', { ...base, type: text ? 'keyDown' : 'rawKeyDown', text, commands });
+    await p.send('Input.dispatchKeyEvent', { ...base, type: 'keyUp' });
+  }
+
+  async function elementPoint(p, n) {
+    const pt = await evalJs(p, `(() => { const e = document.querySelector('[data-dw="${n}"]'); if (!e) return null; e.scrollIntoView({ block: 'center', inline: 'center' }); const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
+    if (!pt) throw new Error(`Element ${n} was not found. The page changed: call read again and use the new numbers.`);
+    return pt;
+  }
+
+  async function run(a) {
+    const act = a.action;
+    if (act === 'close') { await closeAll(); return 'Browser closed.'; }
+    const p = await ensurePage(!!a.visible);
+    if (act === 'open') {
+      const loaded = p.once('Page.loadEventFired', 20000);
+      const nav = await p.send('Page.navigate', { url: a.url });
+      if (nav.errorText) throw new Error(`Could not open the page: ${nav.errorText}`);
+      await loaded; await sleep(600);
+      return await read(p);
+    }
+    if (act === 'read') return await read(p);
+    if (act === 'tabs') {
+      const list = (await httpJson(portCache, '/json/list')).filter((t) => t.type === 'page');
+      return list.map((t, i) => `${i + 1}. ${t.title || '(no title)'} - ${t.url}`).join('\n') || '(no tabs)';
+    }
+    if (act === 'click') {
+      const pt = await elementPoint(p, a.element);
+      await p.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: pt.x, y: pt.y });
+      await p.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: pt.x, y: pt.y, button: 'left', clickCount: 1 });
+      await p.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: pt.x, y: pt.y, button: 'left', clickCount: 1 });
+      await settle(p, 1200);
+      return await read(p);
+    }
+    if (act === 'type') {
+      const ok = await evalJs(p, `(() => { const e = document.querySelector('[data-dw="${a.element}"]'); if (!e) return false; e.scrollIntoView({ block: 'center' }); e.focus(); if (e.select) { try { e.select(); } catch (x) {} } else if (e.isContentEditable) { document.execCommand('selectAll'); } return true; })()`);
+      if (!ok) throw new Error(`Element ${a.element} was not found. Call read again and use the new numbers.`);
+      await p.send('Input.insertText', { text: a.text });
+      if (a.submit) { await press(p, 'enter'); await settle(p, 1500); }
+      return await read(p);
+    }
+    if (act === 'press') { await press(p, a.keys); await settle(p, 900); return await read(p); }
+    if (act === 'scroll') { await evalJs(p, `window.scrollBy(0, ${a.direction === 'up' ? -1 : 1} * Math.round(innerHeight * 0.8))`); await sleep(300); return await read(p); }
+    if (act === 'back') { await evalJs(p, 'history.back()'); await settle(p, 1200); return await read(p); }
+    if (act === 'screenshot') {
+      const shot = await p.send('Page.captureScreenshot', { format: 'jpeg', quality: 60 });
+      const buf = Buffer.from(shot.data, 'base64');
+      const sz = imageSize(buf) || { w: 1280, h: 900 };
+      let text = '';
+      try { text = (await api('agent_see', { image: shot.data, mime: 'image/jpeg', look: a.look, width: sz.w, height: sz.h })).text; } catch (e) { text = `(The screenshot was taken but could not be read by the image model: ${e.message})`; }
+      return { text, image: buf.length < 520000 ? shot.data : '' };
+    }
+    throw new Error(`Unknown browser action "${act}".`);
+  }
+
+  return { run, close: closeAll };
+}
+
 // ----------------------------------------------------------------------------- the agent
 export function createAgent(opts) {
   const root = opts.root;
   fs.mkdirSync(root, { recursive: true });
   const logFile = path.join(root, 'dwenlite-agent.log');
   const log = (m) => { const line = `${new Date().toISOString()} ${m}`; console.log(line); try { fs.appendFileSync(logFile, line + '\n'); } catch { /* ignore */ } };
+  let extraRoots = []; // extra folders the owner allowed in Dwenlite Home (sent with every poll)
+  const extra = () => extraRoots;
+  const undoDir = path.join(root, '.undo');
+  const undoIndex = path.join(undoDir, 'index.json');
+  const loadUndo = () => { try { return JSON.parse(fs.readFileSync(undoIndex, 'utf8')); } catch { return []; } };
+  const saveUndo = (list) => { fs.mkdirSync(undoDir, { recursive: true }); fs.writeFileSync(undoIndex, JSON.stringify(list.slice(-100))); };
+  // keep a copy of a file before it is changed, so the owner can press Undo
+  function backupBeforeWrite(f) {
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const existed = fs.existsSync(f) && fs.statSync(f).isFile();
+    let backup = '';
+    if (existed) {
+      if (fs.statSync(f).size > 20 * 1024 * 1024) return '';
+      fs.mkdirSync(undoDir, { recursive: true }); backup = path.join(undoDir, `${id}-${path.basename(f)}`); fs.copyFileSync(f, backup);
+    }
+    const list = loadUndo(); list.push({ id, path: f, existed, backup, at: Date.now() }); saveUndo(list);
+    return id;
+  }
   let lastShot = null; // sizes of the last screenshot, to turn screenshot pixels into real screen coordinates
 
   async function api(action, body) {
@@ -396,8 +652,25 @@ export function createAgent(opts) {
     else if (await have('xdotool')) { try { await run('xdotool', ['search', '--name', app, 'windowactivate', '--sync']); } catch { /* keep going */ } }
   }
 
+  const browser = createBrowser({ root, api: (action, body) => api(action, body), log: (m) => log(m) });
+
   // ---- actions ----
   const actions = {
+    async browser(a) {
+      needGui();
+      return await browser.run(a);
+    },
+    async undo(a) {
+      const list = loadUndo();
+      const e = list.find((x) => x.id === a.id);
+      if (!e) throw new Error('Nothing to undo for that (it may be too old).');
+      if (e.undone) return 'That change was already undone.';
+      const f = safePath(root, e.path, extra());
+      if (e.existed) { if (!e.backup || !fs.existsSync(e.backup)) throw new Error('The backup copy is gone.'); fs.copyFileSync(e.backup, f); }
+      else { try { fs.unlinkSync(f); } catch { /* already gone */ } }
+      e.undone = true; saveUndo(list);
+      return e.existed ? `Put ${f} back the way it was.` : `Removed ${f} (it did not exist before).`;
+    },
     async system_info() {
       const info = { platform: process.platform, release: os.release(), arch: os.arch(), hostname: os.hostname(), user: os.userInfo().username, cpus: `${os.cpus().length} x ${(os.cpus()[0] || {}).model || ''}`.trim(),
         memory_total_gb: +(os.totalmem() / 1e9).toFixed(1), memory_free_gb: +(os.freemem() / 1e9).toFixed(1), uptime_hours: +(os.uptime() / 3600).toFixed(1), node: process.version, work_folder: root, shell_allowed: opts.shell, gui_allowed: opts.gui };
@@ -405,7 +678,7 @@ export function createAgent(opts) {
       return JSON.stringify(info, null, 2);
     },
     async list_dir(a) {
-      const dir = safePath(root, a.path);
+      const dir = safePath(root, a.path, extra());
       const items = fs.readdirSync(dir, { withFileTypes: true }).slice(0, 300).map((d) => {
         let size = '', mtime = '';
         try { const st = fs.statSync(path.join(dir, d.name)); size = d.isFile() ? st.size : ''; mtime = st.mtime.toISOString().slice(0, 16); } catch { /* ignore */ }
@@ -414,7 +687,7 @@ export function createAgent(opts) {
       return `${dir}\n${items.join('\n') || '(empty)'}`;
     },
     async read_file(a) {
-      const f = safePath(root, a.path);
+      const f = safePath(root, a.path, extra());
       const st = fs.statSync(f);
       if (!st.isFile()) throw new Error('That is not a file.');
       const buf = fs.readFileSync(f).subarray(0, MAX_READ);
@@ -422,14 +695,17 @@ export function createAgent(opts) {
       return buf.toString('utf8') + (st.size > MAX_READ ? `\n...[file is ${st.size} bytes, showing the first ${MAX_READ}]` : '');
     },
     async write_file(a) {
-      const f = safePath(root, a.path);
+      const f = safePath(root, a.path, extra());
       fs.mkdirSync(path.dirname(f), { recursive: true });
+      const undoId = backupBeforeWrite(f);
       (a.append ? fs.appendFileSync : fs.writeFileSync)(f, a.content, 'utf8');
-      return `${a.append ? 'Appended to' : 'Wrote'} ${f} (${Buffer.byteLength(a.content)} bytes)`;
+      return `${a.append ? 'Appended to' : 'Wrote'} ${f} (${Buffer.byteLength(a.content)} bytes)${undoId ? ` [undo:${undoId}]` : ''}`;
     },
     async shell(a) {
       needShell();
-      const cwd = a.cwd ? safePath(root, a.cwd) : root;
+      const why = dangerousCommand(a.command);
+      if (why) throw new Error(`Blocked for safety: this looks like ${why}. Dwenlite will not run it. If you really need it, run it yourself.`);
+      const cwd = a.cwd ? safePath(root, a.cwd, extra()) : root;
       const timeout = Math.min(600, Math.max(1, Number(a.timeout_s) || 60)) * 1000;
       return new Promise((resolve) => {
         const child = IS_WIN
@@ -576,8 +852,9 @@ Start-Process $u`;
     let fails = 0;
     while (!stop.stopped) {
       try {
-        const { job } = await api('agent_poll', { platform: process.platform, hostname: os.hostname(), version: VERSION, caps: { shell: opts.shell, gui: opts.gui } });
+        const { job, config } = await api('agent_poll', { platform: process.platform, hostname: os.hostname(), version: VERSION, caps: { shell: opts.shell, gui: opts.gui } });
         fails = 0;
+        if (config && Array.isArray(config.folders)) extraRoots = config.folders.filter((f) => typeof f === 'string' && path.isAbsolute(f) && fs.existsSync(f)).map((f) => fs.realpathSync(f));
         if (job) {
           log(`job ${job.id}: ${job.type} ${job.type === 'shell' ? clip(job.args.command, 200) : JSON.stringify(job.args).slice(0, 200)}`);
           let ok = true; let output = ''; let image = '';
@@ -596,7 +873,7 @@ Start-Process $u`;
       await sleep(opts.interval);
     }
   }
-  return { loop, actions, runJob, api, log };
+  return { loop, actions, runJob, api, log, shutdown: () => browser.close() };
 }
 
 // ----------------------------------------------------------------------------- start
@@ -610,6 +887,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   if (major < 18) { console.error('Node 18 or newer is needed. You have ' + process.version); process.exit(1); }
   const agent = createAgent(o);
   const stop = { stopped: false };
-  process.on('SIGINT', () => { stop.stopped = true; console.log('\nStopping...'); setTimeout(() => process.exit(0), 300); });
+  process.on('SIGINT', () => { stop.stopped = true; console.log('\nStopping...'); agent.shutdown().catch(() => {}); setTimeout(() => process.exit(0), 600); });
+  process.on('exit', () => { agent.shutdown().catch(() => {}); });
   agent.loop(stop).then(() => { if (!stop.stopped) process.exit(2); }); // 2 = this device was removed, do not restart
 }

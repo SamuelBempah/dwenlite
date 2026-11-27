@@ -6,7 +6,7 @@
 // by an admin-authenticated request, which the web app sends only after the owner approves each action.
 const crypto = require("crypto");
 
-const JOB_TYPES = new Set(["shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows", "show_home"]);
+const JOB_TYPES = new Set(["shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows", "show_home", "browser", "undo"]);
 const ONLINE_MS = 25000;
 const MAX_OUTPUT = 150000; // characters stored per job result (a Firestore document must stay under 1 MB)
 
@@ -32,6 +32,10 @@ const HOME_SYSTEM =
   "- To test on a device, write files into its work folder and run them; fix errors until it works, then summarise.\n\n" +
   "MEMORY\n" +
   "- When the owner shares a lasting preference or fact about themselves, their setup or projects, call remember.\n\n" +
+  "WEB AND BROWSER\n" +
+  "- For facts, news or documentation use web_search then read_page. To DO things on a website (log in, fill forms, click) use the browser tool: open, read, then click/type by element number, and read again. Prefer the browser tool over screenshots and mouse clicks.\n" +
+  "- Never enter passwords or payment details unless the owner gave them in this chat for this exact purpose. Stop and ask before anything that spends money, sends messages or deletes things.\n" +
+  "- For jobs with 3+ steps call update_plan first and keep it current.\n\n" +
   "TALKING TO THE OWNER\n" +
   "- Speak plainly, like a helpful person, not a terminal. Keep technical detail out of your message: do not paste commands or raw output unless asked. Say what you found and what you did, in a few friendly sentences.\n" +
   "- Always give each tool call a short plain-English `summary`.\n" +
@@ -58,6 +62,10 @@ const TOOLS = [
   { name: "press_key", description: "Press a key or combination, e.g. 'enter', 'tab', 'esc', 'ctrl+c', 'alt+tab', 'ctrl+shift+t', 'f5'.", properties: { device: dev, app, foreground, keys: { type: "string" } }, required: ["keys"] },
   { name: "scroll", description: "Scroll the window under the mouse.", properties: { device: dev, app, foreground, direction: { type: "string", enum: ["up", "down"] }, amount: { type: "number", description: "Notches, default 5." } }, required: ["direction"] },
   { name: "list_windows", description: "List the program windows open on a device (titles). Use it to pick the exact `app` to target, and to check that a new browser window opened.", properties: { device: dev }, required: [] },
+  { name: "browser", description: "Control YOUR OWN browser on a device: a separate browser that runs in the background and never disturbs the owner's screen. This is the best way to do anything on the web. Actions: open (url), read (page text + a numbered list of clickable/typeable elements), click (element = number from the last read), type (element, text, optional submit=true to press Enter), press (keys, e.g. enter, tab, ctrl+a), scroll (direction), back, tabs, screenshot (look = what to check; only when text is not enough), close. After open or click always call read to see the result. Set visible=true only if the owner asks to watch.", properties: { device: dev, action: { type: "string", enum: ["open", "read", "click", "type", "press", "scroll", "back", "tabs", "screenshot", "close"] }, url: { type: "string" }, element: { type: "number", description: "Element number from the last read." }, text: { type: "string" }, submit: { type: "boolean" }, keys: { type: "string" }, direction: { type: "string", enum: ["up", "down"] }, look: { type: "string" }, visible: { type: "boolean" } }, required: ["action"] },
+  { name: "web_search", description: "Search the web (no device needed). Returns titles, links and snippets. Follow up with read_page on the best results.", properties: { query: { type: "string" } }, required: ["query"] },
+  { name: "read_page", description: "Fetch a web page and return its text and main links (no device needed). Good for articles, documentation and search results. For pages that need clicking or logging in use the browser tool.", properties: { url: { type: "string" } }, required: ["url"] },
+  { name: "update_plan", description: "Show the owner a checklist for a bigger job. Call it FIRST for any task with 3 or more steps, then call it again whenever a step changes. Each call replaces the whole list. status is pending, doing or done.", properties: { steps: { type: "array", items: { type: "object", properties: { text: { type: "string" }, status: { type: "string", enum: ["pending", "doing", "done"] } }, required: ["text", "status"] } } }, required: ["steps"] },
   { name: "open_url", description: "Open an http(s) link in the device's default browser.", properties: { device: dev, url: { type: "string" } }, required: ["url"] },
   { name: "run_js", description: "Run JavaScript in a sandbox inside the owner's browser (no device needed) and return console output and the result. Good for quick calculations and testing snippets.", properties: { code: { type: "string" } }, required: ["code"] },
   { name: "remember", description: "Save a lasting fact or preference about the owner to long-term memory.", properties: { fact: { type: "string" } }, required: ["fact"] },
@@ -84,7 +92,7 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
   const GEMINI_MODEL = defineString("GEMINI_MODEL", { default: "gemini-3.5-flash" });
 
   // Anyone signed in may use Home (no admin list). To protect the AI budget each person gets a daily allowance.
-  const DAILY = { chat: 150, see: 100 };
+  const DAILY = { chat: 150, see: 100, web: 150 };
   async function capUsage(uid, kind) {
     const ref = db.collection("homeUsage").doc(uid);
     const day = new Date().toISOString().slice(0, 10);
@@ -97,6 +105,7 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
       return true;
     });
   }
+  const web = require("./web").create({ axios, logger });
   const hash = (t) => crypto.createHash("sha256").update(String(t)).digest("hex");
   const clip = (t, n) => String(t == null ? "" : t).slice(0, n);
 
@@ -284,6 +293,19 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
       case "system_info": return {};
       case "list_windows": return {};
       case "show_home": return {};
+      case "undo": return typeof a.id === "string" && /^[\w-]{3,40}$/.test(a.id) ? { id: a.id } : null;
+      case "browser": {
+        const act = String(a.action || "");
+        if (!["open", "read", "click", "type", "press", "scroll", "back", "tabs", "screenshot", "close"].includes(act)) return null;
+        const out = { action: act, visible: !!a.visible };
+        if (act === "open") { if (typeof a.url !== "string" || !/^https?:\/\/[^\s]+$/i.test(a.url) || a.url.length > 2000) return null; out.url = a.url; }
+        if (act === "click" || act === "type") { if (!Number.isInteger(a.element) || a.element < 1 || a.element > 9999) return null; out.element = a.element; }
+        if (act === "type") { if (typeof a.text !== "string" || a.text.length > 4000) return null; out.text = a.text; out.submit = !!a.submit; }
+        if (act === "press") { if (typeof a.keys !== "string" || !/^[\w+\- ]{1,60}$/.test(a.keys)) return null; out.keys = a.keys; }
+        if (act === "scroll") out.direction = a.direction === "up" ? "up" : "down";
+        if (act === "screenshot") out.look = clip(a.look || "Describe the page.", 1000);
+        return out;
+      }
       case "screenshot": return { look: clip(a.look || "Describe what is on the screen.", 1000), app: clip(a.app, 80), foreground: !!a.foreground };
       case "click": return num(a.x, 0, 20000) && num(a.y, 0, 20000) ? { x: a.x, y: a.y, button: a.button === "right" ? "right" : "left", double: !!a.double, app: clip(a.app, 80), foreground: !!a.foreground } : null;
       case "type_text": return typeof a.text === "string" && a.text.length > 0 && a.text.length <= 4000 ? { text: a.text, app: clip(a.app, 80), foreground: !!a.foreground } : null;
@@ -328,9 +350,9 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
                   tx.update(d.ref, { status: "running", startedAt: Date.now() });
                   return cur.data();
                 });
-                if (claimed) return res.status(200).json({ job: { id: d.id, type: claimed.type, args: claimed.args } });
+                if (claimed) return res.status(200).json({ job: { id: d.id, type: claimed.type, args: claimed.args }, config: { folders: (snap.data().folders || []) } });
               }
-              return res.status(200).json({ job: null });
+              return res.status(200).json({ job: null, config: { folders: (snap.data().folders || []) } });
             }
             if (action === "agent_result") {
               const jref = db.collection("homeJobs").doc(String(body.jobId || "x"));
@@ -386,7 +408,7 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
             const q = await db.collection("homeDevices").where("ownerUid", "==", uid).get();
             const now = Date.now();
             return res.status(200).json({
-              devices: q.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, platform: x.platform || "", hostname: x.hostname || "", lastSeen: x.lastSeen || 0, caps: x.caps || {}, online: now - (x.lastSeen || 0) < ONLINE_MS }; }),
+              devices: q.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, platform: x.platform || "", hostname: x.hostname || "", lastSeen: x.lastSeen || 0, caps: x.caps || {}, folders: x.folders || [], online: now - (x.lastSeen || 0) < ONLINE_MS }; }),
             });
           }
           if (action === "device_delete") {
@@ -407,8 +429,35 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
             const args = validateJob(type, body.args);
             if (!args) return res.status(400).json({ error: "Invalid arguments for this action." });
             const jref = db.collection("homeJobs").doc();
-            await jref.set({ ownerUid: uid, deviceId: dref.id, type, args, status: "pending", createdAt: Date.now() });
+            await jref.set({ ownerUid: uid, deviceId: dref.id, type, args, summary: clip(body.summary, 120), status: "pending", createdAt: Date.now() });
             return res.status(200).json({ id: jref.id });
+          }
+          if (action === "job_list") {
+            // recent activity (technical details are fetched one by one); old jobs and their screenshots are cleaned up here
+            let q = db.collection("homeJobs").where("ownerUid", "==", uid);
+            if (q.select) q = q.select("type", "status", "summary", "createdAt", "deviceId", "args");
+            const snap = await q.get();
+            const now = Date.now();
+            const old = snap.docs.filter((d) => (d.data().createdAt || 0) < now - 3 * 86400000).slice(0, 200);
+            if (old.length) { const batch = db.batch ? db.batch() : null; if (batch) { old.forEach((d) => batch.delete(d.ref)); batch.commit().catch(() => {}); } else old.forEach((d) => d.ref.delete().catch(() => {})); }
+            const gone = new Set(old.map((d) => d.id));
+            const jobs = snap.docs.filter((d) => !gone.has(d.id)).map((d) => { const x = d.data(); return { id: d.id, type: x.type, status: x.status, summary: x.summary || "", createdAt: x.createdAt || 0, deviceId: x.deviceId, detail: x.type === "shell" ? clip(x.args && x.args.command, 200) : x.type === "browser" ? clip(`${x.args && x.args.action} ${(x.args && (x.args.url || x.args.text)) || ""}`, 200) : clip((x.args && (x.args.path || x.args.url || x.args.text || x.args.keys)) || "", 200) }; }).sort((a, b) => b.createdAt - a.createdAt).slice(0, 60);
+            return res.status(200).json({ jobs });
+          }
+          if (action === "device_update") {
+            const ref = db.collection("homeDevices").doc(String(body.id || "x"));
+            const d = await ref.get();
+            if (!d.exists || d.data().ownerUid !== uid) return res.status(404).json({ error: "No such device." });
+            const folders = (Array.isArray(body.folders) ? body.folders : []).map((f) => clip(f, 300).trim()).filter(Boolean).slice(0, 10);
+            await ref.update({ folders });
+            return res.status(200).json({ ok: true, folders });
+          }
+          if (action === "web") {
+            if (!(await capUsage(uid, "web"))) return res.status(429).json({ error: "You have used today's web allowance. It resets tomorrow." });
+            try {
+              const text = body.kind === "read" ? await web.readPage(body.url) : await web.search(clip(body.query, 300));
+              return res.status(200).json({ text });
+            } catch (e) { return res.status(200).json({ text: `Error: ${clip(e.message, 300)}` }); }
           }
           if (action === "job_get") {
             const j = await db.collection("homeJobs").doc(String(body.id || "x")).get();
