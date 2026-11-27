@@ -1658,7 +1658,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href &
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href && process.argv[2] === 'pair') {
   // node dwenlite-agent.mjs pair ABCD-EFGH   (the code comes from Dwenlite Home > Add a computer)
-  const code = process.argv[3] || '';
+  const code = process.argv.slice(3).join(''); // a code typed with a space still works
   try { const r = await pairWithCode(code, { url: process.env.DWENLITE_URL || DEFAULT_URL }); console.log(`Paired: ${r.name}`); process.exit(0); }
   catch (e) { console.error(e.message); process.exit(1); }
 }

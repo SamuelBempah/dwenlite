@@ -99,7 +99,7 @@ export default function DevicePanel({ devices, reload, onClose }) {
                 <ol className="list-decimal space-y-1.5 pl-5 text-slate-300">
                   <li><a href="/Dwenlite-Setup.exe" download className="inline-flex items-center gap-1 font-semibold text-violet-300 underline"><Download size={14} /> Download Dwenlite for Windows</a> on that computer and open it.</li>
                   <li>If Windows says "Windows protected your PC", tap <b>More info</b>, then <b>Run anyway</b>. (The app is new, so Windows has not seen it before.)</li>
-                  <li>When it asks, type the code above. That is all.</li>
+                  <li>At the end of the installer it asks for the code. Type the code above there. That is all.</li>
                 </ol>
                 <p className="text-xs text-slate-500">It runs quietly in the background, starts when you sign in, keeps itself up to date, and shows a small icon near the clock. Press Ctrl+Alt+D there to ask Dwenlite something from anywhere.</p>
               </div>
