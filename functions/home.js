@@ -450,8 +450,12 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
     const list = q.docs.filter((d) => d.data().enabled !== false && d.data().trigger && d.data().trigger.kind === "file").map((d) => ({ id: d.id, folder: clip(d.data().trigger.folder, 300), pattern: clip(d.data().trigger.pattern, 80) })).slice(0, 10);
     watchCache.set(deviceId, { at: Date.now(), list }); return list;
   }
+  // ---- live views: the computer sends pictures as fast as it can, and this relays them to the phone with almost no delay ----
+  const LIVE_KINDS = ["browser", "screen"]; const RING = 3;
+  async function liveFrames(deviceId, kind) { const docs = await Promise.all(Array.from({ length: RING }, (_, i) => db.collection("homeFrames").doc(`${deviceId}_${kind}_${i}`).get())); return docs.filter((d) => d.exists).map((d) => d.data()); }
+  async function liveOwner(uid, deviceId) { const d = await db.collection("homeDevices").doc(String(deviceId || "x")).get(); return d.exists && d.data().ownerUid === uid ? d : null; }
   // ---- asking the owner before something risky (answer comes from the phone or the page) ----
-  let askPollMs = 2500;
+  let askPollMs = 2500; let liveWaitMs = 120;
   const RISKY_SHELL = /(^|[\s;&|(])(rm|rmdir|del|erase|rd|remove-item|diskpart|format-volume|uninstall-\w+|msiexec|taskkill|pkill|shutdown|restart-computer|stop-computer|mkfs(\.\w+)?)(\s|$)|\bformat\s+[a-z]:|\breg\s+delete\b|\bdd\s+if=|\bkill\s+-9\b|\bwinget\s+uninstall\b|\bapt(-get)?\s+(remove|purge)\b/i;
   async function askOwner({ uid, runId, question, emit, shouldStop, handoff }) {
     const ref = db.collection("homeApprovals").doc();
@@ -772,6 +776,7 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
     try { // tidy up: live-feed events and finished cloud chats older than 2 days
       const old = await db.collection("homeEvents").where("at", "<=", now - 2 * 86400000).limit(300).get();
       await Promise.all(old.docs.map((d) => d.ref.delete()));
+      try { const oldF = await db.collection("homeFrames").where("seq", "<=", now - 3600000).limit(50).get(); await Promise.all(oldF.docs.map((d) => d.ref.delete())); const oldI = await db.collection("homeInputs").where("at", "<=", now - 600000).limit(50).get(); await Promise.all(oldI.docs.map((d) => d.ref.delete())); } catch (e) { /* tidy-up only */ }
       const oldAsks = await db.collection("homeApprovals").where("createdAt", "<=", now - 86400000).limit(100).get(); await Promise.all(oldAsks.docs.map((d) => d.ref.delete()));
       const oldRuns = await db.collection("homeRuns").where("createdAt", "<=", now - 3 * 86400000).limit(100).get();
       await Promise.all(oldRuns.docs.filter((d) => d.data().kind === "chat").map((d) => d.ref.delete()));
@@ -1058,9 +1063,28 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
                   tx.update(d.ref, { status: "running", startedAt: Date.now(), ...hide });
                   return before;
                 });
-                if (claimed) return res.status(200).json({ job: { id: d.id, type: claimed.type, args: claimed.args }, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now() } });
+                if (claimed) return res.status(200).json({ job: { id: d.id, type: claimed.type, args: claimed.args }, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now(), live: LIVE_KINDS.filter((k) => (snap.data()[`live_${k}`] || 0) > Date.now()) } });
               }
-              return res.status(200).json({ job: null, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now() } });
+              return res.status(200).json({ job: null, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now(), live: LIVE_KINDS.filter((k) => (snap.data()[`live_${k}`] || 0) > Date.now()) } });
+            }
+            if (action === "agent_frame") {
+              const kind = LIVE_KINDS.includes(body.kind) ? body.kind : "";
+              if (!kind || (snap.data()[`live_${kind}`] || 0) < Date.now()) { // nobody is watching any more: tidy up and tell the computer to stop
+                if (kind) Promise.all(Array.from({ length: RING }, (_, i) => db.collection("homeFrames").doc(`${ref.id}_${kind}_${i}`).delete().catch(() => {}))).catch(() => {});
+                return res.status(200).json({ live: false });
+              }
+              const image = typeof body.image === "string" && body.image.length <= 900000 ? body.image : "";
+              const m = body.meta && typeof body.meta === "object" ? body.meta : {};
+              const meta = { open: !!m.open, w: Number(m.w) || 0, h: Number(m.h) || 0, url: clip(m.url, 300), title: clip(m.title, 120), error: clip(m.error, 200) };
+              const seq = Date.now();
+              await db.collection("homeFrames").doc(`${ref.id}_${kind}_${Math.floor(seq / 120) % RING}`).set({ ownerUid: snap.data().ownerUid, seq, image, meta });
+              let ops = [];
+              if (kind === "browser") {
+                const iq = await db.collection("homeInputs").where("deviceId", "==", ref.id).get();
+                const rows = iq.docs.map((d) => ({ ref: d.ref, ...d.data() })).sort((a, b) => a.at - b.at).slice(0, 20);
+                ops = rows.map((r) => r.op); await Promise.all(rows.map((r) => r.ref.delete().catch(() => {}))); // taken, and what was typed is not kept
+              }
+              return res.status(200).json({ live: true, ops });
             }
             if (action === "agent_event") {
               const rref = db.collection("homeRoutines").doc(String(body.watchId || "x")); const rd = await rref.get();
@@ -1476,6 +1500,30 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
             if (d.exists) { try { await axios.post("https://oauth2.googleapis.com/revoke", new URLSearchParams({ token: gOpen(d.data().enc) }).toString(), { headers: { "Content-Type": "application/x-www-form-urlencoded" }, timeout: 10000 }); } catch (e) { /* it may already be revoked */ } await db.collection("homeGoogleTokens").doc(uid).delete(); }
             gAccess.delete(uid); return res.status(200).json({ ok: true });
           }
+          if (action === "live_start") {
+            const kind = LIVE_KINDS.includes(body.kind) ? body.kind : ""; const dev = await liveOwner(uid, body.deviceId);
+            if (!kind || !dev) return res.status(404).json({ error: "No such computer." });
+            await dev.ref.update({ [`live_${kind}`]: Date.now() + 25000, viewUntil: Date.now() + 45000 });
+            return res.status(200).json({ ok: true });
+          }
+          if (action === "live_frame") { // waits (up to a few seconds) for a picture newer than the one you have
+            const kind = LIVE_KINDS.includes(body.kind) ? body.kind : ""; const dev = await liveOwner(uid, body.deviceId);
+            if (!kind || !dev) return res.status(404).json({ error: "No such computer." });
+            const after = Number(body.after) || 0; const until = Date.now() + 7000;
+            if ((dev.data()[`live_${kind}`] || 0) - Date.now() < 15000) await dev.ref.update({ [`live_${kind}`]: Date.now() + 25000, viewUntil: Date.now() + 45000 });
+            while (Date.now() < until) {
+              const best = (await liveFrames(dev.id, kind)).filter((f) => f.seq > after).sort((a, b) => b.seq - a.seq)[0];
+              if (best) return res.status(200).json({ seq: best.seq, image: best.image, meta: best.meta });
+              await new Promise((r) => setTimeout(r, liveWaitMs));
+            }
+            return res.status(200).json({ seq: after, none: true });
+          }
+          if (action === "live_input") {
+            const dev = await liveOwner(uid, body.deviceId); if (!dev) return res.status(404).json({ error: "No such computer." });
+            const op = validateJob("browser_view", body.op); if (!op || op.op === "frame") return res.status(400).json({ error: "That input is not valid." });
+            await db.collection("homeInputs").doc().set({ ownerUid: uid, deviceId: dev.id, op, at: Date.now() });
+            return res.status(200).json({ ok: true });
+          }
           if (action === "approval_answer") {
             const ref = db.collection("homeApprovals").doc(String(body.id || "x")); const d = await ref.get();
             if (!d.exists || d.data().ownerUid !== uid) return res.status(404).json({ error: "No such request." });
@@ -1597,7 +1645,7 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
     ? onSchedule({ schedule: "every 1 minutes", timeoutSeconds: 60, memory: "256MiB", maxInstances: 1 }, async () => { await remindersTick(); })
     : null;
 
-  return { homeApi, homeScheduler, homeReminderTick, runTaskWorker, _test: { trimOld, recordUsage, googleAccessFor, setAskPoll: (n) => { askPollMs = n; }, learnSkill, findSkills, allSkills, remindersTick, serverTool, runChat, runAdhoc, schedulerTick, runTask, notify, vapid, validateJob, cleanMessages, hash, TOOLS, JOB_TYPES } };
+  return { homeApi, homeScheduler, homeReminderTick, runTaskWorker, _test: { setLiveWait: (n) => { liveWaitMs = n; }, trimOld, recordUsage, googleAccessFor, setAskPoll: (n) => { askPollMs = n; }, learnSkill, findSkills, allSkills, remindersTick, serverTool, runChat, runAdhoc, schedulerTick, runTask, notify, vapid, validateJob, cleanMessages, hash, TOOLS, JOB_TYPES } };
 }
 
 module.exports = { create };
