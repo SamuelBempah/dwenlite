@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Folder, Mic, Video, FileText, Plus, LogOut, 
   HelpCircle, MoreVertical, Edit2, Trash2, 
-  LayoutDashboard, Coins, Star, Sparkles, ArrowRight, GraduationCap, Home as HomeIcon, Mic as MicIcon
+  LayoutDashboard, Coins, Star, Sparkles, ArrowRight, GraduationCap, Home as HomeIcon
 } from 'lucide-react';
 
 function Dashboard() {
@@ -266,15 +266,6 @@ function Dashboard() {
                 />
               </div>
             </section>
-
-            <Link to="/live-meeting" className="flex items-center gap-4 rounded-2xl border border-red-500/30 bg-gradient-to-r from-red-600/15 to-orange-500/10 p-4 transition hover:border-red-400/60">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-red-500 to-orange-500 text-white"><MicIcon size={22} /></span>
-              <span className="min-w-0 flex-1">
-                <span className="block font-bold text-white">Live Meeting</span>
-                <span className="block truncate text-sm text-slate-400">Live transcript, smart questions to ask and quick research</span>
-              </span>
-              <ArrowRight size={20} className="shrink-0 text-red-300" />
-            </Link>
 
             {isOwner && (
               <Link to="/dwenlite-home" className="flex items-center gap-4 rounded-2xl border border-violet-500/30 bg-gradient-to-r from-violet-600/20 to-indigo-600/10 p-4 transition hover:border-violet-400/60">

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, PenTool, HelpCircle, Coins, X, Mic, Home } from 'lucide-react';
+import { BookOpen, PenTool, HelpCircle, Coins, X, Home } from 'lucide-react';
 import { useIsOwner } from '../lib/homeClient';
 
 const TeacherSidebar = ({ isOpen, onClose }) => {
@@ -40,10 +40,6 @@ const TeacherSidebar = ({ isOpen, onClose }) => {
               <Link to="/exams-preparation" className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-800 text-gray-300 hover:text-white transition group">
                 <PenTool size={20} className="text-purple-400 group-hover:scale-110 transition" />
                 <span className="font-medium">Exams Preparation</span>
-              </Link>
-              <Link to="/live-meeting" className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-800 text-gray-300 hover:text-white transition group">
-                <Mic size={20} className="text-red-400 group-hover:scale-110 transition" />
-                <span className="font-medium">Live Meeting</span>
               </Link>
               {isOwner && (
                 <Link to="/dwenlite-home" className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-800 text-gray-300 hover:text-white transition group">
