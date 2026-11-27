@@ -10,7 +10,7 @@ function create({ axios }) {
       const st = e.response && e.response.status;
       if (st === 401) throw new Error(NOT_CONNECTED);
       const m = (e.response && e.response.data && e.response.data.error && (e.response.data.error.message || e.response.data.error)) || e.message;
-      throw new Error(/has not been used|disabled/i.test(String(m)) ? `${m} (the owner must switch that Google API on in the Google Cloud console)` : String(m).slice(0, 300));
+      const err = new Error(/has not been used|disabled/i.test(String(m)) ? `${m} (the owner must switch that Google API on in the Google Cloud console)` : String(m).slice(0, 300)); err.status = st; throw err;
     }
   }
   const b64urlDecode = (s) => Buffer.from(String(s).replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
@@ -58,6 +58,37 @@ function create({ axios }) {
         return `Event created: ${ev.summary} on ${ev.start && ev.start.dateTime}. ${ev.htmlLink || ""}`;
       }
       throw new Error("Calendar actions: list, create.");
+    }
+    if (name === "google_drive") {
+      const NO_DRIVE = "Drive access was not allowed. Ask the owner to open Settings in Dwenlite Home, tap Disconnect, then Connect Google again and allow Drive.";
+      const q1 = (s) => String(s || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+      const text = async (url) => { if (!token) throw new Error(NOT_CONNECTED); try { return String((await axios({ method: "get", url, headers: { Authorization: `Bearer ${token}` }, timeout: 20000, responseType: "text", transformResponse: [(d) => d] })).data); } catch (e) { const st = e.response && e.response.status; throw new Error(st === 401 ? NOT_CONNECTED : st === 403 ? NO_DRIVE : st === 404 ? "That file was not found." : "Drive could not be read."); } };
+      const act = a.action; const max = Math.min(25, Math.max(1, Number(a.max) || 10));
+      try {
+        if (act === "search" || act === "recent") {
+          const q = act === "search" && a.query ? `(name contains '${q1(a.query)}' or fullText contains '${q1(a.query)}') and trashed=false` : "trashed=false";
+          const j = await g(token, "get", `https://www.googleapis.com/drive/v3/files?pageSize=${max}&orderBy=modifiedTime%20desc&fields=${encodeURIComponent("files(id,name,mimeType,modifiedTime)")}&q=${encodeURIComponent(q)}`);
+          return (j.files || []).length ? j.files.map((f) => `id ${f.id}: ${f.name} (${f.mimeType.replace("application/vnd.google-apps.", "Google ").replace(/^application\//, "")}, changed ${String(f.modifiedTime).slice(0, 10)})`).join("\n") : "Nothing found in Drive.";
+        }
+        if (act === "read") {
+          const id = encodeURIComponent(String(a.id || ""));
+          const meta = await g(token, "get", `https://www.googleapis.com/drive/v3/files/${id}?fields=id,name,mimeType,size`);
+          const mt = meta.mimeType || ""; let body;
+          if (mt === "application/vnd.google-apps.spreadsheet") body = await text(`https://www.googleapis.com/drive/v3/files/${id}/export?mimeType=text/csv`);
+          else if (mt.startsWith("application/vnd.google-apps.")) body = await text(`https://www.googleapis.com/drive/v3/files/${id}/export?mimeType=text/plain`);
+          else if (/^text\/|json|csv|xml/.test(mt) && Number(meta.size || 0) < 2000000) body = await text(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`);
+          else return `${meta.name} is a ${mt} file, which cannot be read as text here.`;
+          return `${meta.name}\n\n${body.slice(0, 20000)}${body.length > 20000 ? "\n...[shortened]" : ""}`;
+        }
+        if (act === "create_doc") {
+          const boundary = "dwenlite" + Math.random().toString(36).slice(2);
+          const data = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name: String(a.title || "Untitled").slice(0, 200), mimeType: "application/vnd.google-apps.document" })}\r\n--${boundary}\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n${String(a.text || "").slice(0, 200000)}\r\n--${boundary}--`;
+          if (!token) throw new Error(NOT_CONNECTED);
+          let r; try { r = await axios({ method: "post", url: "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink", data, headers: { Authorization: `Bearer ${token}`, "Content-Type": `multipart/related; boundary=${boundary}` }, timeout: 30000 }); } catch (e) { const st = e.response && e.response.status; throw new Error(st === 401 ? NOT_CONNECTED : st === 403 ? NO_DRIVE : "The document could not be created."); }
+          return `Created the Google Doc "${r.data.name}". ${r.data.webViewLink || ""}`;
+        }
+      } catch (e) { if (e.status === 403 || /Drive API has not been used|accessNotConfigured|insufficient/i.test(e.message)) throw new Error(NO_DRIVE + " (If that does not help, the Google Drive API must be switched on in the Google Cloud console.)"); throw e; }
+      throw new Error("Drive actions: search, recent, read, create_doc.");
     }
     throw new Error("Unknown Google tool.");
   }

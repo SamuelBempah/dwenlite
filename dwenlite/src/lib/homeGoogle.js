@@ -3,7 +3,7 @@ import { auth } from '../firebase';
 
 // Gmail and Calendar are used straight from this browser with a short-lived Google permission. Nothing is stored on our server.
 const KEY = 'dwenliteGoogle';
-const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/calendar.events'];
+const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly', 'https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/drive.readonly', 'https://www.googleapis.com/auth/drive.file'];
 
 export function googleStatus() {
   try { const j = JSON.parse(sessionStorage.getItem(KEY) || 'null'); if (j && j.exp > Date.now() + 30000) return { connected: true, until: j.exp }; } catch { /* ignore */ }
@@ -30,9 +30,19 @@ async function g(url, opts = {}) {
   const r = await fetch(url, { ...opts, headers: { Authorization: `Bearer ${t}`, 'Content-Type': 'application/json', ...(opts.headers || {}) } });
   const j = await r.json().catch(() => ({}));
   if (r.status === 401) { disconnectGoogle(); throw new Error(NOT_CONNECTED); }
-  if (!r.ok) { const m = (j.error && (j.error.message || j.error)) || `Google said ${r.status}`; throw new Error(/has not been used|disabled/i.test(String(m)) ? `${m} (the owner must switch that Google API on in the Google Cloud console)` : String(m)); }
+  if (!r.ok) { const m = (j.error && (j.error.message || j.error)) || `Google said ${r.status}`; const er = new Error(String(m)); er.status = r.status; if (!/has not been used|disabled/i.test(String(m))) throw er; throw new Error(/has not been used|disabled/i.test(String(m)) ? `${m} (the owner must switch that Google API on in the Google Cloud console)` : String(m)); }
   return j;
 }
+async function gText(url) { // plain-text answers (file contents)
+  const t = token(); if (!t) throw new Error(NOT_CONNECTED);
+  const r = await fetch(url, { headers: { Authorization: `Bearer ${t}` } });
+  if (r.status === 401) { disconnectGoogle(); throw new Error(NOT_CONNECTED); }
+  if (!r.ok) throw new Error(r.status === 403 ? NO_DRIVE : r.status === 404 ? 'That file was not found.' : `Google said ${r.status}`);
+  return await r.text();
+}
+const NO_DRIVE = 'Drive access was not allowed. Ask the owner to open Settings, tap Disconnect, then Connect Google again and allow Drive.';
+const driveQ = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+const FIELDS = encodeURIComponent('files(id,name,mimeType,modifiedTime,owners(displayName))');
 const b64urlDecode = (s) => { try { return decodeURIComponent(escape(atob(String(s).replace(/-/g, '+').replace(/_/g, '/')))); } catch { try { return atob(String(s).replace(/-/g, '+').replace(/_/g, '/')); } catch { return ''; } } };
 const b64urlEncode = (s) => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const header = (m, n) => ((m.payload && m.payload.headers) || []).find((h) => h.name.toLowerCase() === n.toLowerCase())?.value || '';
@@ -80,6 +90,36 @@ export async function runGoogleTool(name, a) {
       return `Event created: ${ev.summary} on ${ev.start && ev.start.dateTime}. ${ev.htmlLink || ''}`;
     }
     throw new Error('Calendar actions: list, create.');
+  }
+  if (name === 'google_drive') {
+    const act = a.action; const max = Math.min(25, Math.max(1, Number(a.max) || 10));
+    try {
+      if (act === 'search' || act === 'recent') {
+        const q = act === 'search' && a.query ? `(name contains '${driveQ(a.query)}' or fullText contains '${driveQ(a.query)}') and trashed=false` : 'trashed=false';
+        const j = await g(`https://www.googleapis.com/drive/v3/files?pageSize=${max}&orderBy=modifiedTime%20desc&fields=${FIELDS}&q=${encodeURIComponent(q)}`);
+        return (j.files || []).length ? j.files.map((f) => `id ${f.id}: ${f.name} (${f.mimeType.replace('application/vnd.google-apps.', 'Google ').replace(/^application\//, '')}, changed ${String(f.modifiedTime).slice(0, 10)})`).join('\n') : 'Nothing found in Drive.';
+      }
+      if (act === 'read') {
+        const id = encodeURIComponent(String(a.id || ''));
+        const meta = await g(`https://www.googleapis.com/drive/v3/files/${id}?fields=id,name,mimeType,size`);
+        const mt = meta.mimeType || ''; let text;
+        if (mt === 'application/vnd.google-apps.spreadsheet') text = await gText(`https://www.googleapis.com/drive/v3/files/${id}/export?mimeType=text/csv`);
+        else if (mt.startsWith('application/vnd.google-apps.')) text = await gText(`https://www.googleapis.com/drive/v3/files/${id}/export?mimeType=text/plain`);
+        else if (/^text\/|json|csv|xml/.test(mt) && Number(meta.size || 0) < 2000000) text = await gText(`https://www.googleapis.com/drive/v3/files/${id}?alt=media`);
+        else return `${meta.name} is a ${mt} file, which cannot be read as text here.`;
+        return `${meta.name}\n\n${text.slice(0, 20000)}${text.length > 20000 ? '\n...[shortened]' : ''}`;
+      }
+      if (act === 'create_doc') {
+        const t = token(); if (!t) throw new Error(NOT_CONNECTED);
+        const boundary = 'dwenlite' + Math.random().toString(36).slice(2);
+        const body = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name: String(a.title || 'Untitled').slice(0, 200), mimeType: 'application/vnd.google-apps.document' })}\r\n--${boundary}\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n${String(a.text || '').slice(0, 200000)}\r\n--${boundary}--`;
+        const r = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink', { method: 'POST', headers: { Authorization: `Bearer ${t}`, 'Content-Type': `multipart/related; boundary=${boundary}` }, body });
+        const j = await r.json().catch(() => ({}));
+        if (r.status === 403) throw new Error(NO_DRIVE); if (!r.ok) throw new Error(`Google said ${r.status}`);
+        return `Created the Google Doc "${j.name}". ${j.webViewLink || ''}`;
+      }
+    } catch (e) { if (e.status === 403 || /Drive API has not been used|accessNotConfigured|insufficient/i.test(e.message)) throw new Error(NO_DRIVE + ' (If that does not help, the Google Drive API must be switched on in the Google Cloud console.)'); throw e; }
+    throw new Error('Drive actions: search, recent, read, create_doc.');
   }
   throw new Error('Unknown Google tool.');
 }

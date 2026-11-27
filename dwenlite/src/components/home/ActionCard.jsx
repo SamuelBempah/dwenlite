@@ -14,7 +14,7 @@ const WORDS = {
   git: ['Checking the project', 'Checked the project'], run_tests: ['Testing the project', 'Tested the project'], send_file: ['Getting a file', 'Got a file'],
   find_files: ['Searching your files', 'Searched your files'], pc_health: ['Checking how your computer is doing', 'Checked how your computer is doing'], github: ['Checking GitHub', 'Checked GitHub'],
   reminder: ['Setting a reminder', 'Set a reminder'], todo: ['Updating your list', 'Updated your list'], project_note: ['Noting that down', 'Noted that down'], suggest_memory: ['Making a note to remember', 'Made a note to remember'],
-  document: ['Working on a document', 'Worked on a document'], app_ui: ['Working in a program', 'Worked in a program'], google_mail: ['Checking your email', 'Checked your email'], google_calendar: ['Checking your calendar', 'Checked your calendar'],
+  document: ['Working on a document', 'Worked on a document'], app_ui: ['Working in a program', 'Worked in a program'], google_mail: ['Checking your email', 'Checked your email'], google_calendar: ['Checking your calendar', 'Checked your calendar'], google_drive: ['Looking in your Drive', 'Looked in your Drive'],
 };
 
 export default function ActionCard({ item, onUndo, onDownload }) {

@@ -9,6 +9,7 @@ import PlanCard from '../components/home/PlanCard';
 import ActivityPanel from '../components/home/ActivityPanel';
 import RoutinesPanel from '../components/home/RoutinesPanel';
 import ChatsPanel from '../components/home/ChatsPanel';
+import { startWake, wakeSupported } from '../lib/homeWake';
 import TodayPanel, { myZone } from '../components/home/TodayPanel';
 import DwenLogo from '../components/home/DwenLogo';
 import { plainText } from '../lib/homePlain';
@@ -33,7 +34,7 @@ function categoryOf(name, args = {}) {
   if (['read_file', 'list_dir', 'system_info', 'list_windows', 'send_file'].includes(name)) return 'reading';
   if (name === 'document') return args.action === 'read' ? 'reading' : 'writing';
   if (name === 'git') return GIT_FREE.has(args.action) ? 'reading' : 'writing';
-  if (name === 'browser' || name === 'google_mail' || name === 'google_calendar') return 'web';
+  if (name === 'browser' || name === 'google_mail' || name === 'google_calendar' || name === 'google_drive') return 'web';
   if (['screenshot', 'click', 'type_text', 'press_key', 'scroll', 'app_ui'].includes(name)) return 'screen';
   if (name === 'android') return 'phone';
   if (name === 'write_file') return 'writing';
@@ -67,6 +68,7 @@ export default function DwenliteHome() {
   const [maxMinutes, setMaxMinutes] = useState(() => Number(readJson('dwenliteMaxMinutes', 0)) || 0); // 0 = no time limit
   const [project, setProject] = useState(() => readJson('dwenliteProject', null));
   const [pending, setPending] = useState([]);
+  const [wakeOn, setWakeOn] = useState(() => readJson('dwenliteWake', false) === true);
   const [panel, setPanel] = useState(null); // devices | memory | settings | activity | routines
   const [routineDraft, setRoutineDraft] = useState(null);
   const [rules, setRules] = useState(() => readJson('dwenliteHomeRules', {})); // category -> 'ask' | 'allow'
@@ -224,7 +226,7 @@ export default function DwenliteHome() {
     }
     const id = uid();
     // searching from the owner's own computer works much better than from a cloud server (search engines block those)
-    if (name === 'google_mail' || name === 'google_calendar') {
+    if (name === 'google_mail' || name === 'google_calendar' || name === 'google_drive') {
       const ask = needsApproval(name, args);
       add({ id, type: 'action', tool: name, args, status: ask ? 'asking' : 'running', note: 'Asking Google...' });
       if (ask) {
@@ -571,6 +573,15 @@ export default function DwenliteHome() {
     })();
   }, [gate]);
 
+  // "Hey Dwen": listens while this page is open and nothing else is going on
+  useEffect(() => {
+    if (!wakeOn || gate !== 'ok' || busy || listening || speaking || !wakeSupported()) return undefined;
+    const w = startWake({ onWake: (rest) => { fromMic.current = true; if (rest.length >= 3) send(rest); else startMic(); }, onError: (m) => { toast.error(m); setWakeOn(false); } });
+    return () => w.stop();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wakeOn, gate, busy, listening, speaking]);
+  const toggleWake = () => { const v = !wakeOn; if (v && !wakeSupported()) { toast.error('Hands-free needs Chrome, Edge or Safari.'); return; } setWakeOn(v); try { localStorage.setItem('dwenliteWake', JSON.stringify(v)); } catch { /* optional */ } if (v) toast.success('Say "Hey Dwen" while this page is open.'); };
+
   function startMic() {
     if (!micSupported()) { toast.error('Talking needs Chrome, Edge or Safari.'); return; }
     voiceRef.current && voiceRef.current.stop(); setSpeaking(false);
@@ -807,12 +818,15 @@ export default function DwenliteHome() {
             </div>
             <div className="mt-3 rounded-2xl border border-white/10 bg-slate-900/60 p-3 text-sm">
               <button onClick={googleOn ? () => { disconnectGoogle(); setGoogleOn(false); } : doConnectGoogle} className="flex w-full items-center justify-between gap-3 text-left">
-                <span className="flex items-center gap-2"><Mail size={16} className="text-violet-300" /><span><b>Gmail and Calendar</b><span className="block text-xs text-slate-400">{googleOn ? 'Connected for about an hour. It can read mail, save drafts (never send) and manage calendar events. Tap to disconnect.' : 'Let it read your mail, write drafts and manage your calendar. You allow it with Google, and it lasts about an hour.'}</span></span></span>
+                <span className="flex items-center gap-2"><Mail size={16} className="text-violet-300" /><span><b>Gmail, Calendar and Drive</b><span className="block text-xs text-slate-400">{googleOn ? 'Connected for about an hour. It can read mail, save drafts (never send), manage calendar events and find or read files in Drive. Tap to disconnect.' : 'Let it read your mail, write drafts, manage your calendar and look in your Drive. If you connected before, disconnect and connect again to add Drive. You allow it with Google, and it lasts about an hour.'}</span></span></span>
                 <span className="shrink-0 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold">{googleOn ? 'Disconnect' : 'Connect Google'}</span>
               </button>
             </div>
             <label className="mt-4 flex items-center justify-between text-sm text-slate-300">Steps before it pauses
               <select value={maxSteps} onChange={(e) => setMaxSteps(Number(e.target.value))} className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5">{[8, 15, 25, 40].map((n) => <option key={n} value={n}>{n}</option>)}</select>
+            </label>
+            <label className="mt-3 flex items-center justify-between gap-3 text-sm text-slate-300"><span>Hands-free<span className="block text-xs text-slate-500">Say "Hey Dwen" while this page is open. The microphone listens only on this page.</span></span>
+              <button type="button" role="switch" aria-checked={wakeOn} onClick={toggleWake} className={`h-6 w-11 shrink-0 rounded-full p-0.5 transition-colors ${wakeOn ? 'bg-violet-600' : 'bg-slate-700'}`}><span className={`block h-5 w-5 rounded-full bg-white transition-transform ${wakeOn ? 'translate-x-5' : ''}`} /></button>
             </label>
             <label className="mt-3 flex items-center justify-between text-sm text-slate-300">Time limit for a task
               <select value={maxMinutes} onChange={(e) => { const v = Number(e.target.value); setMaxMinutes(v); try { localStorage.setItem('dwenliteMaxMinutes', JSON.stringify(v)); } catch { /* optional */ } }} className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5"><option value={0}>No limit</option>{[5, 15, 30, 60].map((n) => <option key={n} value={n}>{n} minutes</option>)}</select>
