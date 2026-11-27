@@ -701,3 +701,6 @@ exports.generateNotesProxy = onRequest(
 
 // Dwenlite Home (admin only): personal assistant that codes, sees images and operates the owner's devices.
 exports.homeApi = require("./home").create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPSEEK_API_KEY, ADMIN_EMAILS }).homeApi;
+
+// Live Meeting: real-time meeting helper (suggested questions, web research, summaries).
+exports.meetingApi = require("./meeting").create({ admin, logger, axios, cors, onRequest, DEEPSEEK_API_KEY, checkAndCountUsage, callDeepSeek }).meetingApi;

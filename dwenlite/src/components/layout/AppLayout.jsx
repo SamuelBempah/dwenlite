@@ -7,7 +7,7 @@ import { useIsOwner } from '../../lib/homeClient';
 import { doc, getDoc } from 'firebase/firestore';
 import { 
   Menu, X, LayoutDashboard, GraduationCap, 
-  HelpCircle, Coins, LogOut, User, Sparkles, Home
+  HelpCircle, Coins, LogOut, User, Sparkles, Home, Mic
 } from 'lucide-react';
 
 const AppLayout = ({ children }) => {
@@ -136,6 +136,7 @@ const AppLayout = ({ children }) => {
                   <NavItem icon={<LayoutDashboard size={20} />} label="Dashboard" to="/dashboard" />
                   <NavItem icon={<GraduationCap size={20} />} label="AI Teacher" to="/ai-teacher" />
                   <NavItem icon={<Sparkles size={20} />} label="Exams Prep" to="/exams-preparation" />
+                  <NavItem icon={<Mic size={20} />} label="Live Meeting" to="/live-meeting" />
                   <NavItem icon={<HelpCircle size={20} />} label="Support" to="/community-support" />
                   {isOwner && <NavItem icon={<Home size={20} />} label="Dwenlite Home" to="/dwenlite-home" />}
                 </nav>

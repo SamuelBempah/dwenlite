@@ -25,6 +25,7 @@ import CommunitySupport from './pages/CommunitySupport';
 import Bundles from './pages/Bundles';
 import Reports from './pages/Reports';
 import AITeacher from './pages/AITeacher';
+import LiveMeeting from './pages/LiveMeeting';
 import AdminUsage from './pages/AdminUsage';
 import DwenliteHome from './pages/DwenliteHome';
 
@@ -220,6 +221,7 @@ function AppContent() {
         <Route path="/dwenlite-helpdesk" element={<MaintenanceRoute component={DwenliteHelpdesk} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
         <Route path="/exams-preparation" element={<MaintenanceRoute component={ExamsPreparation} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
         <Route path="/reports" element={<MaintenanceRoute component={Reports} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/live-meeting" element={<MaintenanceRoute component={LiveMeeting} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
         <Route path="/ai-teacher" element={<MaintenanceRoute component={AITeacher} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
         <Route path="/dwenlite-home" element={<MaintenanceRoute component={DwenliteHome} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
         <Route path="/admin-usage" element={<MaintenanceRoute component={AdminUsage} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
