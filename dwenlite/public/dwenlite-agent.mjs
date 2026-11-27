@@ -16,9 +16,11 @@ import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import net from 'node:net';
+import zlib from 'node:zlib';
+import crypto from 'node:crypto';
 import dns from 'node:dns/promises';
 
-export const VERSION = '1.8.0';
+export const VERSION = '1.9.0';
 const MAX_OUT = 100000;      // characters of command output sent back
 const MAX_READ = 200000;     // bytes read from a file
 const IS_WIN = process.platform === 'win32';
@@ -616,6 +618,7 @@ export function createBrowser({ root, api, log }) {
   async function run(a) {
     const act = a.action;
     if (act === 'close') { await closeAll(); return 'Browser closed.'; }
+    if (act === 'logins') { const n = vaultNames(root); return n.length ? 'Saved logins (passwords stay on this computer):\n' + n.map((x) => `- ${x.name} (${x.host})`).join('\n') : 'No logins are saved. The owner adds them on this computer with: node dwenlite-agent.mjs vault add'; }
     const p = await ensurePage(!!a.visible);
     if (act === 'open') {
       const loaded = p.once('Page.loadEventFired', 20000);
@@ -628,6 +631,18 @@ export function createBrowser({ root, api, log }) {
     if (act === 'tabs') {
       const list = (await httpJson(portCache, '/json/list')).filter((t) => t.type === 'page');
       return list.map((t, i) => `${i + 1}. ${t.title || '(no title)'} - ${t.url}`).join('\n') || '(no tabs)';
+    }
+    if (act === 'login') {
+      const cred = await vaultGet(root, String(a.site || ''));
+      const pageUrl = new URL(await evalJs(p, 'location.href'));
+      if (!hostMatches(pageUrl.hostname, cred.host)) throw new Error(`This saved login is for ${cred.host}, but the page is on ${pageUrl.hostname}. Open the right site first.`);
+      const found = await evalJs(p, `(() => { const vis = (e) => { const r = e.getBoundingClientRect(); const s = getComputedStyle(e); return r.width > 3 && r.height > 3 && s.visibility !== 'hidden' && s.display !== 'none'; }; document.querySelectorAll('[data-dwl]').forEach((e) => e.removeAttribute('data-dwl')); const pw = [...document.querySelectorAll('input[type=password]')].find(vis); if (!pw) return { ok: false }; const scope = pw.form || document; const cand = [...scope.querySelectorAll('input')].filter((e) => vis(e) && /^(text|email|tel|)$/i.test(e.type)); let user = null; for (const c of cand) { if (c.compareDocumentPosition(pw) & Node.DOCUMENT_POSITION_FOLLOWING) user = c; } if (!user) user = cand[0] || null; pw.setAttribute('data-dwl', 'p'); if (user) user.setAttribute('data-dwl', 'u'); return { ok: true, hasUser: !!user }; })()`);
+      if (!found || !found.ok) throw new Error('No password box was found on this page. Open the sign-in page first, then use login again.');
+      const fill = async (key, value) => { await evalJs(p, `(() => { const e = document.querySelector('[data-dwl="${key}"]'); e.scrollIntoView({ block: 'center' }); e.focus(); if (e.select) e.select(); })()`); await p.send('Input.insertText', { text: value }); };
+      if (found.hasUser) await fill('u', cred.user);
+      await fill('p', cred.pass);
+      if (a.submit) { await press(p, 'enter'); await settle(p, 1800); }
+      return `Filled in the saved login "${a.site}"${a.submit ? ' and pressed Enter' : ''}. (The username and password were typed in without being shown.)\n\n${await read(p)}`;
     }
     if (act === 'click') {
       const pt = await elementPoint(p, a.element);
@@ -756,6 +771,270 @@ export function detectTestCommand(dir) {
   return '';
 }
 
+// ----------------------------------------------------------------------------- documents: write and read Word, Excel, PDF and CSV files directly (no Office needed)
+const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+const crc32 = (buf) => { let c = 0xffffffff; for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+
+export function zipFiles(files) { // files: [{ name, data: string|Buffer }]
+  const parts = []; const central = []; let offset = 0;
+  for (const f of files) {
+    const name = Buffer.from(f.name, 'utf8'); const raw = Buffer.isBuffer(f.data) ? f.data : Buffer.from(f.data, 'utf8');
+    const data = zlib.deflateRawSync(raw); const crc = crc32(raw);
+    const lh = Buffer.alloc(30); lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(20, 4); lh.writeUInt16LE(0x0800, 6); lh.writeUInt16LE(8, 8); lh.writeUInt16LE(0, 10); lh.writeUInt16LE(0x21, 12);
+    lh.writeUInt32LE(crc, 14); lh.writeUInt32LE(data.length, 18); lh.writeUInt32LE(raw.length, 22); lh.writeUInt16LE(name.length, 26); lh.writeUInt16LE(0, 28);
+    parts.push(lh, name, data);
+    const ch = Buffer.alloc(46); ch.writeUInt32LE(0x02014b50, 0); ch.writeUInt16LE(20, 4); ch.writeUInt16LE(20, 6); ch.writeUInt16LE(0x0800, 8); ch.writeUInt16LE(8, 10); ch.writeUInt16LE(0, 12); ch.writeUInt16LE(0x21, 14);
+    ch.writeUInt32LE(crc, 16); ch.writeUInt32LE(data.length, 20); ch.writeUInt32LE(raw.length, 24); ch.writeUInt16LE(name.length, 28); ch.writeUInt32LE(offset, 42);
+    central.push(ch, name);
+    offset += lh.length + name.length + data.length;
+  }
+  const cd = Buffer.concat(central);
+  const end = Buffer.alloc(22); end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(files.length, 8); end.writeUInt16LE(files.length, 10); end.writeUInt32LE(cd.length, 12); end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...parts, cd, end]);
+}
+export function unzipFiles(buf) { // -> Map(name -> Buffer)
+  let e = buf.length - 22; while (e >= 0 && buf.readUInt32LE(e) !== 0x06054b50) e--;
+  if (e < 0) throw new Error('That is not a valid Office file (zip).');
+  const count = buf.readUInt16LE(e + 10); let p = buf.readUInt32LE(e + 16); const out = new Map();
+  for (let i = 0; i < count; i++) {
+    if (buf.readUInt32LE(p) !== 0x02014b50) break;
+    const method = buf.readUInt16LE(p + 10); const csize = buf.readUInt32LE(p + 20); const nlen = buf.readUInt16LE(p + 28); const elen = buf.readUInt16LE(p + 30); const clen = buf.readUInt16LE(p + 32); const lho = buf.readUInt32LE(p + 42);
+    const name = buf.toString('utf8', p + 46, p + 46 + nlen);
+    const lnlen = buf.readUInt16LE(lho + 26); const lelen = buf.readUInt16LE(lho + 28); const start = lho + 30 + lnlen + lelen;
+    const data = buf.subarray(start, start + csize);
+    if (!name.endsWith('/')) out.set(name, method === 8 ? zlib.inflateRawSync(data) : Buffer.from(data));
+    p += 46 + nlen + elen + clen;
+  }
+  return out;
+}
+const xe = (s) => String(s ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const unx = (s) => String(s).replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (m, n) => String.fromCharCode(Number(n))).replace(/&amp;/g, '&');
+
+// blocks: { type: 'heading', level, text } | { type: 'paragraph', text, bold } | { type: 'bullets', items } | { type: 'numbered', items } | { type: 'table', rows, header }
+function docxBody(blocks) {
+  const run = (t, bold) => `<w:r>${bold ? '<w:rPr><w:b/></w:rPr>' : ''}<w:t xml:space="preserve">${xe(t)}</w:t></w:r>`;
+  const para = (t, style, bold, extra = '') => `<w:p><w:pPr>${style ? `<w:pStyle w:val="${style}"/>` : ''}${extra}</w:pPr>${run(t, bold)}</w:p>`;
+  const out = [];
+  for (const b of blocks) {
+    if (b.type === 'heading') out.push(para(b.text, b.level === 0 ? 'Title' : `Heading${Math.min(3, Math.max(1, b.level || 1))}`));
+    else if (b.type === 'bullets') (b.items || []).forEach((i) => out.push(para(`• ${i}`, '', false, '<w:ind w:left="540" w:hanging="270"/>')));
+    else if (b.type === 'numbered') (b.items || []).forEach((i, n) => out.push(para(`${n + 1}. ${i}`, '', false, '<w:ind w:left="540" w:hanging="360"/>')));
+    else if (b.type === 'table') {
+      const borders = ['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map((s) => `<w:${s} w:val="single" w:sz="4" w:space="0" w:color="999999"/>`).join('');
+      out.push(`<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/><w:tblBorders>${borders}</w:tblBorders></w:tblPr>${(b.rows || []).map((r, ri) => `<w:tr>${r.map((c) => `<w:tc><w:tcPr>${b.header && ri === 0 ? '<w:shd w:val="clear" w:color="auto" w:fill="E7E6E6"/>' : ''}</w:tcPr>${para(c, '', b.header && ri === 0)}</w:tc>`).join('')}</w:tr>`).join('')}</w:tbl>${para('')}`);
+    } else out.push(para(b.text ?? '', '', !!b.bold));
+  }
+  return out.join('');
+}
+export function makeDocx(blocks) {
+  const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
+  const style = (id, name, size, bold) => `<w:style w:type="paragraph" w:styleId="${id}"><w:name w:val="${name}"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:spacing w:before="240" w:after="120"/></w:pPr><w:rPr>${bold ? '<w:b/>' : ''}<w:sz w:val="${size}"/></w:rPr></w:style>`;
+  return zipFiles([
+    { name: '[Content_Types].xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>' },
+    { name: '_rels/.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>' },
+    { name: 'word/_rels/document.xml.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>' },
+    { name: 'word/styles.xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles ${W}><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:hAnsi="Calibri"/><w:sz w:val="22"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="120" w:line="276" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>${style('Title', 'Title', 52, true)}${style('Heading1', 'heading 1', 36, true)}${style('Heading2', 'heading 2', 30, true)}${style('Heading3', 'heading 3', 26, true)}</w:styles>` },
+    { name: 'word/document.xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document ${W}><w:body>${docxBody(blocks)}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr></w:body></w:document>` },
+  ]);
+}
+const colName = (n) => { let s = ''; for (n += 1; n > 0; n = Math.floor((n - 1) / 26)) s = String.fromCharCode(65 + ((n - 1) % 26)) + s; return s; };
+export function makeXlsx(sheets) {
+  const list = (sheets && sheets.length ? sheets : [{ name: 'Sheet1', rows: [] }]).slice(0, 20).map((s, i) => ({ name: String(s.name || `Sheet${i + 1}`).replace(/[\\/?*[\]:]/g, ' ').slice(0, 31), rows: s.rows || [] }));
+  const sheetXml = (rows) => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rows.map((r, ri) => `<row r="${ri + 1}">${r.map((v, ci) => { const ref = colName(ci) + (ri + 1); if (v === null || v === undefined || v === '') return ''; if (typeof v === 'number' && isFinite(v)) return `<c r="${ref}"><v>${v}</v></c>`; if (typeof v === 'boolean') return `<c r="${ref}" t="b"><v>${v ? 1 : 0}</v></c>`; const t = String(v); if (t.startsWith('=')) return `<c r="${ref}"><f>${xe(t.slice(1))}</f></c>`; return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${xe(t)}</t></is></c>`; }).join('')}</row>`).join('')}</sheetData></worksheet>`;
+  return zipFiles([
+    { name: '[Content_Types].xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${list.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>` },
+    { name: '_rels/.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
+    { name: 'xl/workbook.xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${list.map((s, i) => `<sheet name="${xe(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>` },
+    { name: 'xl/_rels/workbook.xml.rels', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${list.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${list.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
+    { name: 'xl/styles.xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>' },
+    ...list.map((s, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data: sheetXml(s.rows) })),
+  ]);
+}
+const latin = (s) => String(s ?? '').replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '-').replace(/•/g, '*').replace(/[^\x20-\x7e\xa0-\xff]/g, '?');
+const pdfEsc = (s) => latin(s).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+export function makePdf(blocks) {
+  const PW = 595; const PH = 842; const M = 56; const maxW = PW - 2 * M;
+  const pages = [[]]; let y = PH - M;
+  const size = (b) => (b.type === 'heading' ? [24, 20, 16, 14][Math.min(3, b.level || 1)] : 11);
+  const wrap = (text, fs, bold) => { const cw = fs * (bold ? 0.56 : 0.5); const per = Math.max(10, Math.floor(maxW / cw)); const lines = []; for (const para of latin(text).split('\n')) { let cur = ''; for (const w of para.split(' ')) { if ((cur + ' ' + w).trim().length > per && cur) { lines.push(cur); cur = w; } else cur = (cur + ' ' + w).trim(); } lines.push(cur); } return lines; };
+  const put = (text, fs, bold, indent = 0) => { for (const line of wrap(text, fs, bold)) { if (y - fs < M) { pages.push([]); y = PH - M; } pages[pages.length - 1].push(`BT /${bold ? 'F2' : 'F1'} ${fs} Tf ${M + indent} ${y - fs} Td (${pdfEsc(line)}) Tj ET`); y -= fs * 1.4; } y -= fs * 0.3; };
+  for (const b of blocks) {
+    if (b.type === 'heading') put(b.text, size(b), true);
+    else if (b.type === 'bullets') (b.items || []).forEach((i) => put(`* ${i}`, 11, false, 14));
+    else if (b.type === 'numbered') (b.items || []).forEach((i, n) => put(`${n + 1}. ${i}`, 11, false, 14));
+    else if (b.type === 'table') (b.rows || []).forEach((r, ri) => put(r.join('  |  '), 10, !!(b.header && ri === 0)));
+    else put(b.text ?? '', 11, !!b.bold);
+  }
+  const objs = []; const add = (s) => { objs.push(s); return objs.length; };
+  add('<< /Type /Catalog /Pages 2 0 R >>'); add(''); // 1 catalog, 2 pages (filled below)
+  const f1 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>'); const f2 = add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+  const kids = pages.map((p) => { const c = add(`<< /Length ${Buffer.byteLength(p.join('\n'), 'latin1')} >>\nstream\n${p.join('\n')}\nendstream`); return add(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PW} ${PH}] /Resources << /Font << /F1 ${f1} 0 R /F2 ${f2} 0 R >> >> /Contents ${c} 0 R >>`); });
+  objs[1] = `<< /Type /Pages /Kids [${kids.map((k) => `${k} 0 R`).join(' ')}] /Count ${kids.length} >>`;
+  let out = '%PDF-1.4\n'; const offs = [];
+  objs.forEach((o, i) => { offs.push(Buffer.byteLength(out, 'latin1')); out += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+  const xref = Buffer.byteLength(out, 'latin1');
+  out += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offs.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return Buffer.from(out, 'latin1');
+}
+export function readDocx(buf) {
+  const files = unzipFiles(buf); const doc = files.get('word/document.xml'); if (!doc) throw new Error('No document text found in that file.');
+  const xml = doc.toString('utf8'); const out = [];
+  for (const m of xml.matchAll(/<w:tbl>[\s\S]*?<\/w:tbl>|<w:p[ >][\s\S]*?<\/w:p>/g)) {
+    const t = (frag) => unx([...frag.matchAll(/<w:t(?: [^>]*)?>([\s\S]*?)<\/w:t>|<w:tab\/>|<w:br\/>/g)].map((x) => (x[1] !== undefined ? x[1] : ' ')).join(''));
+    if (m[0].startsWith('<w:tbl>')) out.push([...m[0].matchAll(/<w:tr[ >][\s\S]*?<\/w:tr>/g)].map((r) => [...r[0].matchAll(/<w:tc>[\s\S]*?<\/w:tc>/g)].map((c) => t(c[0])).join(' | ')).join('\n'));
+    else { const s = t(m[0]); const h = /<w:pStyle w:val="(Title|Heading(\d))"/.exec(m[0]); out.push(h ? `${'#'.repeat(h[1] === 'Title' ? 1 : Number(h[2]))} ${s}` : s); }
+  }
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+export function readXlsx(buf, maxRows = 200) {
+  const files = unzipFiles(buf);
+  const shared = files.has('xl/sharedStrings.xml') ? [...files.get('xl/sharedStrings.xml').toString('utf8').matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => unx([...m[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((x) => x[1]).join(''))) : [];
+  const names = files.has('xl/workbook.xml') ? [...files.get('xl/workbook.xml').toString('utf8').matchAll(/<sheet [^>]*name="([^"]*)"/g)].map((m) => unx(m[1])) : [];
+  const out = [];
+  [...files.keys()].filter((n) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n)).sort((a, b) => parseInt(a.match(/(\d+)\.xml/)[1], 10) - parseInt(b.match(/(\d+)\.xml/)[1], 10)).forEach((n, i) => {
+    const xml = files.get(n).toString('utf8'); const rows = [];
+    for (const r of xml.matchAll(/<row [^>]*>([\s\S]*?)<\/row>/g)) {
+      if (rows.length >= maxRows) break;
+      const cells = [];
+      for (const c of r[1].matchAll(/<c ([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+        const ref = /r="([A-Z]+)\d+"/.exec(c[1]); const col = ref ? ref[1].split('').reduce((a, ch) => a * 26 + ch.charCodeAt(0) - 64, 0) - 1 : cells.length;
+        const type = /t="(\w+)"/.exec(c[1]); const body = c[2] || '';
+        let v = /<v>([\s\S]*?)<\/v>/.exec(body); v = v ? unx(v[1]) : '';
+        if (type && type[1] === 'b') v = v === '1' ? 'true' : 'false';
+        else if (type && type[1] === 's') v = shared[Number(v)] ?? ''; else if (type && type[1] === 'inlineStr') v = unx([...body.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((x) => x[1]).join(''));
+        else if (!v) { const f = /<f[^>]*>([\s\S]*?)<\/f>/.exec(body); if (f) v = '=' + unx(f[1]); }
+        while (cells.length < col) cells.push(''); cells[col] = v;
+      }
+      rows.push(cells.join('\t'));
+    }
+    out.push(`## ${names[i] || `Sheet${i + 1}`}\n${rows.join('\n')}`);
+  });
+  return out.join('\n\n');
+}
+export function readPdf(buf) { // best effort: simple PDFs written by common tools
+  const text = buf.toString('latin1'); const parts = [];
+  for (const m of text.matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
+    let data = Buffer.from(m[1], 'latin1'); try { data = zlib.inflateSync(data); } catch { /* not compressed */ }
+    const s = data.toString('latin1');
+    for (const t of s.matchAll(/\[((?:\\.|[^\]])*)\]\s*TJ|\(((?:\\.|[^)])*)\)\s*Tj/g)) {
+      const raw = t[1] !== undefined ? [...t[1].matchAll(/\(((?:\\.|[^)])*)\)/g)].map((x) => x[1]).join('') : t[2];
+      parts.push(raw.replace(/\\([()\\])/g, '$1').replace(/\\n/g, ' '));
+    }
+  }
+  const out = parts.join('\n').trim();
+  if (!out) throw new Error('No text could be read from that PDF (it may be scanned images, or use an unusual format).');
+  return out;
+}
+export const toCsv = (rows) => (rows || []).map((r) => r.map((v) => { const t = String(v ?? ''); return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; }).join(',')).join('\r\n');
+
+// ----------------------------------------------------------------------------- login vault: passwords stay on THIS computer, encrypted, and are never sent to the server or the AI
+const vaultFile = (root) => path.join(root, '.vault.json');
+const b64 = (b) => Buffer.from(b).toString('base64');
+async function psProtect(plain, decrypt) {
+  const script = `Add-Type -AssemblyName System.Security; if ($env:DW_MODE -eq 'enc') { [Convert]::ToBase64String([Security.Cryptography.ProtectedData]::Protect([Text.Encoding]::UTF8.GetBytes($env:DW_IN), $null, 'CurrentUser')) } else { [Text.Encoding]::UTF8.GetString([Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($env:DW_IN), $null, 'CurrentUser')) }`;
+  return await new Promise((resolve, reject) => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { env: { ...process.env, DW_IN: plain, DW_MODE: decrypt ? 'dec' : 'enc' }, windowsHide: true }, (err, out) => (err ? reject(new Error('Windows could not protect the password.')) : resolve(out.replace(/\r?\n$/, ''))));
+  });
+}
+async function vaultKey() { // macOS: the Keychain; elsewhere: a private key file next to your home folder
+  if (IS_MAC) {
+    try { return Buffer.from((await run('security', ['find-generic-password', '-a', 'dwenlite', '-s', 'dwenlite-vault', '-w'])).stdout.trim(), 'base64'); } catch { /* make one */ }
+    const k = crypto.randomBytes(32); await run('security', ['add-generic-password', '-a', 'dwenlite', '-s', 'dwenlite-vault', '-w', k.toString('base64')]); return k;
+  }
+  const f = process.env.DWENLITE_VAULT_KEY_FILE || path.join(os.homedir(), '.dwenlite-vault.key');
+  if (fs.existsSync(f)) return Buffer.from(fs.readFileSync(f, 'utf8').trim(), 'base64');
+  const k = crypto.randomBytes(32); fs.writeFileSync(f, k.toString('base64'), { mode: 0o600 }); return k;
+}
+async function seal(plain) {
+  if (IS_WIN) return psProtect(plain, false);
+  const key = await vaultKey(); const iv = crypto.randomBytes(12); const c = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const ct = Buffer.concat([c.update(plain, 'utf8'), c.final()]); return b64(Buffer.concat([iv, c.getAuthTag(), ct]));
+}
+async function unseal(enc) {
+  if (IS_WIN) return psProtect(enc, true);
+  const key = await vaultKey(); const raw = Buffer.from(enc, 'base64'); const d = crypto.createDecipheriv('aes-256-gcm', key, raw.subarray(0, 12)); d.setAuthTag(raw.subarray(12, 28));
+  return Buffer.concat([d.update(raw.subarray(28)), d.final()]).toString('utf8');
+}
+const loadVault = (root) => { try { return JSON.parse(fs.readFileSync(vaultFile(root), 'utf8')); } catch { return { v: 1, entries: {} }; } };
+const hostOf = (h) => String(h || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^www\./, '');
+export async function vaultSet(root, { name, host, user, pass }) {
+  if (!/^[\w .-]{1,40}$/.test(name || '')) throw new Error('Use a short name (letters, numbers, spaces).');
+  if (!hostOf(host) || !user || !pass) throw new Error('A website, a username and a password are needed.');
+  const v = loadVault(root); v.entries[name] = { host: hostOf(host), user: await seal(user), pass: await seal(pass) };
+  fs.mkdirSync(root, { recursive: true }); fs.writeFileSync(vaultFile(root), JSON.stringify(v), { mode: 0o600 });
+}
+export function vaultNames(root) { return Object.entries(loadVault(root).entries).map(([name, e]) => ({ name, host: e.host })); }
+export async function vaultGet(root, name) { const e = loadVault(root).entries[name]; if (!e) throw new Error(`There is no saved login called "${name}". Saved logins: ${vaultNames(root).map((x) => x.name).join(', ') || 'none'}. Add one on the computer with: node dwenlite-agent.mjs vault add`); return { host: e.host, user: await unseal(e.user), pass: await unseal(e.pass) }; }
+export function vaultRemove(root, name) { const v = loadVault(root); if (!v.entries[name]) return false; delete v.entries[name]; fs.writeFileSync(vaultFile(root), JSON.stringify(v), { mode: 0o600 }); return true; }
+export const hostMatches = (pageHost, vaultHost) => { const p = hostOf(pageHost); const h = hostOf(vaultHost); return p === h || p.endsWith('.' + h); };
+
+// ----------------------------------------------------------------------------- read and use Windows programs by their buttons and fields (UI Automation), no screenshots
+const PS_UI = `param([string]$Action,[string]$App,[string]$Ct,[string]$Name,[string]$AutoId,[int]$Nth,[string]$TextB64)
+Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
+${PS_FIND}
+$h = Find-Win $App
+$AE = [System.Windows.Automation.AutomationElement]
+$root = $AE::FromHandle($h)
+function Ct-Name($e) { return $e.Current.ControlType.ProgrammaticName -replace '^ControlType\\.','' }
+function Find-El() {
+  $conds = New-Object 'System.Collections.Generic.List[System.Windows.Automation.Condition]'
+  if ($Ct) { $ctObj = [System.Windows.Automation.ControlType].GetField($Ct).GetValue($null); $conds.Add((New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, $ctObj))) }
+  if ($Name) { $conds.Add((New-Object System.Windows.Automation.PropertyCondition($AE::NameProperty, $Name))) }
+  if ($AutoId) { $conds.Add((New-Object System.Windows.Automation.PropertyCondition($AE::AutomationIdProperty, $AutoId))) }
+  if ($conds.Count -eq 0) { Write-Error 'No element was given.'; exit 4 }
+  $c = if ($conds.Count -eq 1) { $conds[0] } else { New-Object System.Windows.Automation.AndCondition($conds.ToArray()) }
+  $found = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, $c)
+  if ($found.Count -le $Nth) { Write-Error 'That element is no longer there. Read the window again.'; exit 4 }
+  return $found.Item($Nth)
+}
+switch ($Action) {
+  'read' {
+    $keep = @('Button','CheckBox','ComboBox','Edit','Hyperlink','ListItem','MenuItem','RadioButton','TabItem','Text','Document','TreeItem','Slider','Spinner','SplitButton')
+    $all = $root.FindAll([System.Windows.Automation.TreeScope]::Descendants, [System.Windows.Automation.Condition]::TrueCondition)
+    $out = @(); $seen = @{}; $n = 0
+    for ($i = 0; $i -lt $all.Count -and $out.Count -lt 220 -and $i -lt 4000; $i++) {
+      $e = $all.Item($i)
+      try {
+        $ct = Ct-Name $e
+        if ($keep -notcontains $ct) { continue }
+        if ($e.Current.IsOffscreen -or -not $e.Current.IsEnabled) { continue }
+        $name = [string]$e.Current.Name; $id = [string]$e.Current.AutomationId
+        if ($ct -eq 'Text' -and $name.Length -lt 2) { continue }
+        $key = "$ct|$name|$id"; $nth = 0; if ($seen.ContainsKey($key)) { $nth = $seen[$key] }; $seen[$key] = $nth + 1
+        $val = ''
+        try { $vp = $e.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern); $val = [string]$vp.Current.Value } catch {}
+        $chk = ''
+        try { $tp = $e.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern); $chk = [string]$tp.Current.ToggleState } catch {}
+        if ($val.Length -gt 80) { $val = $val.Substring(0,80) }
+        $n++
+        $out += [pscustomobject]@{ n = $n; ct = $ct; name = $name; id = $id; nth = $nth; value = $val; state = $chk }
+      } catch {}
+    }
+    Write-Output '###JSON'
+    Write-Output (ConvertTo-Json -InputObject @($out) -Compress -Depth 3)
+  }
+  'click' {
+    $e = Find-El
+    foreach ($p in @('InvokePattern','TogglePattern','SelectionItemPattern','ExpandCollapsePattern')) {
+      try {
+        $pt = ([type]"System.Windows.Automation.$p").GetField('Pattern').GetValue($null)
+        $pat = $e.GetCurrentPattern($pt)
+        if ($p -eq 'InvokePattern') { $pat.Invoke() } elseif ($p -eq 'TogglePattern') { $pat.Toggle() } elseif ($p -eq 'SelectionItemPattern') { $pat.Select() } else { $pat.Expand() }
+        Write-Output "OK $p"; exit 0
+      } catch {}
+    }
+    Write-Error 'That control cannot be pressed this way. Try the mouse tools with a screenshot instead.'; exit 5
+  }
+  'type' {
+    $e = Find-El
+    $text = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($TextB64))
+    try { $vp = $e.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern); $vp.SetValue($text); Write-Output 'OK value' }
+    catch { Write-Error 'That field does not accept text this way (some editors, like the Word page itself, need real typing: use type_text with the app name).'; exit 5 }
+  }
+  'focus' { $e = Find-El; $e.SetFocus(); Write-Output 'OK focus' }
+}
+`;
+
 // ----------------------------------------------------------------------------- the agent
 export function createAgent(opts) {
   const root = opts.root;
@@ -806,7 +1085,7 @@ export function createAgent(opts) {
   }
 
   // ---- Android over USB / Wi-Fi debugging ----
-  let adbPath = ''; let uiEls = [];
+  let adbPath = ''; let uiEls = []; let uiMap = [];
   async function findAdb() {
     if (adbPath && (adbPath === 'adb' || fs.existsSync(adbPath))) return adbPath;
     const exe = IS_WIN ? 'adb.exe' : 'adb';
@@ -967,6 +1246,44 @@ export function createAgent(opts) {
       const r = await fetch(u, { method, body: method === 'POST' ? String(a.body || '').slice(0, 20000) : undefined, headers: a.body ? { 'Content-Type': a.content_type || 'application/json' } : {}, signal: AbortSignal.timeout(8000), redirect: 'manual' });
       const text = await r.text();
       return `HTTP ${r.status} ${r.headers.get('content-type') || ''}\n\n${clip(text, 8000)}`;
+    },
+    async document(a) {
+      if (a.action === 'read') {
+        const f = safePath(root, a.path, extra()); const st = fs.statSync(f);
+        if (!st.isFile() || st.size > 25 * 1024 * 1024) throw new Error('That is not a readable file (25 MB at most).');
+        const buf = fs.readFileSync(f); const ext = path.extname(f).toLowerCase();
+        const text = ext === '.docx' ? readDocx(buf) : ext === '.xlsx' ? readXlsx(buf) : ext === '.pdf' ? readPdf(buf) : (buf.includes(0) ? (() => { throw new Error('That looks like a binary file. Supported: .docx .xlsx .pdf .csv .txt'); })() : buf.toString('utf8'));
+        return clip(text, MAX_OUT);
+      }
+      const kind = String(a.kind || path.extname(String(a.path || '')).slice(1)).toLowerCase();
+      if (!['docx', 'xlsx', 'pdf', 'csv'].includes(kind)) throw new Error('Choose docx, xlsx, pdf or csv.');
+      let f = safePath(root, a.path, extra());
+      if (path.extname(f).toLowerCase() !== `.${kind}`) f += `.${kind}`;
+      f = safePath(root, f, extra());
+      const blocks = Array.isArray(a.blocks) ? a.blocks : [{ type: 'paragraph', text: String(a.text || '') }];
+      const buf = kind === 'docx' ? makeDocx(blocks) : kind === 'pdf' ? makePdf(blocks) : kind === 'xlsx' ? makeXlsx(a.sheets) : Buffer.from('\ufeff' + toCsv(a.rows), 'utf8');
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      const undoId = backupBeforeWrite(f);
+      fs.writeFileSync(f, buf);
+      return `Created ${f} (${buf.length} bytes)${undoId ? ` [undo:${undoId}]` : ''}`;
+    },
+    async app_ui(a) {
+      needGui();
+      if (!IS_WIN) throw new Error('Reading programs by their buttons works on Windows only for now. On this computer use the screenshot tools.');
+      const clean = (e) => { throw new Error(String((e.stderr || e.message || e)).replace(/\r?\n[\s\S]*$/, '').slice(0, 400)); };
+      const readUi = async () => {
+        const r = await ps(psFile('ui', PS_UI), ['-Action', 'read', '-App', String(a.app)]).catch(clean);
+        const json = r.stdout.split('###JSON')[1] || '[]'; uiMap = JSON.parse(json.trim() || '[]');
+        return `PROGRAM: ${a.app}\nELEMENTS (use the number with click or type):\n${uiMap.map((e) => `[${e.n}] ${e.ct}${e.name ? ' "' + e.name + '"' : ''}${e.id ? ' (' + e.id + ')' : ''}${e.value ? ' value "' + e.value + '"' : ''}${e.state === 'On' ? ' (on)' : ''}`).join('\n') || '(nothing readable: the program may not support this. Use screenshots.)'}`;
+      };
+      if (a.action === 'read') return await readUi();
+      const el = uiMap.find((x) => x.n === Number(a.element));
+      if (!el) throw new Error(`Element ${a.element} was not found. Read the program again first and use the new numbers.`);
+      const args = ['-Action', a.action, '-App', String(a.app), '-Ct', el.ct, '-Name', el.name, '-AutoId', el.id, '-Nth', String(el.nth)];
+      if (a.action === 'type') args.push('-TextB64', Buffer.from(String(a.text || ''), 'utf8').toString('base64'));
+      await ps(psFile('ui', PS_UI), args).catch(clean);
+      await sleep(600);
+      return `Done.\n\n${await readUi()}`;
     },
     async git(a) {
       needShell();
@@ -1243,7 +1560,26 @@ Start-Process $u`;
 }
 
 // ----------------------------------------------------------------------------- start
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href && process.argv[2] === 'vault') {
+  // run on THIS computer: node dwenlite-agent.mjs vault add | list | remove <name>
+  const { createInterface } = await import('node:readline');
+  const o = parseArgs(process.argv.slice(3)); const rootDir = o.root;
+  const ask = (q, hidden) => new Promise((resolve) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+    if (hidden) { rl._writeToOutput = (s) => { if (s.includes(q)) rl.output.write(s); else rl.output.write(''); }; }
+    rl.question(q, (v) => { rl.close(); if (hidden) process.stdout.write('\n'); resolve(v); });
+  });
+  const sub = process.argv[3];
+  if (sub === 'add') {
+    const name = (await ask('Name for this login (for example: Gmail): ')).trim(); const host = (await ask('Website address (for example: gmail.com or accounts.google.com): ')).trim();
+    const user = (await ask('Username or email: ')).trim(); const pass = await ask('Password (hidden): ', true);
+    try { await vaultSet(rootDir, { name, host, user, pass }); console.log(`Saved "${name}". The password is encrypted on this computer and is never sent anywhere.`); } catch (e) { console.error('Could not save: ' + e.message); process.exit(1); }
+  } else if (sub === 'list') { const n = vaultNames(rootDir); console.log(n.length ? n.map((x) => `${x.name}  (${x.host})`).join('\n') : 'No logins saved.'); }
+  else if (sub === 'remove') { const name = process.argv[4] || (await ask('Name to remove: ')).trim(); console.log(vaultRemove(rootDir, name) ? `Removed "${name}".` : 'No login with that name.'); }
+  else console.log('Usage: node dwenlite-agent.mjs vault add | list | remove <name>');
+  process.exit(0);
+}
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href && process.argv[2] !== 'vault') {
   const o = parseArgs(process.argv.slice(2));
   if (o.help || !o.url || !o.device || !o.token) {
     console.log('Usage: node dwenlite-agent.mjs --url <API URL> --device <ID> --token <TOKEN> [--root <folder>] [--allow-shell] [--allow-gui] [--interval 3000]');

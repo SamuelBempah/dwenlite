@@ -48,6 +48,8 @@ function allowedUnattended(name, args = {}, allowActions = false) {
   if (name === "browser") return allowActions || SAFE.browser.has(args.action);
   if (name === "git") return allowActions || SAFE.git.has(args.action);
   if (name === "android") return allowActions || SAFE.android.has(args.action);
+  if (name === "document") return allowActions || args.action === "read";
+  if (name === "app_ui") return allowActions || args.action === "read";
   if (name === "lan_http") return allowActions || String(args.method || "GET").toUpperCase() === "GET";
   if (["run_shell", "write_file", "click", "type_text", "press_key", "scroll", "open_url", "run_tests", "send_file"].includes(name)) return !!allowActions && name !== "send_file";
   return false;

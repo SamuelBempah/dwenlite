@@ -18,7 +18,7 @@ import { homeCall, homeChatStream, imageToText, IMAGE_MODES, runJs, formatJsResu
 
 const READ_ONLY = new Set(['read_file', 'list_dir', 'system_info', 'list_windows', 'send_file']);
 const GIT_FREE = new Set(['status', 'diff', 'log', 'show', 'branch']);
-const SCREEN = new Set(['screenshot', 'click', 'type_text', 'press_key', 'scroll', 'browser']);
+const SCREEN = new Set(['screenshot', 'click', 'type_text', 'press_key', 'scroll', 'browser', 'app_ui']);
 const JOB_TYPE = { run_shell: 'shell' };
 const uid = () => Math.random().toString(36).slice(2, 10);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -146,6 +146,7 @@ export default function DwenliteHome() {
     if (m === 'auto') return false;
     if (name === 'android') return m === 'screen' ? !ANDROID_FREE.has(args.action) : true;
     if (name === 'git') return m === 'screen' ? !GIT_FREE.has(args.action) : true;
+    if (name === 'document') return m === 'screen' ? args.action !== 'read' : true;
     if (m === 'screen') return !(READ_ONLY.has(name) || SCREEN.has(name));
     return true;
   };

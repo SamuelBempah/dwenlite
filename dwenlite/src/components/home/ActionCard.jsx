@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AnimatedCheck, AnimatedX, Appear, Collapse, Spinner, Tap, motion, spring } from './motion';
-import { Terminal, FileText, FilePen, FolderOpen, Cpu, Camera, MousePointerClick, Keyboard, Globe, Code2, ChevronDown, ScrollText, Search, Undo2, Compass, Smartphone, Network, GitBranch, FlaskConical, Download } from 'lucide-react';
+import { Terminal, FileText, FilePen, FolderOpen, Cpu, Camera, MousePointerClick, Keyboard, Globe, Code2, ChevronDown, ScrollText, Search, Undo2, Compass, Smartphone, Network, GitBranch, FlaskConical, Download, FileSpreadsheet, AppWindow } from 'lucide-react';
 
 const META = {
   run_shell: { icon: Terminal, doing: 'Running a task on the computer', done: 'Ran a task on the computer' },
@@ -16,6 +16,8 @@ const META = {
   android: { icon: Smartphone, doing: 'Working on the phone', done: 'Used the phone' },
   network_scan: { icon: Network, doing: 'Looking for devices on the network', done: 'Scanned the network' },
   lan_http: { icon: Network, doing: 'Talking to a device on the network', done: 'Talked to a device on the network' },
+  document: { icon: FileSpreadsheet, doing: 'Working on a document', done: 'Worked on a document' },
+  app_ui: { icon: AppWindow, doing: 'Working in a program', done: 'Worked in a program' },
   git: { icon: GitBranch, doing: 'Checking the code project', done: 'Checked the code project' },
   run_tests: { icon: FlaskConical, doing: 'Running the tests', done: 'Ran the tests' },
   send_file: { icon: Download, doing: 'Getting a file', done: 'Got a file' },
@@ -42,6 +44,8 @@ function detail(name, a) {
     case 'android': return [a.action, a.serial || '', a.host || '', a.element ? `element ${a.element}` : '', a.text ? `"${String(a.text).slice(0, 200)}"` : '', a.key || '', a.package || a.url || '', a.command || '', a.local || '', a.remote || ''].filter(Boolean).join(' ');
     case 'network_scan': return (a.ports || []).join(', ');
     case 'lan_http': return `${a.method || 'GET'} ${a.url}${a.body ? '\n' + String(a.body).slice(0, 300) : ''}`;
+    case 'document': return `${a.action === 'read' ? 'read' : 'create ' + (a.kind || '')} ${a.path || ''}`;
+    case 'app_ui': return [a.app, a.action, a.element ? `element ${a.element}` : '', a.text ? `"${String(a.text).slice(0, 200)}"` : ''].filter(Boolean).join(' ');
     case 'git': return [a.action, a.repo || '', a.message ? `"${a.message}"` : '', (a.paths || []).join(' '), a.ref || ''].filter(Boolean).join(' ');
     case 'run_tests': return a.command || a.path || '(auto-detect)';
     case 'send_file': return a.path;
