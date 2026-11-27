@@ -280,6 +280,15 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
             await ref.set({ ownerUid: uid, name, tokenHash: hash(token), createdAt: Date.now(), lastSeen: 0 });
             return res.status(200).json({ deviceId: ref.id, token, name }); // the token is shown once and never stored in clear
           }
+          if (action === "device_rotate") {
+            // the old key is not stored, so reconnecting means issuing a fresh one (the old one stops working)
+            const ref = db.collection("homeDevices").doc(String(body.id || "x"));
+            const d = await ref.get();
+            if (!d.exists || d.data().ownerUid !== uid) return res.status(404).json({ error: "No such device." });
+            const token = crypto.randomBytes(24).toString("base64url");
+            await ref.update({ tokenHash: hash(token) });
+            return res.status(200).json({ deviceId: ref.id, token, name: d.data().name });
+          }
           if (action === "device_list") {
             const q = await db.collection("homeDevices").where("ownerUid", "==", uid).get();
             const now = Date.now();

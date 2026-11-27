@@ -1,4 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
+import { useIsOwner } from '../lib/homeClient';
 import { useState, useEffect, useRef } from 'react';
 import { auth, db } from '../firebase';
 import { collection, addDoc, query, where, getDocs, updateDoc, deleteDoc, doc, getDoc, setDoc } from 'firebase/firestore';
@@ -7,11 +8,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Folder, Mic, Video, FileText, Plus, LogOut, 
   HelpCircle, MoreVertical, Edit2, Trash2, 
-  LayoutDashboard, Coins, Star, Sparkles, ArrowRight, GraduationCap
+  LayoutDashboard, Coins, Star, Sparkles, ArrowRight, GraduationCap, Home as HomeIcon
 } from 'lucide-react';
 
 function Dashboard() {
   const navigate = useNavigate();
+  const isOwner = useIsOwner();
   
   // State Management
   const [folders, setFolders] = useState([]);
@@ -264,6 +266,17 @@ function Dashboard() {
                 />
               </div>
             </section>
+
+            {isOwner && (
+              <Link to="/dwenlite-home" className="flex items-center gap-4 rounded-2xl border border-violet-500/30 bg-gradient-to-r from-violet-600/20 to-indigo-600/10 p-4 transition hover:border-violet-400/60">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600 text-white"><HomeIcon size={22} /></span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-bold text-white">Dwenlite Home</span>
+                  <span className="block truncate text-sm text-slate-400">Your personal assistant that works on your computer</span>
+                </span>
+                <ArrowRight size={20} className="shrink-0 text-violet-300" />
+              </Link>
+            )}
 
             {/* Folders Section */}
             <section ref={foldersSectionRef} className="space-y-4">

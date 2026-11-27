@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { auth, db } from '../../firebase';
 import StreakChip from '../StreakChip';
+import { useIsOwner } from '../../lib/homeClient';
 import { doc, getDoc } from 'firebase/firestore';
 import { 
   Menu, X, LayoutDashboard, GraduationCap, 
@@ -17,7 +18,7 @@ const AppLayout = ({ children }) => {
   const [gCoins, setGCoins] = useState(0);
   const [currentUser, setCurrentUser] = useState(null);
   // set by the admin pages once the server has confirmed you are the owner; the server still checks every request
-  const isOwner = (() => { try { return localStorage.getItem('dwenliteAdmin') === '1'; } catch { return false; } })();
+  const isOwner = useIsOwner();
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {

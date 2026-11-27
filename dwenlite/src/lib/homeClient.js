@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { auth } from '../firebase';
 
 export const HOME_URL = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/homeApi';
@@ -124,3 +125,26 @@ export const formatJsResult = (r) => [
   r.result !== undefined ? `=> ${r.result}` : '',
   r.error ? `ERROR: ${r.error}` : '',
 ].filter(Boolean).join('\n') || '(no output)';
+
+// True when the signed-in user is the owner. Remembered per account so other users never trigger repeated checks.
+export function useIsOwner() {
+  const read = () => { try { return localStorage.getItem('dwenliteAdmin') === '1'; } catch { return false; } };
+  const [owner, setOwner] = useState(read);
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged(async (user) => {
+      if (!user) return;
+      let checked = '';
+      try { checked = localStorage.getItem('dwenliteAdminChecked') || ''; } catch { /* ignore */ }
+      if (checked === user.uid) { setOwner(read()); return; }
+      try {
+        await homeCall('whoami');
+        try { localStorage.setItem('dwenliteAdmin', '1'); localStorage.setItem('dwenliteAdminChecked', user.uid); } catch { /* ignore */ }
+        setOwner(true);
+      } catch (e) {
+        if (e.status === 403) { try { localStorage.setItem('dwenliteAdmin', '0'); localStorage.setItem('dwenliteAdminChecked', user.uid); } catch { /* ignore */ } setOwner(false); }
+      }
+    });
+    return unsub;
+  }, []);
+  return owner;
+}

@@ -340,6 +340,13 @@ export default function DwenliteHome() {
         <button onClick={newChat} aria-label="New chat" title="New chat" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50"><RotateCcw size={16} /></button>
       </div>
 
+      {devices.length > 0 && onlineCount === 0 && (
+        <div className="flex items-center justify-between gap-2 bg-slate-800/80 px-4 py-2 text-xs text-slate-200">
+          <span>Your computer is not connected. Start the Dwenlite agent on it again.</span>
+          <button onClick={() => setPanel('devices')} className="shrink-0 rounded-md bg-violet-600 px-2.5 py-1 font-semibold hover:bg-violet-500">How to reconnect</button>
+        </div>
+      )}
+
       {modeBanner && (
         <div className={`flex items-center justify-between px-4 py-1.5 text-xs font-semibold ${mode === 'auto' ? 'bg-red-500/20 text-red-200' : 'bg-amber-400/15 text-amber-200'}`}>
           <span>{modeBanner}</span>

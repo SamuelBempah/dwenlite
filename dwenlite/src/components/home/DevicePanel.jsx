@@ -20,6 +20,10 @@ export default function DevicePanel({ devices, reload, onClose }) {
       reload();
     } catch (e) { toast.error(e.message); } finally { setBusy(false); }
   };
+  const reconnect = async (d) => {
+    setBusy(true);
+    try { const r = await homeCall('device_rotate', { id: d.id }); setMade(r); reload(); } catch (e) { toast.error(e.message); } finally { setBusy(false); }
+  };
   const remove = async (d) => {
     if (!window.confirm(`Remove "${d.name}"? Its agent will stop working immediately.`)) return;
     try { await homeCall('device_delete', { id: d.id }); reload(); } catch (e) { toast.error(e.message); }
@@ -50,6 +54,7 @@ export default function DevicePanel({ devices, reload, onClose }) {
                   {d.online ? ` · shell ${d.caps && d.caps.shell ? 'on' : 'off'} · screen ${d.caps && d.caps.gui ? 'on' : 'off'}` : ''}
                 </p>
               </div>
+              {!d.online && <button onClick={() => reconnect(d)} disabled={busy} className="shrink-0 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold hover:bg-violet-500 disabled:opacity-50">Reconnect</button>}
               <button onClick={() => remove(d)} aria-label={`Remove ${d.name}`} className="rounded-lg p-2 text-slate-500 hover:bg-red-500/10 hover:text-red-400"><Trash2 size={16} /></button>
             </div>
           ))}
@@ -69,16 +74,17 @@ export default function DevicePanel({ devices, reload, onClose }) {
 
         {made && (
           <div className="mt-4 rounded-2xl border border-amber-400/40 bg-amber-400/5 p-4 text-sm">
-            <p className="font-semibold text-amber-200">"{made.name}" is ready. Now, on that computer:</p>
+            <p className="font-semibold text-amber-200">"{made.name}" is ready. On that computer:</p>
             <ol className="mt-2 list-decimal space-y-2 pl-5 text-slate-300">
+              <li>Already installed Node.js and downloaded the agent before? Skip to the last step.</li>
               <li>Install <a className="text-violet-300 underline" href="https://nodejs.org" target="_blank" rel="noreferrer">Node.js</a> (version 18 or newer).</li>
               <li><a className="inline-flex items-center gap-1 text-violet-300 underline" href="/dwenlite-agent.mjs" download="dwenlite-agent.mjs"><Download size={13} /> Download dwenlite-agent.mjs</a> into a folder.</li>
-              <li>Open a terminal in that folder and run:
+              <li>Open a terminal (PowerShell on Windows) in the folder that holds dwenlite-agent.mjs and run:
                 <pre className="mt-1 whitespace-pre-wrap break-all rounded-lg bg-black/50 p-2.5 font-mono text-xs text-slate-200">{command}</pre>
                 <button onClick={() => copy(command)} className="mt-1 flex items-center gap-1.5 text-xs text-violet-300 hover:text-violet-200"><Copy size={13} /> Copy command</button>
               </li>
             </ol>
-            <p className="mt-3 text-xs text-amber-200/80">The key in that command is shown only once. Keep the agent running while you want Dwenlite Home to use this computer. It works inside a folder called "dwenlite-home" in your user folder, and logs everything it does there.</p>
+            <p className="mt-3 text-xs text-amber-200/80">The key in that command is shown only once and replaces the old one (the old command stops working). If the agent disconnects later, open Your devices and press Reconnect. Keep the agent running while you want Dwenlite Home to use this computer. It works inside a folder called "dwenlite-home" in your user folder, and logs everything it does there.</p>
           </div>
         )}
       </div>
