@@ -1078,7 +1078,7 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
               }
               const image = typeof body.image === "string" && body.image.length <= 900000 ? body.image : "";
               const m = body.meta && typeof body.meta === "object" ? body.meta : {};
-              const meta = { open: !!m.open, w: Number(m.w) || 0, h: Number(m.h) || 0, url: clip(m.url, 300), title: clip(m.title, 120), error: clip(m.error, 200) };
+              const meta = { open: !!m.open, editable: !!m.editable, w: Number(m.w) || 0, h: Number(m.h) || 0, url: clip(m.url, 300), title: clip(m.title, 120), error: clip(m.error, 200) };
               const seq = Date.now(); const mk = `${ref.id}_${kind}`; const prev = liveMem.get(mk);
               liveMem.set(mk, { seq, image, meta, saved: prev && seq - prev.saved < 120 ? prev.saved : seq });
               if (!prev || seq - prev.saved >= 120) await db.collection("homeFrames").doc(`${mk}_${Math.floor(seq / 120) % RING}`).set({ ownerUid: snap.data().ownerUid, seq, image, meta }); // the shared copy is kept at a calmer pace than the fast one

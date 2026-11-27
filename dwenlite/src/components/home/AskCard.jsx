@@ -10,7 +10,7 @@ import { plainText } from '../../lib/homePlain';
 export default function AskCard({ item }) {
   const [sending, setSending] = useState(false);
   const [view, setView] = useState(false);
-  const answer = async (yes) => { setSending(true); try { await homeCall('approval_answer', { id: item.id, yes }); } catch (e) { toast.error(e.message); setSending(false); } };
+  const answer = async (yes) => { setSending(true); try { await homeCall('approval_answer', { id: item.askId || item.id, yes }); } catch (e) { toast.error(e.message); setSending(false); } };
   const done = item.answer && item.answer !== 'waiting';
   return (
     <Appear className={`my-1.5 max-w-full rounded-2xl border px-3 py-2.5 text-sm ${done ? 'border-white/10 bg-slate-900/60' : 'border-amber-400/40 bg-amber-500/10'}`}>
@@ -31,7 +31,7 @@ export default function AskCard({ item }) {
           )}
         </div>
       </div>
-      {view && <BrowserView device={{ id: item.deviceId, name: item.deviceName }} reason={plainText(item.question)} onClose={() => setView(false)} onDone={async () => { setView(false); await answer(true); }} onCant={async () => { setView(false); await answer(false); }} />}
+      {view && <BrowserView device={{ id: item.deviceId, name: item.deviceName }} reason={plainText(item.question)} onClose={() => setView(false)} onDone={async () => { setView(false); await answer(true); }} />}
     </Appear>
   );
 }

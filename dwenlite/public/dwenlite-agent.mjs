@@ -22,7 +22,7 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import dns from 'node:dns/promises';
 
-export const VERSION = '2.7.0';
+export const VERSION = '2.8.0';
 export const DEFAULT_URL = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/homeApi';
 export const SITE = 'https://www.dwenlite.space';
 const MAX_OUT = 100000;      // characters of command output sent back
@@ -736,7 +736,7 @@ export function createBrowser({ root, api, log }) {
     return () => { off(); p.send('Page.stopScreencast').catch(() => {}); };
   }
   const isOpen = () => !!(proc && page && !page.closed);
-  async function pageInfo() { if (!isOpen()) return null; try { return await evalJs(page, '({ w: innerWidth, h: innerHeight, url: location.href, title: document.title })'); } catch { return null; } }
+  async function pageInfo() { if (!isOpen()) return null; try { return await evalJs(page, '({ w: innerWidth, h: innerHeight, url: location.href, title: document.title, editable: !!(document.activeElement && (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName) || document.activeElement.isContentEditable)) })'); } catch { return null; } }
   async function input(a) { // what the owner does in the live view
     if (!isOpen()) return;
     const p = page; const op = String(a.op || '');
@@ -1268,7 +1268,7 @@ export function createAgent(opts) {
             if (!sc && browser.isOpen()) { try { sc = await browser.screencast((f) => { st.latest = { image: f.data, meta: { open: true, w: Math.round(f.metadata.deviceWidth) || 1280, h: Math.round(f.metadata.deviceHeight) || 900, ...(info || {}) }, n: ++st.seq }; }); } catch { sc = null; } }
             if (sc && !browser.isOpen()) { try { sc(); } catch { /* gone */ } sc = null; }
             if (!browser.isOpen()) { if (!st.latest || st.latest.meta.open) st.latest = { image: '', meta: { open: false }, n: ++st.seq }; }
-            else if (t0 - lastInfo > 700) { lastInfo = t0; const i = await browser.pageInfo(); if (i) { info = { url: String(i.url).slice(0, 300), title: String(i.title).slice(0, 120) }; if (st.latest && st.latest.meta.open) st.latest.meta = { ...st.latest.meta, ...info }; } }
+            else if (t0 - lastInfo > 700) { lastInfo = t0; const i = await browser.pageInfo(); if (i) { info = { url: String(i.url).slice(0, 300), title: String(i.title).slice(0, 120), editable: !!i.editable }; if (st.latest && st.latest.meta.open) st.latest.meta = { ...st.latest.meta, ...info }; } }
           } else if (kind === 'screen' && !IS_WIN) {
             try { const r = await actions.screenshot({ look: 'live', novision: true }); if (r && r.image) st.latest = { image: r.image, meta: { open: true }, n: ++st.seq }; } catch (e) { st.latest = { image: '', meta: { open: false, error: String(e.message).slice(0, 200) }, n: ++st.seq }; }
           }
