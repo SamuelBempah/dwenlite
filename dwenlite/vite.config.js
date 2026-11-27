@@ -38,7 +38,8 @@ export default defineConfig({
         ]
       },
       workbox: {
-        maximumFileSizeToCacheInBytes: 5000000 // 5 MiB
+        maximumFileSizeToCacheInBytes: 5000000, // 5 MiB
+        importScripts: ['push-sw.js'] // notifications from Dwenlite Home
       },
       devOptions: {
         enabled: true,

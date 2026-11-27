@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AnimatedCheck, AnimatedX, Appear, Collapse, Spinner, Tap, motion, spring } from './motion';
-import { Terminal, FileText, FilePen, FolderOpen, Cpu, Camera, MousePointerClick, Keyboard, Globe, Code2, ChevronDown, ScrollText, Search, Undo2, Compass, Smartphone, Network } from 'lucide-react';
+import { Terminal, FileText, FilePen, FolderOpen, Cpu, Camera, MousePointerClick, Keyboard, Globe, Code2, ChevronDown, ScrollText, Search, Undo2, Compass, Smartphone, Network, GitBranch, FlaskConical, Download } from 'lucide-react';
 
 const META = {
   run_shell: { icon: Terminal, doing: 'Running a task on the computer', done: 'Ran a task on the computer' },
@@ -16,6 +16,9 @@ const META = {
   android: { icon: Smartphone, doing: 'Working on the phone', done: 'Used the phone' },
   network_scan: { icon: Network, doing: 'Looking for devices on the network', done: 'Scanned the network' },
   lan_http: { icon: Network, doing: 'Talking to a device on the network', done: 'Talked to a device on the network' },
+  git: { icon: GitBranch, doing: 'Checking the code project', done: 'Checked the code project' },
+  run_tests: { icon: FlaskConical, doing: 'Running the tests', done: 'Ran the tests' },
+  send_file: { icon: Download, doing: 'Getting a file', done: 'Got a file' },
   web_search: { icon: Search, doing: 'Searching the web', done: 'Searched the web' },
   read_page: { icon: Globe, doing: 'Reading a web page', done: 'Read a web page' },
   list_windows: { icon: Cpu, doing: 'Checking which programs are open', done: 'Checked which programs are open' },
@@ -39,6 +42,9 @@ function detail(name, a) {
     case 'android': return [a.action, a.serial || '', a.host || '', a.element ? `element ${a.element}` : '', a.text ? `"${String(a.text).slice(0, 200)}"` : '', a.key || '', a.package || a.url || '', a.command || '', a.local || '', a.remote || ''].filter(Boolean).join(' ');
     case 'network_scan': return (a.ports || []).join(', ');
     case 'lan_http': return `${a.method || 'GET'} ${a.url}${a.body ? '\n' + String(a.body).slice(0, 300) : ''}`;
+    case 'git': return [a.action, a.repo || '', a.message ? `"${a.message}"` : '', (a.paths || []).join(' '), a.ref || ''].filter(Boolean).join(' ');
+    case 'run_tests': return a.command || a.path || '(auto-detect)';
+    case 'send_file': return a.path;
     case 'web_search': return a.query;
     case 'read_page': return a.url;
     case 'run_js': return a.code;
@@ -47,7 +53,7 @@ function detail(name, a) {
 }
 
 // One action the assistant takes: a plain one-line description, with the technical parts tucked under "Details".
-export default function ActionCard({ item, onDecide, onUndo }) {
+export default function ActionCard({ item, onDecide, onUndo, onDownload }) {
   const asking = item.status === 'asking';
   const [open, setOpen] = useState(false);
   const meta = META[item.tool] || { icon: Terminal, doing: 'Working', done: 'Done' };
@@ -58,7 +64,7 @@ export default function ActionCard({ item, onDecide, onUndo }) {
   const label = said || (finished ? meta.done : meta.doing);
   const showDetails = open;
   const undoId = item.tool === 'write_file' && item.status === 'done' && !item.undone ? (/\[undo:([\w-]+)\]/.exec(item.output || '') || [])[1] : '';
-  const hasMore = !!(d || item.output || item.image);
+  const hasMore = !!(d || item.output || item.image || item.preview);
   const color = item.status === 'error' || item.status === 'denied' ? 'border-red-500/30' : item.status === 'done' ? 'border-emerald-500/20' : asking ? 'border-amber-400/50' : 'border-white/10';
 
   return (
@@ -75,6 +81,7 @@ export default function ActionCard({ item, onDecide, onUndo }) {
         {item.status === 'done' && <AnimatedCheck size={15} className="text-emerald-400" />}
         {(item.status === 'error' || item.status === 'denied') && <AnimatedX size={15} className="text-red-400" />}
         {undoId && onUndo && <button onClick={() => onUndo(item, undoId)} className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-amber-300 hover:text-amber-200"><Undo2 size={12} /> Undo</button>}
+        {item.fileMeta && onDownload && <Tap onClick={() => onDownload(item)} className="flex items-center gap-1 rounded-md bg-violet-600 px-2 py-1 text-xs font-semibold text-white hover:bg-violet-500"><Download size={12} /> Download</Tap>}
         {item.undone && <span className="text-xs text-slate-500">Undone</span>}
         {hasMore && (
           <button onClick={() => setOpen(!open)} aria-expanded={open} className="flex items-center gap-0.5 rounded-md px-1.5 py-1 text-xs text-slate-400 hover:text-slate-200">
@@ -93,7 +100,8 @@ export default function ActionCard({ item, onDecide, onUndo }) {
       <Collapse open={showDetails && hasMore}>
         <div className="mt-2 space-y-2" data-testid="action-details">
           {item.deviceName && <p className="text-xs text-slate-500">On {item.deviceName}</p>}
-          {d && <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/40 p-2.5 font-mono text-xs text-slate-200">{d}</pre>}
+          {item.preview && <pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/40 p-2.5 font-mono text-xs text-slate-200">{item.preview.split('\n').map((l, i) => (l.startsWith('+ ') ? <span key={i} className="block text-emerald-300">{l}</span> : l.startsWith('- ') ? <span key={i} className="block text-red-300">{l}</span> : <span key={i} className="block">{l}</span>))}</pre>}
+          {d && !item.preview && <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/40 p-2.5 font-mono text-xs text-slate-200">{d}</pre>}
           {item.image && <img src={`data:image/jpeg;base64,${item.image}`} alt="Screenshot" className="max-h-64 rounded-lg border border-white/10" />}
           {item.output && !asking && <pre className={`max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/40 p-2.5 font-mono text-xs ${item.status === 'error' ? 'text-red-200' : 'text-slate-300'}`}>{item.output}</pre>}
         </div>

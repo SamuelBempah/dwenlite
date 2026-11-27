@@ -104,7 +104,20 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, webpush
 
   // Anyone signed in may use Home (no admin list). To protect the AI budget each person gets a daily allowance.
   const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30 };
+  // Admins (ADMIN_EMAILS) have no limits anywhere in Home.
+  const isAdminDecoded = (decoded) => !!(decoded && decoded.email && decoded.email_verified && ADMIN_EMAILS.value().split(/[,;]+/).map(normEmail).filter(Boolean).includes(normEmail(decoded.email)));
+  const adminCache = new Map(); // uid -> { yes, at }
+  const noteAdmin = (decoded) => { adminCache.set(decoded.uid, { yes: isAdminDecoded(decoded), at: Date.now() }); return adminCache.get(decoded.uid).yes; };
+  async function uidIsAdmin(uid) {
+    const hit = adminCache.get(uid);
+    if (hit && Date.now() - hit.at < 600000) return hit.yes;
+    let yes = false;
+    try { const u = await admin.auth().getUser(uid); yes = isAdminDecoded({ uid, email: u.email, email_verified: u.emailVerified }); } catch (e) { /* not found: not an admin */ }
+    adminCache.set(uid, { yes, at: Date.now() });
+    return yes;
+  }
   async function capUsage(uid, kind) {
+    if (await uidIsAdmin(uid)) return true;
     const ref = db.collection("homeUsage").doc(uid);
     const day = new Date().toISOString().slice(0, 10);
     return db.runTransaction(async (tx) => {
@@ -573,12 +586,13 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, webpush
           if (!m) return res.status(401).json({ error: "Please sign in." });
           let decoded;
           try { decoded = await admin.auth().verifyIdToken(m[1]); } catch (e) { return res.status(401).json({ error: "Session expired. Please sign in again." }); }
+          noteAdmin(decoded);
           if (action === "chat" || action === "see") {
             if (!(await capUsage(decoded.uid, action))) return res.status(429).json({ error: "You have used today's Dwenlite Home allowance. It resets tomorrow." });
           }
           const uid = decoded.uid;
 
-          if (action === "whoami") return res.status(200).json({ admin: true, vision: hasVision() });
+          if (action === "whoami") return res.status(200).json({ admin: adminCache.get(uid).yes, unlimited: adminCache.get(uid).yes, vision: hasVision() });
 
           // ---- devices ----
           if (action === "device_create") {
@@ -675,7 +689,7 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, webpush
               return res.status(200).json({ id: ref.id });
             }
             const mine = await db.collection("homeRoutines").where("ownerUid", "==", uid).get();
-            if (mine.docs.length >= 20) return res.status(400).json({ error: "You can keep up to 20 routines. Delete one first." });
+            if (mine.docs.length >= 20 && !(await uidIsAdmin(uid))) return res.status(400).json({ error: "You can keep up to 20 routines. Delete one first." });
             const ref = db.collection("homeRoutines").doc();
             await ref.set({ ...doc, createdAt: Date.now(), lastRun: 0, lastStatus: "", lastText: "", running: 0 });
             return res.status(200).json({ id: ref.id });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Home, Monitor, Brain, SlidersHorizontal, RotateCcw, History, Paperclip, Camera, Send, Square, X, Wifi, WifiOff, ShieldAlert, Trash2, Sparkles } from 'lucide-react';
+import { Home, Monitor, Brain, SlidersHorizontal, RotateCcw, History, Repeat, Mic, Volume2, VolumeX, Bell, BookmarkPlus, FileUp, Paperclip, Camera, Send, Square, X, Wifi, WifiOff, ShieldAlert, Trash2, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { auth } from '../firebase';
 import ChatAnswer from '../components/ChatAnswer';
@@ -7,12 +7,17 @@ import ActionCard from '../components/home/ActionCard';
 import DevicePanel from '../components/home/DevicePanel';
 import PlanCard from '../components/home/PlanCard';
 import ActivityPanel from '../components/home/ActivityPanel';
+import RoutinesPanel from '../components/home/RoutinesPanel';
+import { pushSupported, pushState, enablePush, disablePush, pingMe } from '../lib/push';
+import { micSupported, listenOnce, speak, forSpeech } from '../lib/homeVoice';
+import { uploadPieces, downloadPieces, MAX_FILE } from '../lib/homeFiles';
 import { AnimatePresence, Appear, IconBtn, Motion, Sheet, Tap, motion, spring } from '../components/home/motion';
 import { createLiveStream } from '../lib/liveStream';
 import { createTypewriter } from '../lib/typewriter';
 import { homeCall, homeChatStream, imageToText, IMAGE_MODES, runJs, formatJsResult } from '../lib/homeClient';
 
-const READ_ONLY = new Set(['read_file', 'list_dir', 'system_info', 'list_windows']);
+const READ_ONLY = new Set(['read_file', 'list_dir', 'system_info', 'list_windows', 'send_file']);
+const GIT_FREE = new Set(['status', 'diff', 'log', 'show', 'branch']);
 const SCREEN = new Set(['screenshot', 'click', 'type_text', 'press_key', 'scroll', 'browser']);
 const JOB_TYPE = { run_shell: 'shell' };
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -43,13 +48,28 @@ export default function DwenliteHome() {
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState(() => { try { return localStorage.getItem('dwenliteHomeMode') || 'ask'; } catch { return 'ask'; } });
   const [maxSteps, setMaxSteps] = useState(15);
-  const [panel, setPanel] = useState(null); // devices | memory | settings
+  const [panel, setPanel] = useState(null); // devices | memory | settings | activity | routines
+  const [routineDraft, setRoutineDraft] = useState(null);
+  const [savable, setSavable] = useState('');
+  const [pushOn, setPushOn] = useState('off');
+  const [listening, setListening] = useState(false);
+  const [speakOn, setSpeakOn] = useState(() => { try { return localStorage.getItem('dwenliteHomeSpeak') === '1'; } catch { return false; } });
+  const [speaking, setSpeaking] = useState(false);
+  const micRef = useRef(null);
+  const voiceRef = useRef(null);
+  const speakRef = useRef(false);
+  const fromMic = useRef(false);
+  const actionsThisTurn = useRef(0);
+  const lastPrompt = useRef('');
+  speakRef.current = speakOn;
+  useEffect(() => { pushState().then(setPushOn); }, []);
   const [codeRun, setCodeRun] = useState(null);
   const [newFact, setNewFact] = useState('');
 
   const convo = useRef([]);
   const stopRef = useRef(false);
   const [why, setWhy] = useState('');
+  const [unlimited, setUnlimited] = useState(false);
   const approvals = useRef({});
   useEffect(() => { const old = document.title; document.title = 'Dwenlite Home'; return () => { document.title = old; }; }, []);
   const abortRef = useRef(null);
@@ -71,7 +91,7 @@ export default function DwenliteHome() {
       if (!user) { setGate('signin'); return; }
       try {
         const r = await homeCall('whoami');
-        setVision(!!r.vision);
+        setVision(!!r.vision); setUnlimited(!!r.unlimited);
         try { localStorage.setItem('dwenliteAdmin', '1'); } catch { /* ignore */ }
         setGate('ok');
       } catch (e) {
@@ -125,10 +145,12 @@ export default function DwenliteHome() {
     const m = modeRef.current;
     if (m === 'auto') return false;
     if (name === 'android') return m === 'screen' ? !ANDROID_FREE.has(args.action) : true;
+    if (name === 'git') return m === 'screen' ? !GIT_FREE.has(args.action) : true;
     if (m === 'screen') return !(READ_ONLY.has(name) || SCREEN.has(name));
     return true;
   };
 
+  const pendingNotes = useRef([]);
   const awayFrom = useRef(null);
   function returnHome() {
     const id = awayFrom.current;
@@ -223,8 +245,17 @@ export default function DwenliteHome() {
     const steals = name === 'open_url' || (name === 'browser' && !!args.visible) || (SCREEN.has(name) && name !== 'screenshot' && (args.foreground || !args.app)) || (name === 'run_shell' && /\b(start|start-process|explorer|invoke-item|ii)\b/i.test(String(args.command || '')));
     add({ id, type: 'action', tool: name, args, deviceName: dev.name, deviceId: dev.id, status: needsApproval(name, args) ? 'asking' : 'running', note: 'Starting...' });
 
+    actionsThisTurn.current += 1;
+    if (needsApproval(name, args) && name === 'write_file') {
+      // show exactly what would change before asking
+      try {
+        const pj = await homeCall('job_create', { deviceId: dev.id, type: 'preview_write', args: { path: args.path, content: args.content, append: !!args.append }, summary: 'Checking what would change' });
+        for (let i = 0; i < 12; i++) { await sleep(700); const j = await homeCall('job_get', { id: pj.id }); if (j.status === 'done') { patch(id, { preview: j.result }); break; } if (j.status === 'error' || j.status === 'cancelled') break; }
+      } catch { /* the preview is a bonus */ }
+    }
     if (needsApproval(name, args)) {
       returnHome(); // bring this page back so the question is seen
+      pingMe('Needs your OK', args.summary || 'Dwenlite Home is waiting for your approval.');
       const ok = await new Promise((resolve) => { approvals.current[id] = resolve; });
       if (!ok) { patch(id, { status: 'denied' }); return 'The owner denied this action. Do not try it again. Ask what they would like instead.'; }
       patch(id, { status: 'running' });
@@ -244,7 +275,8 @@ export default function DwenliteHome() {
       try { j = await homeCall('job_get', { id: jobId }); } catch (e) { await sleep(1500); if (Date.now() - started > limit) { patch(id, { status: 'error', output: e.message }); return `Error: ${e.message}`; } continue; }
       if (j.status === 'done' || j.status === 'error') {
         activeJob.current = null;
-        patch(id, { status: j.status, output: j.result, image: j.image || '' });
+        const fm = /\[file:([\w-]+):(\d+):(\d+)\]/.exec(j.result || '');
+        patch(id, { status: j.status, output: j.result, image: j.image || '', ...(fm && name === 'send_file' ? { fileMeta: { jobId: fm[1], total: Number(fm[2]), size: Number(fm[3]), name: String(args.path || 'file').split(/[\\/]/).pop() } } : {}) });
         return `${j.status === 'error' ? 'ERROR: ' : ''}${String(j.result || '(no output)').slice(0, 8000)}${j.image ? '\n[A screenshot was taken but is hidden from the owner. Explain in plain words what you see; do not tell them to look at it.]' : ''}`;
       }
       if (j.status === 'cancelled') { patch(id, { status: 'error', output: 'Cancelled.' }); return 'Cancelled by the owner.'; }
@@ -290,13 +322,16 @@ export default function DwenliteHome() {
   async function runLoop() {
     setBusy(true);
     stopRef.current = false;
+    actionsThisTurn.current = 0;
+    voiceRef.current && voiceRef.current.stop();
+    let finalText = '';
     try {
       for (let step = 0; step < maxSteps; step++) {
         const { text, tools } = await streamAssistant();
         const msg = { role: 'assistant', content: text };
         if (tools.length) msg.tool_calls = tools.map((t) => ({ id: t.id, type: 'function', function: { name: t.name, arguments: t.arguments || '{}' } }));
         convo.current.push(msg);
-        if (!tools.length) break;
+        if (!tools.length) { finalText = text; break; }
         for (const t of tools) {
           if (stopRef.current) { convo.current.push({ role: 'tool', tool_call_id: t.id, content: 'Cancelled by the owner.' }); continue; }
           const out = await handleTool(t);
@@ -311,10 +346,17 @@ export default function DwenliteHome() {
       returnHome(); // finished: show the owner this page again
       setBusy(false);
       stopRef.current = false;
+      if (finalText) pingMe('Dwenlite Home finished', finalText);
+      if (actionsThisTurn.current > 0 && lastPrompt.current) setSavable(lastPrompt.current); else setSavable('');
+      if (finalText && speakRef.current) {
+        const say = forSpeech(finalText);
+        if (say) voiceRef.current = speak(say, { onStart: () => setSpeaking(true), onEnd: (stopped) => { setSpeaking(false); if (!stopped && fromMic.current && speakRef.current) startMic(); } });
+      }
     }
   }
 
   function stopNow() {
+    voiceRef.current && voiceRef.current.stop(); setSpeaking(false);
     stopRef.current = true;
     abortRef.current?.abort();
     Object.keys(approvals.current).forEach((id) => decide(id, false));
@@ -322,6 +364,29 @@ export default function DwenliteHome() {
   }
 
   // ---------------------------------------------------------------- sending
+  const sendFile = async (file) => {
+    const pick = pickDevice('');
+    if (pick.error || !pick.d.online) { toast.error('Connect an online computer first to send it files.'); return; }
+    if (file.size > MAX_FILE) { toast.error(`${file.name} is too big. Files up to 8 MB can be sent.`); return; }
+    const noteId = uid();
+    add({ id: noteId, type: 'info', text: `Sending ${file.name} to ${pick.d.name}...` });
+    try {
+      const { fileId, total } = await uploadPieces(file, (p) => patch(noteId, { text: `Sending ${file.name} to ${pick.d.name}... ${Math.round(p * 100)}%` }));
+      const { id: jobId } = await homeCall('job_create', { deviceId: pick.d.id, type: 'fetch_file', args: { fileId, name: file.name, total, folder: 'uploads' }, summary: 'Receiving a file' });
+      for (let i = 0; i < 60; i++) {
+        await sleep(1000);
+        const j = await homeCall('job_get', { id: jobId });
+        if (j.status === 'done') { const where = (/Saved (.+?) \(/.exec(j.result || '') || [])[1] || `uploads/${file.name}`; patch(noteId, { text: `${file.name} is on ${pick.d.name}: ${where}` }); pendingNotes.current.push(`[The owner sent you a file. It is on ${pick.d.name} at ${where}]`); return; }
+        if (j.status === 'error' || j.status === 'cancelled') throw new Error(j.result || 'The computer could not receive it.');
+      }
+      throw new Error('The computer did not answer. Is the agent running?');
+    } catch (e) { patch(noteId, { text: `Could not send ${file.name}: ${e.message}` }); toast.error(e.message); }
+  };
+  const addPicked = (files) => {
+    const all = Array.from(files || []);
+    addImages(all.filter((f) => f.type.startsWith('image/')));
+    all.filter((f) => !f.type.startsWith('image/')).slice(0, 3).forEach(sendFile);
+  };
   const addImages = (files) => {
     const list = Array.from(files || []).filter((f) => f.type.startsWith('image/')).slice(0, 4 - images.length);
     if (!list.length) return;
@@ -329,8 +394,10 @@ export default function DwenliteHome() {
   };
 
   async function send(textOverride) {
-    const t = (textOverride ?? input).trim();
+    let t = (textOverride ?? input).trim();
     if (busy || (!t && !images.length)) return;
+    micRef.current && micRef.current.stop(); setListening(false);
+    lastPrompt.current = t;
     const imgs = images;
     setInput(''); setImages([]);
     setBusy(true);
@@ -351,12 +418,26 @@ export default function DwenliteHome() {
     const content = (t || 'Please look at the attached image(s) and tell me what matters.')
       + analysis.map((a, i) => `\n\n[Image ${i + 1}, ${modeLabel}, as read by the image model:\n${a}\n]`).join('');
     add({ id: uid(), type: 'user', text: t, thumbs: imgs.map((i) => i.url), analysis });
-    convo.current.push({ role: 'user', content });
+    const notes = pendingNotes.current.splice(0).join('\n');
+    convo.current.push({ role: 'user', content: notes ? `${notes}\n\n${content}` : content });
     await runLoop();
   }
 
+  function startMic() {
+    if (!micSupported()) { toast.error('Talking needs Chrome, Edge or Safari.'); return; }
+    voiceRef.current && voiceRef.current.stop(); setSpeaking(false);
+    setListening(true);
+    micRef.current = listenOnce({ onInterim: (t) => setInput(t), onFinal: (t) => { fromMic.current = true; setInput(''); send(t); }, onEnd: () => setListening(false), onError: (m) => toast.error(m) });
+  }
+  const toggleMic = () => { if (listening) { micRef.current && micRef.current.stop(); setListening(false); } else { fromMic.current = false; startMic(); } };
+  const toggleSpeak = () => { const v = !speakOn; setSpeakOn(v); try { localStorage.setItem('dwenliteHomeSpeak', v ? '1' : '0'); } catch { /* ignore */ } if (!v) { voiceRef.current && voiceRef.current.stop(); setSpeaking(false); } };
+  const togglePush = async () => { try { if (pushOn === 'on') { await disablePush(); setPushOn('off'); toast.success('Notifications are off.'); } else { await enablePush(); setPushOn('on'); toast.success('Notifications are on.'); } } catch (e) { toast.error(e.message); setPushState_(); } };
+  const setPushState_ = () => pushState().then(setPushOn);
+  const downloadFile = async (item) => { const t = toast.loading('Downloading...'); try { await downloadPieces(item.fileMeta.jobId, item.fileMeta.total, item.fileMeta.name); toast.success('Downloaded', { id: t }); } catch (e) { toast.error(e.message, { id: t }); } };
+
   function newChat() {
     stopNow();
+    setSavable(''); pendingNotes.current = [];
     convo.current = [];
     setItems([]);
   }
@@ -412,6 +493,7 @@ export default function DwenliteHome() {
           <span className="hidden sm:inline">{devices.length ? `${onlineCount}/${devices.length} online` : 'Add a computer'}</span>
           <Monitor size={13} className="sm:hidden" />
         </motion.button>
+        <IconBtn icon={Repeat} anim="spin" onClick={() => { setRoutineDraft(null); setPanel('routines'); }} aria-label="Routines" title="Saved and scheduled tasks" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
         <IconBtn icon={History} anim="clock" onClick={() => setPanel('activity')} aria-label="Activity" title="What it did recently" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
         <IconBtn icon={Brain} anim="pulse" onClick={() => setPanel('memory')} aria-label="Memory" title="What it remembers" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
         <IconBtn icon={SlidersHorizontal} anim="tilt" onClick={() => setPanel('settings')} aria-label="Settings" title="How much it may do on its own" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
@@ -468,10 +550,19 @@ export default function DwenliteHome() {
             </Appear>
           );
           if (m.type === 'plan') return <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><PlanCard steps={m.steps} /></div>;
-          if (m.type === 'action') return <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><ActionCard item={m} onDecide={decide} onUndo={undoAction} /></div>;
+          if (m.type === 'action') return <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><ActionCard item={m} onDecide={decide} onUndo={undoAction} onDownload={downloadFile} /></div>;
           return <p key={m.id} className="text-center text-xs italic text-slate-500">{m.text}</p>;
         })}
       </div>
+
+      <AnimatePresence initial={false}>
+        {savable && !busy && (
+          <motion.div key="save" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={spring} style={{ overflow: 'hidden' }} className="flex justify-center px-3">
+            <Tap onClick={() => { setRoutineDraft({ name: savable.slice(0, 40), prompt: savable }); setPanel('routines'); }} className="mb-1 flex items-center gap-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 px-3 py-1.5 text-xs text-violet-100 hover:bg-violet-500/20"><BookmarkPlus size={13} /> Save this as a routine</Tap>
+          </motion.div>
+        )}
+        {speaking && <motion.div key="speaking" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="flex items-center justify-center gap-2 pb-1 text-xs text-violet-200"><Volume2 size={13} /> Speaking... <button onClick={() => { voiceRef.current && voiceRef.current.stop(); setSpeaking(false); }} className="underline">stop</button></motion.div>}
+      </AnimatePresence>
 
       {/* composer */}
       <div className="border-t border-white/10 bg-slate-950/60 px-3 pb-3 pt-2 md:px-6">
@@ -490,10 +581,11 @@ export default function DwenliteHome() {
           </div>
         )}
         <div className="flex items-end gap-2">
-          <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { addImages(e.target.files); e.target.value = ''; }} />
+          <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => { addPicked(e.target.files); e.target.value = ''; }} />
           <input ref={camRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { addImages(e.target.files); e.target.value = ''; }} />
-          <IconBtn icon={Paperclip} size={20} anim="tilt" onClick={() => fileRef.current?.click()} aria-label="Attach image" className="rounded-xl p-2.5 text-slate-400 hover:bg-white/10 hover:text-white" />
+          <IconBtn icon={Paperclip} size={20} anim="tilt" onClick={() => fileRef.current?.click()} aria-label="Attach an image or a file" title="Attach an image, or send a file to your computer" className="rounded-xl p-2.5 text-slate-400 hover:bg-white/10 hover:text-white" />
           <IconBtn icon={Camera} size={20} anim="pop" onClick={() => camRef.current?.click()} aria-label="Take a photo" className="rounded-xl p-2.5 text-slate-400 hover:bg-white/10 hover:text-white" />
+          <IconBtn icon={listening ? Mic : Mic} size={20} anim="pulse" onClick={toggleMic} aria-label={listening ? 'Stop listening' : 'Talk'} title="Talk instead of typing" className={`rounded-xl p-2.5 transition-colors ${listening ? 'bg-red-500/20 text-red-300' : 'text-slate-400 hover:bg-white/10 hover:text-white'}`} />
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -511,6 +603,7 @@ export default function DwenliteHome() {
 
       {/* panels */}
       <AnimatePresence>
+      {panel === 'routines' && <RoutinesPanel key="routines" devices={devices} draft={routineDraft} onClose={() => setPanel(null)} onRunHere={(p) => { setPanel(null); send(p); }} />}
       {panel === 'activity' && <ActivityPanel key="activity" devices={devices} onClose={() => setPanel(null)} />}
       {panel === 'devices' && <DevicePanel key="devices" devices={devices} reload={loadDevices} onClose={() => setPanel(null)} />}
 
@@ -543,6 +636,17 @@ export default function DwenliteHome() {
                   <p className="font-semibold">{m.title}</p><p className="mt-0.5 text-xs text-slate-400">{m.text}</p>
                 </motion.button>
               ))}
+            </div>
+            <p className={`mt-3 rounded-xl px-3 py-2 text-xs ${unlimited ? 'bg-emerald-500/10 text-emerald-200' : 'bg-slate-800/70 text-slate-400'}`}>{unlimited ? 'Admin account: no usage limits on Dwenlite Home or the Teacher.' : 'Standard account: daily allowances apply. (Admins have no limits. If you are an admin, your sign-in email is not in the server\'s admin list.)'}</p>
+            <div className="mt-4 space-y-2 rounded-2xl border border-white/10 bg-slate-900/60 p-3 text-sm">
+              <button onClick={togglePush} disabled={pushOn === 'unsupported' || pushOn === 'blocked'} className="flex w-full items-center justify-between gap-3 text-left disabled:opacity-50">
+                <span className="flex items-center gap-2"><Bell size={16} className="text-violet-300" /><span><b>Notifications</b><span className="block text-xs text-slate-400">{pushOn === 'unsupported' ? 'Not available in this browser. On iPhone, install the app first.' : pushOn === 'blocked' ? 'Blocked. Allow notifications for this site in your settings.' : 'Get a ping when a task finishes, needs your OK, or a routine runs.'}</span></span></span>
+                <span className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${pushOn === 'on' ? 'bg-emerald-500' : 'bg-slate-600'}`}><motion.span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white" animate={{ x: pushOn === 'on' ? 16 : 0 }} transition={spring} /></span>
+              </button>
+              <button onClick={toggleSpeak} className="flex w-full items-center justify-between gap-3 text-left">
+                <span className="flex items-center gap-2">{speakOn ? <Volume2 size={16} className="text-violet-300" /> : <VolumeX size={16} className="text-slate-500" />}<span><b>Speak the answers</b><span className="block text-xs text-slate-400">Reads each finished answer aloud. Use the microphone button to talk back.</span></span></span>
+                <span className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${speakOn ? 'bg-emerald-500' : 'bg-slate-600'}`}><motion.span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white" animate={{ x: speakOn ? 16 : 0 }} transition={spring} /></span>
+              </button>
             </div>
             <label className="mt-4 flex items-center justify-between text-sm text-slate-300">Steps before it pauses
               <select value={maxSteps} onChange={(e) => setMaxSteps(Number(e.target.value))} className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5">{[8, 15, 25, 40].map((n) => <option key={n} value={n}>{n}</option>)}</select>

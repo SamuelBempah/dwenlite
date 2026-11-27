@@ -12,7 +12,7 @@ function resetLabel() {
 }
 
 // Small rounded usage bar. Tap it to see the exact percentage used.
-export default function UsageMeter({ used = 0, limit = 0, className = '' }) {
+export default function UsageMeter({ used = 0, limit = 0, unlimited = false, className = '' }) {
   const [open, setOpen] = useState(false);
   const box = useRef(null);
 
@@ -25,7 +25,7 @@ export default function UsageMeter({ used = 0, limit = 0, className = '' }) {
     return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', esc); };
   }, [open]);
 
-  const known = limit > 0;
+  const known = limit > 0 && !unlimited;
   const pct = known ? Math.min(100, Math.round((used / limit) * 100)) : 0;
   const color = pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-400' : 'bg-blue-500';
   const minutesLeft = known ? Math.max(0, Math.floor((limit - used) / CHARS_PER_SECOND / 60)) : 0;
@@ -37,15 +37,15 @@ export default function UsageMeter({ used = 0, limit = 0, className = '' }) {
         onClick={() => setOpen(o => !o)}
         title="Daily usage"
         aria-expanded={open}
-        aria-label={known ? `Daily voice usage, ${pct}% used` : 'Daily voice usage'}
+        aria-label={unlimited ? 'Voice usage: unlimited' : known ? `Daily voice usage, ${pct}% used` : 'Daily voice usage'}
         className="flex items-center gap-2 rounded-full border border-gray-700 bg-gray-800/80 px-3 py-2 hover:bg-gray-700/80 transition-colors"
       >
         <Gauge size={16} className="text-gray-300 shrink-0" />
-        <span className="hidden md:inline text-xs font-medium text-gray-300">Usage</span>
+        <span className="hidden md:inline text-xs font-medium text-gray-300">{unlimited ? 'Unlimited' : 'Usage'}</span>
         <span className="block h-2 w-14 sm:w-24 overflow-hidden rounded-full bg-gray-700">
           <span
             className={`block h-full rounded-full transition-[width] duration-500 ${color}`}
-            style={{ width: `${known ? Math.max(pct, used > 0 ? 4 : 0) : 0}%` }}
+            style={{ width: `${unlimited ? 100 : known ? Math.max(pct, used > 0 ? 4 : 0) : 0}%`, ...(unlimited ? { background: 'linear-gradient(90deg,#34d399,#60a5fa)' } : {}) }}
           />
         </span>
       </button>
@@ -58,13 +58,15 @@ export default function UsageMeter({ used = 0, limit = 0, className = '' }) {
         >
           <p className="text-sm font-semibold text-gray-200">Daily voice usage</p>
           <p className="mt-2 text-3xl font-bold text-white">
-            {known ? `${pct}%` : '--'} <span className="text-sm font-medium text-gray-400">used</span>
+            {unlimited ? 'Unlimited' : known ? `${pct}%` : '--'} {!unlimited && <span className="text-sm font-medium text-gray-400">used</span>}
           </p>
           <div className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-gray-700">
             <div className={`h-full rounded-full transition-[width] duration-500 ${color}`} style={{ width: `${pct}%` }} />
           </div>
           <p className="mt-3 text-xs text-gray-400">
-            {known
+            {unlimited
+              ? 'Admin account: no daily limits on the teacher or its voice.'
+              : known
               ? pct >= 100
                 ? 'You have reached your free limit for today.'
                 : `About ${minutesLeft} min of teacher speech left today.`

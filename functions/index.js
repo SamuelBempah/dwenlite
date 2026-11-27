@@ -13,6 +13,9 @@ const db = admin.firestore();
 const DEEPSEEK_API_KEY = defineSecret("DEEPSEEK_API_KEY");
 // Comma separated emails allowed to open the usage dashboard. Put ADMIN_EMAILS=you@example.com in functions/.env
 const ADMIN_EMAILS = defineString("ADMIN_EMAILS", { default: "" });
+// lowercase, no spaces; for Gmail dots and +tags do not change the mailbox
+const normEmail = (e) => { const x = String(e || "").toLowerCase().replace(/\s+/g, ""); const m = /^([^@]+)@(gmail\.com|googlemail\.com)$/.exec(x); return m ? `${m[1].split("+")[0].replace(/\./g, "")}@gmail.com` : x; };
+const isAdminUser = (decoded) => !!(decoded && decoded.email && decoded.email_verified && ADMIN_EMAILS.value().split(/[,;]+/).map(normEmail).filter(Boolean).includes(normEmail(decoded.email)));
 const LANG_NAMES = { fr: "French", es: "Spanish", pt: "Portuguese", de: "German", it: "Italian" };
 
 // ---------------------------------------------------------------------------
@@ -527,9 +530,7 @@ exports.generateNotesProxy = onRequest(
 
       // Admin only: daily token usage, for the usage dashboard.
       if (task === "admin_stats") {
-        const normEmail = (e) => { const x = String(e || "").toLowerCase().replace(/\s+/g, ""); const m = /^([^@]+)@(gmail\.com|googlemail\.com)$/.exec(x); return m ? `${m[1].split("+")[0].replace(/\./g, "")}@gmail.com` : x; };
-        const allowed = ADMIN_EMAILS.value().split(/[,;]+/).map(normEmail).filter(Boolean);
-        if (!decoded.email || !decoded.email_verified || !allowed.includes(normEmail(decoded.email))) {
+        if (!isAdminUser(decoded)) {
           return res.status(403).json({ error: "Not allowed." });
         }
         try {
@@ -548,6 +549,7 @@ exports.generateNotesProxy = onRequest(
         try {
           const snap = await db.collection("aiUsage").doc(uid).get();
           const d = snap.exists ? snap.data() : {};
+          if (isAdminUser(decoded)) return res.status(200).json({ voice: { used: 0, limit: 0, unlimited: true } });
           return res.status(200).json({ voice: { used: d[voiceKey()] || 0, limit: VOICE_DAILY_CHARS } });
         } catch (e) {
           return res.status(500).json({ error: "Could not load usage." });
@@ -608,7 +610,8 @@ exports.generateNotesProxy = onRequest(
       if (cached) return res.status(200).json(cached);
 
       // 4. Rate limit.
-      const usage = await checkAndCountUsage(uid, WEIGHTS[task] || 1, { voice: task === "teacher" });
+      const adminUser = isAdminUser(decoded); // admins have no usage limits
+      const usage = adminUser ? { ok: true, voiceUsed: 0, unlimited: true } : await checkAndCountUsage(uid, WEIGHTS[task] || 1, { voice: task === "teacher" });
       if (!usage.ok) {
         if (usage.reason === "voice") {
           return res.status(429).json({
@@ -656,12 +659,12 @@ exports.generateNotesProxy = onRequest(
           send({ error: hintFor(error) });
         }
         if (task === "teacher") {
-          try { await addVoiceChars(uid, total.length); } catch (e) { logger.warn("voice count failed", e.message); }
+          if (!adminUser) { try { await addVoiceChars(uid, total.length); } catch (e) { logger.warn("voice count failed", e.message); } }
         }
         try { await recordStats(task, streamUsage || {}); } catch (e) { /* stats are optional */ }
         logger.info("ai_usage", { uid, task, streamed: true, chars: total.length });
         send(task === "teacher"
-          ? { done: true, voice: { used: (usage.voiceUsed || 0) + total.length, limit: VOICE_DAILY_CHARS } }
+          ? { done: true, voice: adminUser ? { used: 0, limit: 0, unlimited: true } : { used: (usage.voiceUsed || 0) + total.length, limit: VOICE_DAILY_CHARS } }
           : { done: true });
         return res.end();
       }
@@ -686,8 +689,8 @@ exports.generateNotesProxy = onRequest(
         try { await recordStats(task, u); } catch (e) { /* stats are optional */ }
         if (task === "teacher") {
           const spoken = (response.data.choices?.[0]?.message?.content || "").length;
-          try { await addVoiceChars(uid, spoken); } catch (e) { /* ignore */ }
-          response.data.voice = { used: (usage.voiceUsed || 0) + spoken, limit: VOICE_DAILY_CHARS };
+          if (!adminUser) { try { await addVoiceChars(uid, spoken); } catch (e) { /* ignore */ } }
+          response.data.voice = adminUser ? { used: 0, limit: 0, unlimited: true } : { used: (usage.voiceUsed || 0) + spoken, limit: VOICE_DAILY_CHARS };
         }
         dedupeSet(key, response.data);
         return res.status(200).json(response.data);

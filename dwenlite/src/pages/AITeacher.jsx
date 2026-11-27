@@ -1359,7 +1359,7 @@ const AITeacher = () => {
   };
 
   const handleVoiceLimit = () => {
-    setVoiceUsage(v => ({ ...v, used: v.limit || v.used }));
+    setVoiceUsage(v => (v.unlimited ? v : { ...v, used: v.limit || v.used }));
     try { currentAudioSessionRef.current += 1; if (audioRef.current) audioRef.current.pause(); } catch { /* ignore */ }
     if (recognitionRef.current) { try { recognitionRef.current.abort(); } catch { /* ignore */ } }
     clearTimeout(silenceTimerRef.current);
@@ -1984,7 +1984,7 @@ const AITeacher = () => {
         </button>
         <div className="absolute top-5 right-5 z-20 flex items-center gap-2">
           <VoiceSettings prefs={voicePrefs} onChange={setVoicePrefs} />
-          <UsageMeter used={voiceUsage.used} limit={voiceUsage.limit} />
+          <UsageMeter used={voiceUsage.used} limit={voiceUsage.limit} unlimited={!!voiceUsage.unlimited} />
         </div>
         <TeacherSidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
         <div className="max-w-md w-full flex flex-col items-center gap-8 z-10">
@@ -2035,7 +2035,7 @@ const AITeacher = () => {
         {/* Top Right Controls */}
         <div className="flex items-center gap-3 sm:gap-4">
           <VoiceSettings prefs={voicePrefs} onChange={setVoicePrefs} />
-          <UsageMeter used={voiceUsage.used} limit={voiceUsage.limit} />
+          <UsageMeter used={voiceUsage.used} limit={voiceUsage.limit} unlimited={!!voiceUsage.unlimited} />
           <button onClick={toggleFullscreen} className="text-gray-400 hover:text-white transition-colors">
             {isFullscreen ? <Minimize size={24} /> : <Maximize size={24} />}
           </button>
