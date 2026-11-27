@@ -9,7 +9,7 @@ import { createLiveStream } from '../lib/liveStream';
 import { createTypewriter } from '../lib/typewriter';
 import { homeCall, homeChatStream, imageToText, IMAGE_MODES, runJs, formatJsResult } from '../lib/homeClient';
 
-const READ_ONLY = new Set(['read_file', 'list_dir', 'system_info']);
+const READ_ONLY = new Set(['read_file', 'list_dir', 'system_info', 'list_windows']);
 const SCREEN = new Set(['screenshot', 'click', 'type_text', 'press_key', 'scroll']);
 const JOB_TYPE = { run_shell: 'shell' };
 const uid = () => Math.random().toString(36).slice(2, 10);

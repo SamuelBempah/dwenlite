@@ -6,7 +6,7 @@
 // by an admin-authenticated request, which the web app sends only after the owner approves each action.
 const crypto = require("crypto");
 
-const JOB_TYPES = new Set(["shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url"]);
+const JOB_TYPES = new Set(["shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows"]);
 const ONLINE_MS = 25000;
 const MAX_OUTPUT = 150000; // characters stored per job result (a Firestore document must stay under 1 MB)
 
@@ -36,6 +36,7 @@ const HOME_SYSTEM =
   "- Speak plainly, like a helpful person, not a terminal. Keep technical detail out of your message: do not paste commands or raw output unless asked. Say what you found and what you did, in a few friendly sentences.\n" +
   "- Always give each tool call a short plain-English `summary`.\n" +
   "- Input to a named `app` is sent in the BACKGROUND by default (virtual mouse/keyboard; nothing is pulled in front of the owner). Background typing, clicks and scrolling work for most desktop programs (Word, Notepad, Explorer); shortcuts like ctrl+s and browsers/Electron apps are less reliable. Always verify with an app screenshot, and only retry with foreground=true if it did not work; tell the owner when you do, because that will bring the program forward.\n" +
+  "- BROWSER WORK: this page (Dwenlite Home) is itself open in a browser, so never target just \"Chrome\"/\"Edge\" or you may capture this page. Use open_url (it opens a NEW browser window), then list_windows, then target the window by a distinctive word from its title (the page title or site name). Dwenlite Home windows are blocked as targets. The screenshot reply states which window was captured; if it is not the one you wanted, fix it before continuing.\n" +
   "- When working inside a program (Word, Chrome, ...) ALWAYS pass `app` on screenshot, type_text, press_key, click and scroll. That brings the program forward before typing and makes screenshots show only that program, so the owner can keep watching this page. After typing, take a screenshot of that app to confirm the text really appeared before saying it worked; if the screenshot cannot be read, say so honestly.\n" +
   "- Screenshots you take are hidden from the owner unless they explicitly asked to see one. After looking at the screen, simply explain in plain words what is on it; never say \"see the screenshot\".\n\n" +
   "STYLE: Markdown. No emojis unless the owner uses them. Short answers for simple questions.";
@@ -55,6 +56,7 @@ const TOOLS = [
   { name: "type_text", description: "Type text into the focused field on a device.", properties: { device: dev, app, foreground, text: { type: "string" } }, required: ["text"] },
   { name: "press_key", description: "Press a key or combination, e.g. 'enter', 'tab', 'esc', 'ctrl+c', 'alt+tab', 'ctrl+shift+t', 'f5'.", properties: { device: dev, app, foreground, keys: { type: "string" } }, required: ["keys"] },
   { name: "scroll", description: "Scroll the window under the mouse.", properties: { device: dev, app, foreground, direction: { type: "string", enum: ["up", "down"] }, amount: { type: "number", description: "Notches, default 5." } }, required: ["direction"] },
+  { name: "list_windows", description: "List the program windows open on a device (titles). Use it to pick the exact `app` to target, and to check that a new browser window opened.", properties: { device: dev }, required: [] },
   { name: "open_url", description: "Open an http(s) link in the device's default browser.", properties: { device: dev, url: { type: "string" } }, required: ["url"] },
   { name: "run_js", description: "Run JavaScript in a sandbox inside the owner's browser (no device needed) and return console output and the result. Good for quick calculations and testing snippets.", properties: { code: { type: "string" } }, required: ["code"] },
   { name: "remember", description: "Save a lasting fact or preference about the owner to long-term memory.", properties: { fact: { type: "string" } }, required: ["fact"] },
@@ -194,6 +196,7 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
         ? { path: clip(a.path, 1000), content: a.content, append: !!a.append } : null;
       case "list_dir": return { path: clip(a.path || ".", 1000) };
       case "system_info": return {};
+      case "list_windows": return {};
       case "screenshot": return { look: clip(a.look || "Describe what is on the screen.", 1000), app: clip(a.app, 80), foreground: !!a.foreground };
       case "click": return num(a.x, 0, 20000) && num(a.y, 0, 20000) ? { x: a.x, y: a.y, button: a.button === "right" ? "right" : "left", double: !!a.double, app: clip(a.app, 80), foreground: !!a.foreground } : null;
       case "type_text": return typeof a.text === "string" && a.text.length > 0 && a.text.length <= 4000 ? { text: a.text, app: clip(a.app, 80), foreground: !!a.foreground } : null;

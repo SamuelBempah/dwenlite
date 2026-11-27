@@ -16,7 +16,7 @@ import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-export const VERSION = '1.2.0';
+export const VERSION = '1.3.0';
 const MAX_OUT = 100000;      // characters of command output sent back
 const MAX_READ = 200000;     // bytes read from a file
 const IS_WIN = process.platform === 'win32';
@@ -141,12 +141,56 @@ public class DwenNative {
 "@
 [DwenNative]::SetProcessDPIAware() | Out-Null
 `;
-const PS_FIND = `function Find-Win([string]$App) {
+const PS_FIND = `Add-Type @"
+using System; using System.Text; using System.Collections.Generic; using System.Runtime.InteropServices;
+public class DwenEnum {
+  delegate bool Cb(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumWindows(Cb cb, IntPtr l);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll")] static extern int GetWindowTextLength(IntPtr h);
+  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  public static List<string> All() {
+    var r = new List<string>();
+    EnumWindows((h, l) => {
+      if (!IsWindowVisible(h)) return true;
+      int n = GetWindowTextLength(h); if (n == 0) return true;
+      var sb = new StringBuilder(n + 1); GetWindowText(h, sb, n + 1);
+      uint pid; GetWindowThreadProcessId(h, out pid);
+      r.Add(h.ToInt64() + "|" + pid + "|" + sb.ToString());
+      return true;
+    }, IntPtr.Zero);
+    return r;
+  }
+}
+"@
+function Get-Wins() {
+  $out=@()
+  foreach ($line in [DwenEnum]::All()) {
+    $p=$line.Split('|',3)
+    if ($p[2] -in @('Program Manager','Default IME','MSCTFIME UI','Windows Input Experience')) { continue }
+    $name=''; try { $name=(Get-Process -Id ([int]$p[1]) -ErrorAction Stop).ProcessName } catch {}
+    $out += [pscustomobject]@{ H=[IntPtr][int64]$p[0]; Title=$p[2]; Proc=$name }
+  }
+  return $out
+}
+function Is-Mine($w) { return ($w.Title -match 'Dwenlite Home|dwenlite\.space') }
+function Find-Win([string]$App) {
   $a=$App.Trim().ToLower() -replace '^microsoft ',''
-  $w=Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -ne '' }
-  $hit=$w | Where-Object { $_.ProcessName.ToLower() -like "*$a*" -or $_.MainWindowTitle.ToLower() -like "*$a*" } | Select-Object -First 1
-  if (-not $hit) { $names=($w | ForEach-Object { $_.MainWindowTitle } | Select-Object -First 15) -join '; '; Write-Error "Could not find a window for '$App'. Open windows: $names"; exit 3 }
-  return $hit.MainWindowHandle
+  $all=Get-Wins
+  $allowMine = $a -like '*dwenlite*'
+  $ok=$all | Where-Object { $allowMine -or -not (Is-Mine $_) }
+  $hit=$ok | Where-Object { $_.Title.ToLower() -like "*$a*" } | Select-Object -First 1
+  if (-not $hit) { $hit=$ok | Where-Object { $_.Proc.ToLower() -like "*$a*" } | Select-Object -First 1 }
+  if (-not $hit) {
+    $mine=$all | Where-Object { (Is-Mine $_) -and ($_.Title.ToLower() -like "*$a*" -or $_.Proc.ToLower() -like "*$a*") } | Select-Object -First 1
+    $names=($ok | ForEach-Object { $_.Title } | Select-Object -First 15) -join '; '
+    if ($mine) { Write-Error "The only '$App' window is the Dwenlite Home page itself, which is blocked. Open the link in a new window first (open_url), then use list_windows. Other windows: $names" }
+    else { Write-Error "Could not find a window for '$App'. Open windows: $names" }
+    exit 3
+  }
+  $script:FoundTitle=$hit.Title
+  return $hit.H
 }
 `;
 const PS_FOCUS = `param([string]$App)
@@ -194,7 +238,7 @@ $enc=[System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object 
 $ep=New-Object System.Drawing.Imaging.EncoderParameters 1
 $ep.Param[0]=New-Object System.Drawing.Imaging.EncoderParameter ([System.Drawing.Imaging.Encoder]::Quality),([int64]60)
 $small.Save($Out,$enc,$ep)
-Write-Output ("{0}x{1}x{2}x{3}" -f $b.Width,$b.Height,$offX,$offY)
+Write-Output ("{0}x{1}x{2}x{3}|{4}" -f $b.Width,$b.Height,$offX,$offY,$script:FoundTitle)
 `;
 const PS_CLICK = `param([int]$X,[int]$Y,[string]$Button,[int]$Count)
 ${PS_DPI}
@@ -377,10 +421,29 @@ export function createAgent(opts) {
         child.on('close', (code) => { clearTimeout(killer); resolve(`${clip(out, MAX_OUT).trimEnd()}\n[exit code ${code}${timedOut ? `, stopped after ${timeout / 1000}s timeout` : ''}]`); });
       });
     },
+    async list_windows() {
+      needGui();
+      if (!IS_WIN) {
+        if (IS_MAC) return (await run('osascript', ['-e', 'tell application "System Events" to get name of every process whose background only is false'])).stdout.trim();
+        return (await have('wmctrl')) ? (await run('wmctrl', ['-l'])).stdout.trim() : 'Listing windows needs wmctrl on Linux.';
+      }
+      const f = psFile('list', `${PS_FIND}\nGet-Wins | ForEach-Object { '{0}  [{1}]{2}' -f $_.Title,$_.Proc,$(if (Is-Mine $_) {'  (Dwenlite Home page: blocked as a target)'} else {''}) }`);
+      const r = await ps(f, []);
+      return r.stdout.trim() || '(no windows)';
+    },
     async open_url(a) {
       needGui();
       if (!/^https?:\/\//i.test(a.url)) throw new Error('Only http and https links can be opened.');
-      if (IS_WIN) await run('powershell.exe', ['-NoProfile', '-Command', 'Start-Process', `'${a.url.replace(/'/g, "''")}'`]);
+      if (IS_WIN) {
+        const script = `$u='${a.url.replace(/'/g, "''")}'
+$id=''; try { $id=(Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice' -ErrorAction Stop).ProgId } catch {}
+$exe=$null; $arg='--new-window'
+if ($id -like 'ChromeHTML*') { $exe='chrome' } elseif ($id -like 'MSEdgeHTM*') { $exe='msedge' } elseif ($id -like 'BraveHTML*') { $exe='brave' } elseif ($id -like 'FirefoxURL*') { $exe='firefox'; $arg='-new-window' }
+if ($exe) { try { Start-Process $exe -ArgumentList $arg,$u -ErrorAction Stop; exit 0 } catch {} }
+Start-Process $u`;
+        await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script]);
+        return `Opened ${a.url} in a new browser window. Use list_windows to find its exact title.`;
+      }
       else if (IS_MAC) await run('open', [a.url]);
       else spawn('xdg-open', [a.url], { detached: true, stdio: 'ignore' }).unref();
       return `Opened ${a.url}`;
@@ -388,11 +451,11 @@ export function createAgent(opts) {
     async screenshot(a) {
       needGui();
       const out = path.join(os.tmpdir(), `dwenlite-shot-${Date.now()}.${IS_WIN || IS_MAC ? 'jpg' : 'png'}`);
-      let offX = 0; let offY = 0; let screenW; let screenH; let pointsW; let pointsH; let file = out;
+      let shotTitle = ''; let offX = 0; let offY = 0; let screenW; let screenH; let pointsW; let pointsH; let file = out;
       try {
         if (IS_WIN) {
           const r = await ps(psFile('shot', PS_SHOT), ['-Out', out, '-MaxW', '1280', '-App', a.app ? String(a.app) : '']);
-          [screenW, screenH, offX, offY] = r.stdout.trim().split('x').map(Number);
+          const [dims, ttl] = r.stdout.trim().split('|'); [screenW, screenH, offX, offY] = dims.split('x').map(Number); shotTitle = (ttl || '').trim();
         } else if (IS_MAC) {
           await run('screencapture', ['-x', '-t', 'jpg', out]);
           const dims = await run('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', out]);
@@ -420,6 +483,7 @@ export function createAgent(opts) {
         const r = await api('agent_see', { image: buf.toString('base64'), mime: buf[0] === 0xff ? 'image/jpeg' : 'image/png', look: a.look, width: sz.w, height: sz.h });
         text = r.text;
       } catch (e) { text = `(The screenshot was taken but could not be read by the image model: ${e.message})`; }
+      if (a.app && shotTitle) text = `[Captured window: "${shotTitle}"]\n${text}`;
       return { text, image: buf.length < 520000 ? buf.toString('base64') : '' };
     },
     async click(a) {

@@ -11,6 +11,7 @@ const META = {
   click: { icon: MousePointerClick, doing: 'Clicking', done: 'Clicked' },
   type_text: { icon: Keyboard, doing: 'Typing', done: 'Typed' },
   press_key: { icon: Keyboard, doing: 'Pressing keys', done: 'Pressed keys' },
+  list_windows: { icon: Cpu, doing: 'Checking which programs are open', done: 'Checked which programs are open' },
   scroll: { icon: ScrollText, doing: 'Scrolling', done: 'Scrolled' },
   open_url: { icon: Globe, doing: 'Opening a link', done: 'Opened a link' },
   run_js: { icon: Code2, doing: 'Running a quick calculation', done: 'Ran a quick calculation' },
