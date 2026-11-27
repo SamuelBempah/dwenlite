@@ -16,7 +16,7 @@ import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-export const VERSION = '1.3.0';
+export const VERSION = '1.3.1';
 const MAX_OUT = 100000;      // characters of command output sent back
 const MAX_READ = 200000;     // bytes read from a file
 const IS_WIN = process.platform === 'win32';
@@ -211,7 +211,11 @@ $offX=0; $offY=0
 if ($App) {
   $hw=Find-Win $App
   $wasMin=[DwenNative]::IsIconic($hw)
-  if ($wasMin) { [DwenNative]::ShowWindow($hw,4) | Out-Null; Start-Sleep -Milliseconds 600 }
+  if ($wasMin) {
+    [DwenNative]::ShowWindow($hw,4) | Out-Null
+    for ($i=0; $i -lt 30 -and [DwenNative]::IsIconic($hw); $i++) { Start-Sleep -Milliseconds 100 }
+    Start-Sleep -Milliseconds 700
+  }
   $r=New-Object DwenNative+RECT
   [DwenNative]::GetWindowRect($hw,[ref]$r) | Out-Null
   $ww=[Math]::Max(50,$r.Right-$r.Left); $wh=[Math]::Max(50,$r.Bottom-$r.Top)
@@ -220,6 +224,10 @@ if ($App) {
   $dc=$g.GetHdc()
   [DwenNative]::PrintWindow($hw,$dc,2) | Out-Null
   $g.ReleaseHdc($dc)
+  # some programs return a blank picture; if so, copy the window's area from the screen instead (it was just restored)
+  $blank=$true; $first=$bmp.GetPixel(1,1)
+  foreach ($fx in 0.2,0.5,0.8) { foreach ($fy in 0.2,0.5,0.8) { if ($bmp.GetPixel([int]($ww*$fx),[int]($wh*$fy)).ToArgb() -ne $first.ToArgb()) { $blank=$false } } }
+  if ($blank -and $r.Left -gt -30000) { $g.CopyFromScreen($r.Left,$r.Top,0,0,(New-Object System.Drawing.Size $ww,$wh)) }
   if ($wasMin) { [DwenNative]::ShowWindow($hw,7) | Out-Null }
   $offX=$r.Left; $offY=$r.Top
   $b=New-Object System.Drawing.Rectangle 0,0,$ww,$wh
