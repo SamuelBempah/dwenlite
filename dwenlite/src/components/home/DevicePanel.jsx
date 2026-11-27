@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from 'react';
 import { Monitor, Plus, Trash2, Copy, Download, X, Wifi, WifiOff, FolderOpen } from 'lucide-react';
 import { HOME_URL, homeCall } from '../../lib/homeClient';
 import toast from 'react-hot-toast';
-import { Sheet } from './motion';
+import { Sheet, Tap } from './motion';
 
 // Pair a computer: create it here, then run the small agent on that computer with the shown command.
 export default function DevicePanel({ devices, reload, onClose }) {
