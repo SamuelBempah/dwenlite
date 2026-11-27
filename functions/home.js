@@ -83,45 +83,113 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
   const hash = (t) => crypto.createHash("sha256").update(String(t)).digest("hex");
   const clip = (t, n) => String(t == null ? "" : t).slice(0, n);
 
-  // ---- vision (a free image model turns pictures into text that DeepSeek can use) ----
-  let goodModel = ""; // remembers which model name worked
-  async function vision({ b64, mime, mode, instruction, lang, width, height }) {
+  // ---- vision: free image models turn pictures into text that DeepSeek can use ----
+  // Several providers, tried in order. One that runs out of free quota is skipped for a while and the next one answers.
+  const GROQ_API_KEY = defineString("GROQ_API_KEY", { default: "" });
+  const GROQ_VISION_MODEL = defineString("GROQ_VISION_MODEL", { default: "qwen/qwen3.8-27b" });
+  const OPENROUTER_API_KEY = defineString("OPENROUTER_API_KEY", { default: "" });
+  const OPENROUTER_VISION_MODEL = defineString("OPENROUTER_VISION_MODEL", { default: "openrouter/free" }); // a router that picks a free model that accepts images
+  const HF_TOKEN = defineString("HF_TOKEN", { default: "" });
+  const HF_VISION_MODEL = defineString("HF_VISION_MODEL", { default: "Qwen/Qwen2.5-VL-72B-Instruct" });
+  const VISION_ORDER = defineString("VISION_ORDER", { default: "groq,openrouter,gemini,huggingface" });
+
+  const visionKeys = () => ({ groq: GROQ_API_KEY.value(), openrouter: OPENROUTER_API_KEY.value(), gemini: GEMINI_API_KEY.value(), huggingface: HF_TOKEN.value() });
+  const hasVision = () => Object.values(visionKeys()).some(Boolean);
+  const cooldown = {}; // provider -> time (ms) until which it is skipped
+  const lastGood = {}; // provider -> the model name that worked last
+  const seen = new Map(); // identical picture + question within a minute or two: reuse the answer
+
+  const errText = (err) => {
+    const st = err.response && err.response.status;
+    const d = err.response && err.response.data;
+    const msg = (d && (d.error && (d.error.message || d.error) || d.message)) || err.message;
+    return { st, msg: clip(typeof msg === "string" ? msg : JSON.stringify(msg), 220) };
+  };
+
+  async function openAiStyle({ name, url, key, models, headers, prompt, mime, b64 }) {
+    let lastErr = "";
+    for (const model of [...new Set([lastGood[name], ...models].filter(Boolean))]) {
+      try {
+        const r = await axios.post(url, {
+          model, temperature: 0.2, max_tokens: 1500,
+          messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: `data:${mime};base64,${b64}` } }] }],
+        }, { headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...(headers || {}) }, timeout: 45000 });
+        const text = String((r.data.choices && r.data.choices[0] && r.data.choices[0].message && r.data.choices[0].message.content) || "").trim();
+        if (text) { lastGood[name] = model; return text; }
+        lastErr = `${model}: the model returned nothing`;
+      } catch (err) {
+        const { st, msg } = errText(err);
+        lastErr = `${model}: ${st || ""} ${msg}`.trim();
+        const e = new Error(lastErr); e.status = st;
+        if (st === 404 || (st === 400 && /model|not found|does not exist|not support|image|vision/i.test(msg))) continue; // try the next model name
+        throw e;
+      }
+    }
+    const e = new Error(lastErr || "no answer"); e.status = 0; throw e;
+  }
+
+  async function geminiVision({ prompt, mime, b64 }) {
     const key = GEMINI_API_KEY.value();
-    if (!key) { const e = new Error("Image model is not configured. Add GEMINI_API_KEY to functions/.env."); e.code = "no_vision"; throw e; }
+    const body = { contents: [{ role: "user", parts: [{ text: prompt }, { inline_data: { mime_type: mime, data: b64 } }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 2048 } };
+    let lastErr = "";
+    for (const model of [...new Set([lastGood.gemini, GEMINI_MODEL.value(), "gemini-2.5-flash", "gemini-2.0-flash"].filter(Boolean))]) {
+      try {
+        const r = await axios.post(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, body, { headers: { "x-goog-api-key": key, "Content-Type": "application/json" }, timeout: 45000 });
+        const text = ((r.data.candidates && r.data.candidates[0] && r.data.candidates[0].content && r.data.candidates[0].content.parts) || []).map((p) => p.text || "").join("").trim();
+        if (text) { lastGood.gemini = model; return text; }
+        lastErr = `${model}: the model returned nothing`;
+      } catch (err) {
+        const { st, msg } = errText(err);
+        lastErr = `${model}: ${st || ""} ${msg}`.trim();
+        const e = new Error(lastErr); e.status = st;
+        if (st === 404) continue;
+        throw e;
+      }
+    }
+    const e = new Error(lastErr || "no answer"); e.status = 0; throw e;
+  }
+
+  const VISION_CALLS = {
+    groq: (a) => openAiStyle({ ...a, name: "groq", url: "https://api.groq.com/openai/v1/chat/completions", key: GROQ_API_KEY.value(), models: [GROQ_VISION_MODEL.value(), "qwen/qwen3.8-27b", "qwen/qwen3.6-27b", "meta-llama/llama-4-scout-17b-16e-instruct"] }),
+    openrouter: (a) => openAiStyle({ ...a, name: "openrouter", url: "https://openrouter.ai/api/v1/chat/completions", key: OPENROUTER_API_KEY.value(), models: [OPENROUTER_VISION_MODEL.value(), "openrouter/free"], headers: { "HTTP-Referer": "https://www.dwenlite.space", "X-Title": "Dwenlite Home" } }),
+    gemini: (a) => geminiVision(a),
+    huggingface: (a) => openAiStyle({ ...a, name: "huggingface", url: "https://router.huggingface.co/v1/chat/completions", key: HF_TOKEN.value(), models: [HF_VISION_MODEL.value()] }),
+  };
+
+  async function vision({ b64, mime, mode, instruction, lang, width, height }) {
+    const keys = visionKeys();
+    if (!hasVision()) { const e = new Error("Image model is not configured. Add GROQ_API_KEY, OPENROUTER_API_KEY or GEMINI_API_KEY to functions/.env."); e.code = "no_vision"; throw e; }
+    mime = mime || "image/jpeg";
     let prompt = (VISION_PROMPTS[mode] || VISION_PROMPTS.describe).replace("{lang}", clip(lang || "English", 30));
     if (instruction) prompt += `\n\nInstruction from the user: ${clip(instruction, 1000)}`;
-    const body = { contents: [{ role: "user", parts: [{ text: prompt }, { inline_data: { mime_type: mime || "image/jpeg", data: b64 } }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 2048 } };
 
-    // the configured model first, then common alternatives if that name is not found
-    const models = [...new Set([goodModel, GEMINI_MODEL.value(), "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"].filter(Boolean))];
-    let lastErr = "";
-    let text = "";
-    for (const model of models) {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
-      let r = null;
-      for (const viaQuery of [false, true]) { // normal header first; some keys need the ?key= form
+    const cacheKey = crypto.createHash("sha256").update(mime + prompt).update(b64).digest("hex");
+    const hit = seen.get(cacheKey);
+    let text = hit && Date.now() - hit.at < 120000 ? hit.text : "";
+    const fails = [];
+    if (!text) {
+      const order = VISION_ORDER.value().split(",").map((x) => x.trim().toLowerCase()).filter((x) => VISION_CALLS[x] && keys[x]);
+      const now = Date.now();
+      // providers that are cooling down go last, so something is still tried if everything is cooling down
+      const sorted = [...order.filter((x) => !(cooldown[x] > now)), ...order.filter((x) => cooldown[x] > now)];
+      for (const name of sorted) {
         try {
-          r = await axios.post(viaQuery ? `${url}?key=${encodeURIComponent(key)}` : url, body, { headers: viaQuery ? { "Content-Type": "application/json" } : { "x-goog-api-key": key, "Content-Type": "application/json" }, timeout: 60000 });
-          break;
-        } catch (err) {
-          const st = err.response && err.response.status;
-          const msg = (err.response && err.response.data && err.response.data.error && err.response.data.error.message) || err.message;
-          lastErr = `${model}: ${st || ""} ${clip(msg, 220)}`.trim();
-          logger.error("gemini failed", lastErr);
-          if (!viaQuery && (st === 401 || st === 403 || st === 400) && /api key|credential|permission/i.test(String(msg))) continue; // retry with ?key=
-          break;
+          text = await VISION_CALLS[name]({ prompt, mime, b64 });
+          if (text) { delete cooldown[name]; break; }
+        } catch (e) {
+          const st = e.status;
+          fails.push(`${name}: ${clip(e.message, 200)}`);
+          logger.error("vision provider failed", name, e.message);
+          // out of free quota, bad key or no credit: skip this provider for a while
+          if (st === 429) cooldown[name] = Date.now() + 5 * 60 * 1000;
+          else if (st === 402 || st === 401 || st === 403) cooldown[name] = Date.now() + 60 * 60 * 1000;
+          else if (st >= 500 || !st) cooldown[name] = Date.now() + 60 * 1000;
         }
       }
-      if (!r) {
-        if (/ 404 | not found|not supported|NOT_FOUND/i.test(" " + lastErr + " ")) continue; // try the next model name
-        break;
-      }
-      text = ((r.data.candidates && r.data.candidates[0] && r.data.candidates[0].content && r.data.candidates[0].content.parts) || []).map((p) => p.text || "").join("").trim();
-      if (!text) { lastErr = `${model}: the model returned nothing (it may have blocked the image)`; continue; }
-      goodModel = model;
-      break;
+      if (!text) { const e = new Error(`Image models failed. ${fails.join(" | ") || "No provider answered."}`); e.code = "vision_failed"; throw e; }
+      seen.set(cacheKey, { text, at: Date.now() });
+      if (seen.size > 30) seen.delete(seen.keys().next().value);
     }
-    if (!text) { const e = new Error(`Image model error: ${lastErr || "unknown"}${/ 402 |depleted|billing|quota| 429 /i.test(" " + lastErr + " ") ? " (The Gemini account is out of credits or quota: top it up in Google AI Studio, or put a key from a free-tier project in functions/.env and redeploy.)" : ""}`); e.code = "vision_failed"; throw e; }
     if (mode === "screen" && width && height) {
       // model coordinates are on a 0-1000 grid: convert to real screenshot pixels
       text = text.replace(/@\s*\(?\s*(\d{1,4})\s*,\s*(\d{1,4})\)?/g, (m, x, y) => `@ (${Math.round((Number(x) / 1000) * width)},${Math.round((Number(y) / 1000) * height)})`);
@@ -275,7 +343,7 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
           if (!isAdmin(decoded)) return res.status(403).json({ error: "Not allowed." });
           const uid = decoded.uid;
 
-          if (action === "whoami") return res.status(200).json({ admin: true, vision: !!GEMINI_API_KEY.value() });
+          if (action === "whoami") return res.status(200).json({ admin: true, vision: hasVision() });
 
           // ---- devices ----
           if (action === "device_create") {
