@@ -71,7 +71,7 @@ export default function RemotePanel({ devices, onClose, onStopAll }) {
           {devices.map((d) => (
             <div key={d.id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-slate-900/60 p-3 text-sm">
               <Monitor size={20} className="shrink-0 text-violet-300" />
-              <div className="min-w-0 flex-1"><p className="truncate font-semibold">{d.name}</p><p className="flex items-center gap-1 text-xs">{d.online ? <><Wifi size={11} className="text-emerald-400" /><span className="text-emerald-400">connected</span></> : <><WifiOff size={11} className="text-slate-500" /><span className="text-slate-500">not connected</span></>}</p></div>
+              <div className="min-w-0 flex-1"><p className="truncate font-semibold">{d.name}</p><p className="flex items-center gap-1 text-xs">{d.online ? <><Wifi size={11} className="text-emerald-400" /><span className="text-emerald-400">connected{d.locked ? ' · screen locked' : ''}</span></> : <><WifiOff size={11} className="text-slate-500" /><span className="text-slate-500">not connected</span></>}</p></div>
               <Tap onClick={() => look(d)} disabled={!d.online} className="flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-2 text-xs font-semibold hover:bg-slate-700 disabled:opacity-40"><Eye size={14} /> See screen</Tap>
             </div>
           ))}

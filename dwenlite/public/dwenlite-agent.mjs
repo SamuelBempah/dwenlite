@@ -18,9 +18,13 @@ import { pathToFileURL } from 'node:url';
 import net from 'node:net';
 import zlib from 'node:zlib';
 import crypto from 'node:crypto';
+import http from 'node:http';
+import { fileURLToPath } from 'node:url';
 import dns from 'node:dns/promises';
 
-export const VERSION = '1.9.0';
+export const VERSION = '2.0.0';
+export const DEFAULT_URL = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/homeApi';
+export const SITE = 'https://www.dwenlite.space';
 const MAX_OUT = 100000;      // characters of command output sent back
 const MAX_READ = 200000;     // bytes read from a file
 const IS_WIN = process.platform === 'win32';
@@ -38,6 +42,7 @@ export function parseArgs(argv, env = process.env) {
     else if (a === '--interval') o.interval = Math.max(1000, Number(argv[++i]) || 3000);
     else if (a === '--allow-shell') o.shell = true;
     else if (a === '--allow-gui') o.gui = true;
+    else if (a === '--config-dir') o.configDir = argv[++i];
     else if (a === '--help' || a === '-h') o.help = true;
   }
   if (!o.root) o.root = path.join(os.homedir(), 'dwenlite-home');
@@ -253,7 +258,8 @@ if ([DwenNative]::IsIconic($h)) { [DwenNative]::ShowWindow($h,9) | Out-Null }
 Write-Output $hit.Title
 `;
 const PS_SHOT = `param([string]$Out,[int]$MaxW,[string]$App)
-Add-Type -AssemblyName System.Windows.Forms,System.Drawing
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
 ${PS_DPI}
 ${PS_FIND}
 $b=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds
@@ -970,7 +976,8 @@ export const hostMatches = (pageHost, vaultHost) => { const p = hostOf(pageHost)
 
 // ----------------------------------------------------------------------------- read and use Windows programs by their buttons and fields (UI Automation), no screenshots
 const PS_UI = `param([string]$Action,[string]$App,[string]$Ct,[string]$Name,[string]$AutoId,[int]$Nth,[string]$TextB64)
-Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
+Add-Type -AssemblyName UIAutomationClient
+Add-Type -AssemblyName UIAutomationTypes
 ${PS_FIND}
 $h = Find-Win $App
 $AE = [System.Windows.Automation.AutomationElement]
@@ -1531,18 +1538,39 @@ Start-Process $u`;
     return typeof r === 'string' ? { text: r, image: '' } : r;
   }
 
+  // ---- what the tray icon and the cloud want to know: connected? busy? screen locked? ----
+  const state = { lastOk: 0, busy: 0, locked: false };
+  let awake = null; let awakeTimer = null;
+  function keepAwake(on) { // while a task runs the computer must not go to sleep
+    if (on) {
+      clearTimeout(awakeTimer); awakeTimer = null;
+      if (awake) return;
+      try {
+        if (IS_WIN) awake = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', "Add-Type -MemberDefinition '[DllImport(\"kernel32.dll\")] public static extern uint SetThreadExecutionState(uint f);' -Name P -Namespace DW; while ($true) { [DW.P]::SetThreadExecutionState(0x80000001) | Out-Null; Start-Sleep 20 }"], { windowsHide: true, stdio: 'ignore' });
+        else if (IS_MAC) awake = spawn('caffeinate', ['-i'], { stdio: 'ignore' });
+        if (awake) awake.on('exit', () => { awake = null; });
+      } catch { awake = null; }
+    } else if (awake && !awakeTimer) {
+      awakeTimer = setTimeout(() => { try { awake && awake.kill(); } catch { /* gone */ } awake = null; awakeTimer = null; }, 60000);
+    }
+  }
+  let lockTimer = null;
+  const refreshLock = () => { if (!IS_WIN) return; execFile('tasklist', ['/FI', 'IMAGENAME eq LogonUI.exe', '/NH'], { windowsHide: true, timeout: 5000 }, (err, out) => { if (!err) state.locked = /LogonUI\.exe/i.test(String(out)); }); };
+
   async function loop(stop = { stopped: false }) {
+    if (IS_WIN && !lockTimer) { refreshLock(); lockTimer = setInterval(refreshLock, 8000); lockTimer.unref && lockTimer.unref(); }
     log(`Dwenlite agent ${VERSION} started. Work folder: ${root}. Shell: ${opts.shell ? 'ON' : 'off'}. Screen/mouse/keyboard: ${opts.gui ? 'ON' : 'off'}.`);
     let fails = 0;
     while (!stop.stopped) {
       try {
-        const { job, config } = await api('agent_poll', { platform: process.platform, hostname: os.hostname(), version: VERSION, caps: { shell: opts.shell, gui: opts.gui } });
-        fails = 0;
+        const { job, config } = await api('agent_poll', { platform: process.platform, hostname: os.hostname(), version: VERSION, caps: { shell: opts.shell, gui: opts.gui }, state: { locked: state.locked } });
+        fails = 0; state.lastOk = Date.now();
         if (config && Array.isArray(config.folders)) extraRoots = config.folders.filter((f) => typeof f === 'string' && path.isAbsolute(f) && fs.existsSync(f)).map((f) => fs.realpathSync(f));
         if (job) {
           log(`job ${job.id}: ${job.type} ${job.type === 'shell' ? clip(job.args.command, 200) : JSON.stringify(job.args).slice(0, 200)}`);
           let ok = true; let output = ''; let image = '';
-          try { const r = await runJob(job); output = r.text; image = r.image || ''; } catch (e) { ok = false; output = e.message || String(e); }
+          state.busy++; keepAwake(true);
+          try { const r = await runJob(job); output = r.text; image = r.image || ''; } catch (e) { ok = false; output = e.message || String(e); } finally { state.busy--; if (!state.busy) keepAwake(false); }
           log(`job ${job.id}: ${ok ? 'done' : 'error'} - ${clip(output, 160).replace(/\n/g, ' ')}`);
           await api('agent_result', { jobId: job.id, ok, output, image });
           continue; // look for the next job straight away
@@ -1557,7 +1585,55 @@ Start-Process $u`;
       await sleep(opts.interval);
     }
   }
-  return { loop, actions, runJob, api, log, shutdown: () => browser.close() };
+  return { loop, actions, runJob, api, log, state, shutdown: () => { try { awake && awake.kill(); } catch { /* gone */ } return browser.close(); } };
+}
+
+// ----------------------------------------------------------------------------- the installed app: pairing, saved settings, status, quick ask, self-update
+export function configDir() {
+  if (process.env.DWENLITE_CONFIG_DIR) return process.env.DWENLITE_CONFIG_DIR;
+  if (IS_WIN) return path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'Dwenlite');
+  if (IS_MAC) return path.join(os.homedir(), 'Library', 'Application Support', 'Dwenlite');
+  return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'dwenlite');
+}
+export async function saveConfig(dir, cfg) { // the device key is protected for this Windows/Mac/Linux user, never stored in the clear
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ url: cfg.url, deviceId: cfg.deviceId, name: cfg.name, shell: !!cfg.shell, gui: !!cfg.gui, token: await seal(cfg.token) }), { mode: 0o600 });
+}
+export async function loadConfig(dir) {
+  try { const j = JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf8')); return { ...j, token: await unseal(j.token) }; } catch { return null; }
+}
+export async function pairWithCode(code, { url = DEFAULT_URL, dir = configDir(), fetchFn = fetch } = {}) {
+  const r = await fetchFn(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'agent_pair', code, hostname: os.hostname(), platform: process.platform }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `Could not pair (${r.status}).`);
+  await saveConfig(dir, { url, deviceId: j.deviceId, name: j.name, shell: j.shell, gui: j.gui, token: j.token });
+  return j;
+}
+const semver = (v) => String(v).split('.').map((x) => Number(x) || 0);
+export const isNewer = (a, b) => { const x = semver(a); const y = semver(b); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
+export async function checkForUpdate({ site = SITE, file, fetchFn = fetch, current = VERSION } = {}) { // true when a newer agent was saved and a restart is needed
+  const r = await fetchFn(`${site}/dwenlite-agent.mjs`, { signal: AbortSignal.timeout(30000) });
+  if (!r.ok) return false;
+  const text = await r.text();
+  const m = /export const VERSION = '([\d.]+)'/.exec(text);
+  if (!m || !isNewer(m[1], current) || !text.includes('createAgent')) return false;
+  fs.writeFileSync(file + '.new', text); fs.renameSync(file + '.new', file);
+  return m[1];
+}
+export function startServices(agent, { dir, name, site = SITE, file, onRestart }) {
+  const secret = crypto.randomBytes(16).toString('hex'); let port = 0;
+  const write = () => { try { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, 'status.json'), JSON.stringify({ pid: process.pid, version: VERSION, name, connected: Date.now() - agent.state.lastOk < 20000, busy: agent.state.busy > 0, locked: agent.state.locked, port, secret, updated: Date.now() })); } catch { /* ignore */ } };
+  const server = http.createServer((req, res) => { // the hotkey on this computer sends a quick question here
+    const done = (code, o) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); };
+    if (req.method !== 'POST' || req.url !== '/quick' || req.headers['x-dwenlite'] !== secret) return done(403, { error: 'No.' });
+    let b = ''; req.on('data', (c) => { b += c; if (b.length > 20000) req.destroy(); });
+    req.on('end', async () => { try { const t = String(JSON.parse(b || '{}').text || '').trim(); if (!t) return done(400, { error: 'Nothing to ask.' }); await agent.api('agent_quick', { text: t }); done(200, { ok: true }); } catch (e) { done(502, { error: e.message }); } });
+  });
+  server.listen(0, '127.0.0.1', () => { port = server.address().port; write(); });
+  const t1 = setInterval(write, 4000);
+  const check = async () => { try { const v = await checkForUpdate({ site, file }); if (v) { agent.log(`Updated to ${v}. Restarting.`); onRestart && onRestart(v); } } catch { /* try again later */ } };
+  const t2 = setInterval(check, 30 * 60000); setTimeout(check, 20000);
+  return { stop: () => { clearInterval(t1); clearInterval(t2); try { server.close(); } catch { /* ignore */ } try { fs.unlinkSync(path.join(dir, 'status.json')); } catch { /* ignore */ } } };
 }
 
 // ----------------------------------------------------------------------------- start
@@ -1580,7 +1656,26 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href &
   else console.log('Usage: node dwenlite-agent.mjs vault add | list | remove <name>');
   process.exit(0);
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href && process.argv[2] !== 'vault') {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href && process.argv[2] === 'pair') {
+  // node dwenlite-agent.mjs pair ABCD-EFGH   (the code comes from Dwenlite Home > Add a computer)
+  const code = process.argv[3] || '';
+  try { const r = await pairWithCode(code, { url: process.env.DWENLITE_URL || DEFAULT_URL }); console.log(`Paired: ${r.name}`); process.exit(0); }
+  catch (e) { console.error(e.message); process.exit(1); }
+}
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href && (process.argv[2] === 'run' || (process.argv.length <= 2))) {
+  // the installed app: uses the saved pairing, shows its status to the tray icon, keeps itself up to date
+  const dir = configDir(); const cfg = await loadConfig(dir);
+  if (!cfg) { console.error('This computer is not paired yet. Run: node dwenlite-agent.mjs pair <code from Dwenlite Home>'); process.exit(1); }
+  const major = Number(process.versions.node.split('.')[0]); if (major < 18) { console.error('Node 18 or newer is needed.'); process.exit(1); }
+  const o = { ...parseArgs(process.argv.slice(3)), url: cfg.url, device: cfg.deviceId, token: cfg.token, shell: cfg.shell, gui: cfg.gui };
+  const agent = createAgent(o); const stop = { stopped: false };
+  const services = startServices(agent, { dir, name: cfg.name, file: fileURLToPath(import.meta.url), onRestart: () => { stop.stopped = true; setTimeout(() => process.exit(3), 500); } });
+  process.on('SIGINT', () => { stop.stopped = true; services.stop(); agent.shutdown().catch(() => {}); setTimeout(() => process.exit(0), 600); });
+  process.on('exit', () => { services.stop(); agent.shutdown().catch(() => {}); });
+  await agent.loop(stop);
+  if (!stop.stopped) { try { fs.writeFileSync(path.join(dir, 'removed.flag'), 'removed'); } catch { /* ignore */ } process.exit(2); } // 2 = removed in Dwenlite Home: do not restart
+}
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href && process.argv[2] !== 'vault' && process.argv[2] !== 'pair' && process.argv[2] !== 'run' && process.argv.length > 2) {
   const o = parseArgs(process.argv.slice(2));
   if (o.help || !o.url || !o.device || !o.token) {
     console.log('Usage: node dwenlite-agent.mjs --url <API URL> --device <ID> --token <TOKEN> [--root <folder>] [--allow-shell] [--allow-gui] [--interval 3000]');

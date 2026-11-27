@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { Monitor, Plus, Trash2, Copy, Download, X, Wifi, WifiOff, FolderOpen } from 'lucide-react';
 import { HOME_URL, homeCall } from '../../lib/homeClient';
 import toast from 'react-hot-toast';
@@ -11,6 +11,8 @@ export default function DevicePanel({ devices, reload, onClose }) {
   const [gui, setGui] = useState(true);
   const [made, setMade] = useState(null); // { deviceId, token, name } shown once
   const [busy, setBusy] = useState(false);
+  const [pair, setPair] = useState(null); // { code, until }
+  const [now, setNow] = useState(Date.now());
   const [foldersFor, setFoldersFor] = useState(null);
   const [folderText, setFolderText] = useState('');
   const saveFolders = async (d) => {
@@ -26,6 +28,11 @@ export default function DevicePanel({ devices, reload, onClose }) {
       reload();
     } catch (e) { toast.error(e.message); } finally { setBusy(false); }
   };
+  const getCode = async () => {
+    setBusy(true);
+    try { const r = await homeCall('pair_code_create', { name: name.trim() || 'My computer', shell, gui }); setPair({ code: r.code, until: Date.now() + r.expiresInMinutes * 60000 }); } catch (e) { toast.error(e.message); } finally { setBusy(false); }
+  };
+  useEffect(() => { if (!pair) return undefined; const t = setInterval(() => setNow(Date.now()), 20000); return () => clearInterval(t); }, [pair]);
   const reconnect = async (d) => {
     setBusy(true);
     try { const r = await homeCall('device_rotate', { id: d.id }); setMade(r); reload(); } catch (e) { toast.error(e.message); } finally { setBusy(false); }
@@ -59,7 +66,7 @@ export default function DevicePanel({ devices, reload, onClose }) {
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold">{d.name}</p>
                 <p className="truncate text-xs text-slate-500">
-                  {d.online ? <span className="text-emerald-400"><Wifi size={11} className="mr-1 inline" />online</span> : <span><WifiOff size={11} className="mr-1 inline" />offline</span>}
+                  {d.online ? <span className="text-emerald-400"><Wifi size={11} className="mr-1 inline" />online{d.locked ? ' (screen locked)' : ''}</span> : <span><WifiOff size={11} className="mr-1 inline" />offline</span>}
                   {d.platform ? ` · ${d.platform}` : ''}{d.hostname ? ` · ${d.hostname}` : ''}
                   {d.online ? ` · shell ${d.caps && d.caps.shell ? 'on' : 'off'} · screen ${d.caps && d.caps.gui ? 'on' : 'off'}` : ''}
                 </p>
@@ -80,7 +87,28 @@ export default function DevicePanel({ devices, reload, onClose }) {
           ))}
         </div>
 
-        <div className="mt-5 rounded-2xl border border-white/10 bg-slate-900/60 p-4">
+        <div className="mt-5 rounded-2xl border border-violet-500/30 bg-violet-500/5 p-4">
+          <p className="mb-1 text-sm font-semibold">Add a Windows computer (easiest)</p>
+          <p className="mb-3 text-xs text-slate-400">Install Dwenlite on that computer and connect it with a short code. No commands to type and nothing to copy.</p>
+          {(!pair || pair.until < now) && <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="Name for this computer, e.g. Work laptop" className="mb-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm outline-none focus:border-violet-500" />}
+          {!pair || pair.until < now
+            ? <button onClick={getCode} disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-violet-600 py-2.5 text-sm font-semibold hover:bg-violet-500 disabled:opacity-50"><Plus size={16} /> {pair ? 'That code expired. Get a new one' : 'Get a code'}</button>
+            : (
+              <div className="space-y-3 text-sm">
+                <div className="rounded-xl bg-black/40 py-3 text-center"><p className="font-mono text-3xl font-bold tracking-[0.25em] text-white" data-testid="pair-code">{pair.code.slice(0, 4)}-{pair.code.slice(4)}</p><p className="mt-1 text-xs text-slate-400">Works once, for {Math.max(1, Math.ceil((pair.until - now) / 60000))} more minutes</p></div>
+                <ol className="list-decimal space-y-1.5 pl-5 text-slate-300">
+                  <li><a href="/Dwenlite-Setup.exe" download className="inline-flex items-center gap-1 font-semibold text-violet-300 underline"><Download size={14} /> Download Dwenlite for Windows</a> on that computer and open it.</li>
+                  <li>If Windows says "Windows protected your PC", tap <b>More info</b>, then <b>Run anyway</b>. (The app is new, so Windows has not seen it before.)</li>
+                  <li>When it asks, type the code above. That is all.</li>
+                </ol>
+                <p className="text-xs text-slate-500">It runs quietly in the background, starts when you sign in, keeps itself up to date, and shows a small icon near the clock. Press Ctrl+Alt+D there to ask Dwenlite something from anywhere.</p>
+              </div>
+            )}
+        </div>
+
+        <details className="mt-3 rounded-2xl border border-white/10 bg-slate-900/40 p-4 text-sm">
+          <summary className="cursor-pointer font-semibold text-slate-300">Mac, Linux, or set it up by hand</summary>
+        <div className="mt-3">
           <p className="mb-2 text-sm font-semibold">Add a computer</p>
           <div className="flex gap-2">
             <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} placeholder="Name, e.g. Desk PC" className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm outline-none focus:border-violet-500" />
@@ -91,6 +119,7 @@ export default function DevicePanel({ devices, reload, onClose }) {
             <label className="flex items-start gap-2"><input type="checkbox" checked={gui} onChange={(e) => setGui(e.target.checked)} className="mt-1 accent-violet-500" /><span>Allow it to see and use the screen</span></label>
           </div>
         </div>
+        </details>
 
         {made && (
           <div className="mt-4 rounded-2xl border border-amber-400/40 bg-amber-400/5 p-4 text-sm">

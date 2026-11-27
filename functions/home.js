@@ -37,6 +37,8 @@ const HOME_SYSTEM =
   "- To work on an Android phone use the android tool: devices, then read (it lists the screen as numbered elements, no picture), then tap/text/key by number, reading again after each step. For Wi-Fi use pair/connect with the address shown in Developer options > Wireless debugging. Use network_scan to find devices on the same network and lan_http to talk to them. Always ask before sending messages, calls or purchases from a phone.\n\n" +
   "CHECK YOUR OWN WORK\n" +
   "- After you change something (a file, a setting, a page, a phone), verify it: read the file back, run the tests, read the page again. In your final message say plainly \"Checked: ...\" with what you verified, or \"Not checked: ...\" with why not. Never say it worked unless you saw evidence.\n\n" +
+  "PROGRAMS ON THE COMPUTER\n" +
+  "- When you start a program for the owner, start it minimised so it does not cover their work (for example Start-Process notepad -WindowStyle Minimized), and keep working in the background.\n\n" +
   "DOCUMENTS AND PROGRAMS\n" +
   "- To make or read Word, Excel, PDF or CSV files use the document tool: it writes real files directly. Do not drive Word or Excel through the screen for that. For other Windows programs use app_ui (read, then click/type by number) before screenshots.\n\n" +
   "WEB AND BROWSER\n" +
@@ -378,8 +380,8 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
   async function buildSystemPrompt(uid) {
     const dq = await db.collection("homeDevices").where("ownerUid", "==", uid).get();
     const now = Date.now();
-    const devs = dq.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, online: now - (x.lastSeen || 0) < ONLINE_MS, platform: x.platform || "", caps: x.caps || {} }; });
-    const list = devs.map((d) => `- ${clip(d.name, 60)} (id ${d.id}, ${d.online ? "ONLINE" : "offline"}${d.platform ? ", " + clip(d.platform, 20) : ""}, shell ${d.caps.shell ? "allowed" : "NOT allowed"}, screen/mouse/keyboard ${d.caps.gui ? "allowed" : "NOT allowed"})`).join("\n") || "- none connected yet";
+    const devs = dq.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, online: now - (x.lastSeen || 0) < ONLINE_MS, platform: x.platform || "", caps: x.caps || {}, locked: !!x.locked }; });
+    const list = devs.map((d) => `- ${clip(d.name, 60)} (id ${d.id}, ${d.online ? "ONLINE" : "offline"}${d.platform ? ", " + clip(d.platform, 20) : ""}, shell ${d.caps.shell ? "allowed" : "NOT allowed"}, screen/mouse/keyboard ${d.caps.gui ? "allowed" : "NOT allowed"}${d.locked ? ", the screen is LOCKED right now: programs cannot be seen or controlled, use only the browser tool, files and tasks, and tell the owner if the job needs the screen" : ""})`).join("\n") || "- none connected yet";
     let memory = "";
     try { const m = await db.collection("homeMemory").doc(uid).get(); const f = (m.exists && m.data().facts) || []; if (f.length) memory = "\n\nWHAT YOU REMEMBER ABOUT THE OWNER:\n" + f.map((x) => `- ${clip(x.text, 400)}`).join("\n"); } catch (e) { /* optional */ }
     return { system: `${HOME_SYSTEM}\n\nTODAY: ${new Date().toISOString().slice(0, 10)}\nDEVICES:\n${list}${memory}\n\nYou are working in the cloud while the owner may be away from the screen. They can watch, stop you, or tell you something new while you work: if a message starting with [The owner says while you work] appears, follow it.`, devs };
@@ -398,6 +400,7 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
     const finish = async (status, text) => {
       await emit({ type: "done", status, text: clip(text, 6000), messages: clipMsgs(messages.slice(run.baseLen)) });
       await ref.update({ status, text: clip(text, 4000), finishedAt: Date.now(), msgs: "", note: "" });
+      if (run.quick) { try { const prompt = run.prompt || run.name; await db.collection("homeChats").doc().set({ ownerUid: uid, title: clip(prompt, 70), preview: clip(text, 150), search: clip(`${prompt} ${text}`, 6000).toLowerCase(), data: JSON.stringify({ v: 1, items: [{ id: "q1", type: "user", text: prompt }, { id: "q2", type: "ai", content: text }], convo: [{ role: "user", content: prompt }, { role: "assistant", content: text }] }), updatedAt: Date.now(), createdAt: Date.now() }); } catch (e) { /* optional */ } }
       const cur = (await ref.get()).data();
       if (Date.now() - (cur.lastPoll || 0) > 20000) { try { await notify(uid, { title: status === "error" ? "Dwenlite Home hit a problem" : status === "stopped" ? "Stopped" : "Dwenlite Home finished", body: text || "Finished." }); } catch (e) { /* optional */ } }
     };
@@ -656,6 +659,30 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
         const action = String(body.action || "");
 
         try {
+          // ================= pairing: a short code from the app turns into a device key on the computer (no keys are copied by hand) =================
+          if (action === "agent_pair") {
+            const code = String(body.code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+            const failRef = db.collection("homeUsage").doc("pairfails");
+            const nowMs = Date.now();
+            const fails = await failRef.get();
+            const f = fails.exists ? fails.data() : {};
+            const recent = (f.times || []).filter((t) => nowMs - t < 600000);
+            if (recent.length >= 30) return res.status(429).json({ error: "Too many wrong codes. Wait a few minutes and try again." });
+            const pref = db.collection("homePair").doc(code.length === 8 ? code : "invalid");
+            const got = await db.runTransaction(async (tx) => {
+              const c = await tx.get(pref);
+              if (!c.exists || c.data().used || c.data().expires < nowMs) return null;
+              tx.update(pref, { used: true });
+              return c.data();
+            });
+            if (!got) { await failRef.set({ times: [...recent, nowMs].slice(-60) }); return res.status(400).json({ error: "That code is not right, or it has expired. Get a new one in Dwenlite Home (Add a computer)." }); }
+            const token = crypto.randomBytes(24).toString("base64url");
+            const dref = db.collection("homeDevices").doc();
+            const name = clip(got.name || body.hostname || "My computer", 60);
+            await dref.set({ ownerUid: got.ownerUid, name, tokenHash: hash(token), createdAt: nowMs, lastSeen: 0, hostname: clip(body.hostname, 80), platform: clip(body.platform, 40) });
+            return res.status(200).json({ deviceId: dref.id, token, name, shell: !!got.shell, gui: !!got.gui });
+          }
+
           // ================= device agent (authenticated by the device's own secret token) =================
           if (action.startsWith("agent_")) {
             const ref = db.collection("homeDevices").doc(String(body.deviceId || "x"));
@@ -666,7 +693,7 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
             if (!ok) return res.status(401).json({ error: "Unknown device or wrong token." });
 
             if (action === "agent_poll") {
-              await ref.set({ lastSeen: Date.now(), platform: clip(body.platform, 40), hostname: clip(body.hostname, 80), agentVersion: clip(body.version, 20), caps: { shell: !!(body.caps && body.caps.shell), gui: !!(body.caps && body.caps.gui) } }, { merge: true });
+              await ref.set({ lastSeen: Date.now(), platform: clip(body.platform, 40), hostname: clip(body.hostname, 80), agentVersion: clip(body.version, 20), locked: !!(body.state && body.state.locked), caps: { shell: !!(body.caps && body.caps.shell), gui: !!(body.caps && body.caps.gui) } }, { merge: true });
               const q = await db.collection("homeJobs").where("deviceId", "==", ref.id).where("status", "==", "pending").limit(10).get();
               const docs = q.docs.sort((a, b) => (a.data().createdAt || 0) - (b.data().createdAt || 0));
               for (const d of docs) {
@@ -697,6 +724,18 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
               } catch (e) {
                 return res.status(e.code === "no_vision" ? 501 : 502).json({ error: e.message });
               }
+            }
+            if (action === "agent_quick") {
+              const owner = snap.data().ownerUid; const text = clip(body.text, 2000).trim();
+              if (!text) return res.status(400).json({ error: "Nothing to ask." });
+              if (!enqueueTask) return res.status(503).json({ error: "The cloud helper is not available." });
+              if (!(await capUsage(owner, "chat"))) return res.status(429).json({ error: "Today's Dwenlite Home allowance is used up." });
+              const { system } = await buildSystemPrompt(owner);
+              const msgs = [{ role: "system", content: system }, { role: "user", content: text }];
+              const rref = db.collection("homeRuns").doc();
+              await rref.set({ ownerUid: owner, kind: "chat", quick: true, name: text.slice(0, 60), prompt: text, chatId: "", status: "queued", text: "", createdAt: Date.now(), finishedAt: 0, eventCount: 0, step: 0, maxSteps: 20, baseLen: msgs.length, msgs: JSON.stringify(compact(msgs)), stop: false, steer: [], note: "", lastPoll: 0 });
+              try { await enqueueTask({ runId: rref.id, googleToken: "" }); } catch (e) { await rref.update({ status: "error", text: "queue unavailable" }); return res.status(503).json({ error: "The cloud helper is not available." }); }
+              return res.status(200).json({ ok: true, runId: rref.id });
             }
             if (action === "agent_file_get") {
               const c = await db.collection("homeFileChunks").doc(`in_${String(body.fileId || "x").replace(/[^\w-]/g, "")}_${Number(body.index) | 0}`).get();
@@ -736,6 +775,12 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
             await ref.set({ ownerUid: uid, name, tokenHash: hash(token), createdAt: Date.now(), lastSeen: 0 });
             return res.status(200).json({ deviceId: ref.id, token, name }); // the token is shown once and never stored in clear
           }
+          if (action === "pair_code_create") {
+            const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no look-alike letters
+            let code = ""; for (const b of crypto.randomBytes(8)) code += alphabet[b % alphabet.length];
+            await db.collection("homePair").doc(code).set({ ownerUid: uid, name: clip(body.name, 60).trim() || "My computer", shell: body.shell !== false, gui: body.gui !== false, used: false, expires: Date.now() + 15 * 60000, createdAt: Date.now() });
+            return res.status(200).json({ code, expiresInMinutes: 15 });
+          }
           if (action === "device_rotate") {
             // the old key is not stored, so reconnecting means issuing a fresh one (the old one stops working)
             const ref = db.collection("homeDevices").doc(String(body.id || "x"));
@@ -749,7 +794,7 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
             const q = await db.collection("homeDevices").where("ownerUid", "==", uid).get();
             const now = Date.now();
             return res.status(200).json({
-              devices: q.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, platform: x.platform || "", hostname: x.hostname || "", lastSeen: x.lastSeen || 0, caps: x.caps || {}, folders: x.folders || [], online: now - (x.lastSeen || 0) < ONLINE_MS }; }),
+              devices: q.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, platform: x.platform || "", hostname: x.hostname || "", lastSeen: x.lastSeen || 0, caps: x.caps || {}, folders: x.folders || [], locked: !!x.locked && now - (x.lastSeen || 0) < ONLINE_MS, online: now - (x.lastSeen || 0) < ONLINE_MS }; }),
             });
           }
           if (action === "device_delete") {
