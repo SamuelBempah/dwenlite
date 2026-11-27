@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { ShieldQuestion, Check, X } from 'lucide-react';
+import { ShieldQuestion, Check, X, Globe } from 'lucide-react';
+import BrowserView from './BrowserView';
 import toast from 'react-hot-toast';
 import { homeCall } from '../../lib/homeClient';
 import { Appear, Tap } from './motion';
@@ -8,6 +9,7 @@ import { plainText } from '../../lib/homePlain';
 // The assistant needs a yes or no before doing something risky.
 export default function AskCard({ item }) {
   const [sending, setSending] = useState(false);
+  const [view, setView] = useState(false);
   const answer = async (yes) => { setSending(true); try { await homeCall('approval_answer', { id: item.id, yes }); } catch (e) { toast.error(e.message); setSending(false); } };
   const done = item.answer && item.answer !== 'waiting';
   return (
@@ -16,7 +18,12 @@ export default function AskCard({ item }) {
         <ShieldQuestion size={20} className={`mt-0.5 shrink-0 ${done ? 'text-slate-500' : 'text-amber-300'}`} />
         <div className="min-w-0 flex-1">
           <p className="text-slate-100">{plainText(item.question)}</p>
-          {done ? <p className="mt-1 text-xs text-slate-400">{item.answer === 'yes' ? 'You said yes.' : item.answer === 'no' ? 'You said no.' : item.answer === 'stopped' ? 'Stopped.' : 'No answer in time, so it did not go ahead.'}</p> : (
+          {!done && item.handoff ? (
+            <div className="mt-2 flex gap-2">
+              <Tap onClick={() => setView(true)} className="flex items-center gap-1.5 rounded-lg bg-violet-600 px-3.5 py-1.5 text-xs font-semibold hover:bg-violet-500"><Globe size={14} /> Open the browser</Tap>
+              <Tap onClick={() => answer(false)} disabled={sending} className="rounded-lg bg-slate-700 px-3.5 py-1.5 text-xs font-semibold hover:bg-slate-600 disabled:opacity-50">Not now</Tap>
+            </div>
+          ) : done ? <p className="mt-1 text-xs text-slate-400">{item.handoff ? (item.answer === 'yes' ? 'Done. It carried on.' : item.answer === 'no' ? 'You skipped this.' : item.answer === 'stopped' ? 'Stopped.' : 'Waiting ran out.') : item.answer === 'yes' ? 'You said yes.' : item.answer === 'no' ? 'You said no.' : item.answer === 'stopped' ? 'Stopped.' : 'No answer in time, so it did not go ahead.'}</p> : (
             <div className="mt-2 flex gap-2">
               <Tap onClick={() => answer(true)} disabled={sending} className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold hover:bg-emerald-500 disabled:opacity-50"><Check size={14} /> Approve</Tap>
               <Tap onClick={() => answer(false)} disabled={sending} className="flex items-center gap-1.5 rounded-lg bg-slate-700 px-3.5 py-1.5 text-xs font-semibold hover:bg-slate-600 disabled:opacity-50"><X size={14} /> Not now</Tap>
@@ -24,6 +31,7 @@ export default function AskCard({ item }) {
           )}
         </div>
       </div>
+      {view && <BrowserView device={{ id: item.deviceId, name: item.deviceName }} reason={plainText(item.question)} onClose={() => setView(false)} onDone={async () => { setView(false); await answer(true); }} onCant={async () => { setView(false); await answer(false); }} />}
     </Appear>
   );
 }

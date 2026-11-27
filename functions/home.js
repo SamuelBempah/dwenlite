@@ -7,7 +7,7 @@
 const crypto = require("crypto");
 const routines = require("./routines");
 
-const JOB_TYPES = new Set(["shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows", "show_home", "browser", "undo", "web_search", "android", "network_scan", "lan_http", "git", "run_tests", "preview_write", "send_file", "fetch_file", "document", "app_ui", "find_files", "pc_health", "github", "clipboard", "pc_control", "reveal_file"]);
+const JOB_TYPES = new Set(["shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows", "show_home", "browser", "undo", "web_search", "android", "network_scan", "lan_http", "git", "run_tests", "preview_write", "send_file", "fetch_file", "document", "app_ui", "find_files", "pc_health", "github", "clipboard", "pc_control", "reveal_file", "browser_view"]);
 const ONLINE_MS = 25000;
 const MAX_OUTPUT = 150000; // characters stored per job result (a Firestore document must stay under 1 MB)
 
@@ -47,6 +47,7 @@ const HOME_SYSTEM =
   "- To sign in to a website use browser action logins (names only), open the sign-in page, then action login with site=<name>. You never see or type passwords. If no login is saved, tell the owner to add one on the computer with: node dwenlite-agent.mjs vault add\n" +
   "- For facts, news or documentation use web_search then read_page. Never open google.com in the browser to search (it blocks automated browsers): web_search already covers it. If a page shows a bot check, switch to another site instead of retrying. To DO things on a website (log in, fill forms, click) use the browser tool: open, read, then click/type by element number, and read again. Prefer the browser tool over screenshots and mouse clicks.\n" +
   "- Never enter passwords or payment details unless the owner gave them in this chat for this exact purpose. Stop and ask before anything that spends money, sends messages or deletes things.\n" +
+  "- To use a website that needs the owner to sign in or pass a check, use the browser; if there is no saved login, call need_you with a short plain reason and wait. Never ask for passwords or codes in the chat, and never mention technical details of the browser.\n" +
   "- For jobs with 3+ steps call update_plan first, and call it again after EVERY step finishes (mark it done, mark the next one doing) so the owner always sees progress. Keep going until the whole job is done; never stop to ask whether to continue.\n\n" +
   "TALKING TO THE OWNER\n" +
   "- WORDS: the owner is not technical. In everything you say, and in every `summary`, never use words like script, scripting, PowerShell, shell, terminal, command, command line, code, API, JSON or log. Say what you are doing in everyday terms: \"setting things up\", \"checking the folder\", \"looking at the screen\", \"working on your computer\". Only talk about code and commands when the owner is clearly asking for help with programming, and then write real code in a code block.\n" +
@@ -83,6 +84,7 @@ const TOOLS = [
   { name: "clipboard", description: "Read or set the clipboard of the owner's computer. action read: what is copied there now. action write: put text there so the owner can paste it. Ask before reading it unless they asked you to: it can hold private things.", properties: { device: dev, action: { type: "string", enum: ["read", "write"] }, text: { type: "string" } }, required: ["action"] },
   { name: "pc_control", description: "Basic controls on the owner's computer: lock it, put it to sleep, volume up or down (times), mute, play/pause, next and previous track.", properties: { device: dev, action: { type: "string", enum: ["lock", "sleep", "volume_up", "volume_down", "mute", "play_pause", "next", "previous"] }, times: { type: "number" } }, required: ["action"] },
   { name: "run_when_online", description: "Queue a job for a computer that is offline or asleep right now: it starts by itself when that computer comes back, and the owner gets a notification when it finishes. Use it when a device is offline and the owner wants the job done anyway. prompt must be complete instructions. Set allow_changes only if the owner clearly asked for things to be changed or sent.", properties: { device: dev, prompt: { type: "string" }, allow_changes: { type: "boolean" } }, required: ["prompt"] },
+  { name: "need_you", description: "Ask the owner to step in with the private browser: to sign in to an account, pass a security check, enter a code, or do something only they can. They get a notification and a button that opens the browser so they can do it themselves. Wait for the answer, then carry on in the same browser (the sign-in is kept). Never ask them to type a password or code in the chat. If a saved login exists, use that instead.", properties: { device: dev, reason: { type: "string", description: "One plain sentence: what they need to do and on which site." } }, required: ["reason"] },
   { name: "ask_owner", description: "Pause and ask the owner to approve something risky, with Approve and Deny buttons on their phone and a notification. Use it BEFORE deleting files in bulk, uninstalling, changing system or account settings, spending money, or sending any message, email or post. Ask one clear question saying exactly what will happen. Returns yes or no.", properties: { question: { type: "string" } }, required: ["question"] },
   { name: "notify_phone", description: "Send a notification to the owner's phone right now. Use it when a long task finishes, when something needs their attention, or when they say 'tell my phone' or 'ping me'. Short title and body.", properties: { title: { type: "string" }, body: { type: "string" } }, required: ["body"] },
   { name: "pc_health", description: "Check how the owner's computer is doing: free disk space, memory, how much is in temporary files, Downloads and the bin, large old downloads, start-up programs, virus protection and pending restarts. Read-only: it never deletes anything. For a clean-up, report first, then ask before deleting anything and move things to the bin rather than wiping them.", properties: { device: dev, kind: { type: "string", enum: ["quick", "full"] } }, required: [] },
@@ -451,11 +453,11 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
   // ---- asking the owner before something risky (answer comes from the phone or the page) ----
   let askPollMs = 2500;
   const RISKY_SHELL = /(^|[\s;&|(])(rm|rmdir|del|erase|rd|remove-item|diskpart|format-volume|uninstall-\w+|msiexec|taskkill|pkill|shutdown|restart-computer|stop-computer|mkfs(\.\w+)?)(\s|$)|\bformat\s+[a-z]:|\breg\s+delete\b|\bdd\s+if=|\bkill\s+-9\b|\bwinget\s+uninstall\b|\bapt(-get)?\s+(remove|purge)\b/i;
-  async function askOwner({ uid, runId, question, emit, shouldStop }) {
+  async function askOwner({ uid, runId, question, emit, shouldStop, handoff }) {
     const ref = db.collection("homeApprovals").doc();
-    await ref.set({ ownerUid: uid, runId, question: clip(question, 400), status: "pending", createdAt: Date.now() });
-    await emit({ type: "ask", id: ref.id, question: clip(question, 400) });
-    try { await notify(uid, { title: "Needs your OK", body: clip(question, 150) }); } catch (e) { /* the page still shows it */ }
+    await ref.set({ ownerUid: uid, runId, question: clip(question, 400), status: "pending", createdAt: Date.now(), ...(handoff ? { handoff: true } : {}) });
+    await emit({ type: "ask", id: ref.id, question: clip(question, 400), ...(handoff ? { handoff: true, deviceId: handoff.deviceId, deviceName: handoff.deviceName } : {}) });
+    try { await notify(uid, { title: handoff ? "Needs you" : "Needs your OK", body: clip(question, 150) }); } catch (e) { /* the page still shows it */ }
     const until = Date.now() + 240000; let answer = "expired";
     while (Date.now() < until) {
       const d = await ref.get(); const st = d.exists ? d.data().status : "no";
@@ -650,6 +652,7 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
     if (!snap.exists || snap.data().kind !== "chat" || !["queued", "running"].includes(snap.data().status)) return;
     const run = snap.data(); const uid = run.ownerUid; const started = Date.now();
     await ref.update({ status: "running", startedAt: run.startedAt || started });
+    let planOpen = false; let sincePlan = 0;
     let trail = []; try { trail = JSON.parse(run.trail || "[]"); } catch (e) { trail = []; }
     let messages = JSON.parse(run.msgs); let n = run.eventCount || 0; let step = run.step || 0;
     const emit = async (ev) => { n++; await db.collection("homeEvents").doc(`${runId}_${n}`).set({ ownerUid: uid, runId, n, at: Date.now(), ...ev }); await ref.update({ eventCount: n }); };
@@ -687,8 +690,18 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
           const name = c.function.name;
           if (name === "update_plan") {
             const steps = (Array.isArray(args.steps) ? args.steps : []).map((x) => ({ text: clip(x && x.text, 200), status: ["pending", "doing", "done"].includes(x && x.status) ? x.status : "pending" })).filter((x) => x.text).slice(0, 12);
+            if (steps.length && !steps.some((x) => x.status === "doing")) { const nx = steps.find((x) => x.status === "pending"); if (nx) nx.status = "doing"; }
+            planOpen = steps.some((x) => x.status !== "done"); sincePlan = 0;
             if (steps.length) await emit({ type: "plan", steps });
             messages.push({ role: "tool", tool_call_id: c.id, content: "Plan updated." });
+            continue;
+          }
+          if (name === "need_you") {
+            const hint = String(args.device || "").toLowerCase();
+            const hd = devs.find((d) => d.id === hint || d.name.toLowerCase() === hint) || (devs.filter((d) => d.online).length === 1 ? devs.find((d) => d.online) : null);
+            if (!hd) { messages.push({ role: "tool", tool_call_id: c.id, content: "Error: say which computer's browser (its name)." }); continue; }
+            const a = await askOwner({ uid, runId, question: args.reason || "I need your help in the browser.", emit, shouldStop, handoff: { deviceId: hd.id, deviceName: hd.name } });
+            messages.push({ role: "tool", tool_call_id: c.id, content: a === "yes" ? "The owner finished what you asked in the browser. Carry on (read the page again to see where things are)." : a === "no" ? "The owner could not or did not want to do it. Do not insist; offer another way or stop." : a === "stopped" ? "Stopped by the owner." : "The owner did not respond in time. Tell them what is waiting for them, and stop here." });
             continue;
           }
           if (name === "ask_owner") {
@@ -708,6 +721,7 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
           let out;
           try { out = await execUnattended({ uid, name, args, devs, deviceId: dev ? dev.id : "", allowActions: true, deadline: started + 420000, googleToken: ctx.googleToken, shouldStop, tz: run.tz, projectId: run.projectId }); } catch (e) { out = `Error: ${clip(e.message, 300)}`; }
           const failed = /^(Error:|ERROR:)/.test(String(out)) || /^Stopped by the owner/.test(String(out));
+          if (planOpen) { sincePlan++; if (sincePlan >= 2 && sincePlan % 2 === 0) out = `${out}\n\n[Reminder: update the plan now. Mark finished steps done and the one you are on as doing, so the owner sees progress.]`; }
           await emit({ type: "tool_end", id: c.id, status: failed ? "error" : "done", output: clip(out, 1500) });
           if (name !== "update_plan" && !SERVER_TOOLS.has(name)) trail.push({ name, ok: !failed, what: clip(args.summary || "", 100) });
           messages.push({ role: "tool", tool_call_id: c.id, content: clip(out, 7000) });
@@ -839,6 +853,16 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
       case "lan_http": return typeof a.url === "string" && /^https?:\/\/[^\s]+$/i.test(a.url) && a.url.length <= 1000 ? { url: a.url, method: a.method === "POST" ? "POST" : "GET", body: clip(a.body, 20000), ...(typeof a.login === "string" && /^[\w .-]{1,60}$/.test(a.login) ? { login: a.login } : {}) } : null;
       case "find_files": return { query: clip(a.query, 200), text: clip(a.text, 200), ext: clip(a.ext, 60), folder: clip(a.folder, 500), min_mb: num(a.min_mb, 0, 100000) ? a.min_mb : 0, older_than_days: num(a.older_than_days, 0, 36500) ? a.older_than_days : 0, newer_than_days: num(a.newer_than_days, 0, 36500) ? a.newer_than_days : 0, max: num(a.max, 1, 60) ? a.max : 25 };
       case "clipboard": { if (a.action === "read") return { action: "read" }; return a.action === "write" && typeof a.text === "string" && a.text && a.text.length <= 100000 ? { action: "write", text: a.text } : null; }
+      case "browser_view": {
+        const op = String(a.op || "frame");
+        if (!["frame", "tap", "text", "key", "scroll", "back"].includes(op)) return null;
+        const o = { op };
+        if (op === "tap") { if (!num(a.x, 0, 20000) || !num(a.y, 0, 20000)) return null; o.x = a.x; o.y = a.y; }
+        if (op === "text") { if (typeof a.text !== "string" || !a.text) return null; o.text = clip(a.text, 2000); }
+        if (op === "key") { if (typeof a.key !== "string" || !/^[\w+]{1,30}$/.test(a.key)) return null; o.key = a.key; }
+        if (op === "scroll") o.dy = num(a.dy, -3000, 3000) ? a.dy : 400;
+        return o;
+      }
       case "reveal_file": return typeof a.path === "string" && a.path ? { path: clip(a.path, 1000), mode: a.mode === "open" ? "open" : "show" } : null;
       case "pc_control": return ["lock", "sleep", "volume_up", "volume_down", "mute", "play_pause", "next", "previous"].includes(a.action) ? { action: a.action, times: num(a.times, 1, 10) ? a.times : 0 } : null;
       case "pc_health": return { kind: a.kind === "quick" ? "quick" : "full" };
@@ -1012,12 +1036,14 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
                 const claimed = await db.runTransaction(async (tx) => {
                   const cur = await tx.get(d.ref);
                   if (!cur.exists || cur.data().status !== "pending") return null;
-                  tx.update(d.ref, { status: "running", startedAt: Date.now() });
-                  return cur.data();
+                  const before = { ...cur.data() };
+                  const hide = before.type === "browser_view" && before.args && before.args.text ? { args: { ...before.args, text: "[hidden]" } } : {}; // what the owner types into a page is not kept
+                  tx.update(d.ref, { status: "running", startedAt: Date.now(), ...hide });
+                  return before;
                 });
-                if (claimed) return res.status(200).json({ job: { id: d.id, type: claimed.type, args: claimed.args }, config: { folders: (snap.data().folders || []), watches } });
+                if (claimed) return res.status(200).json({ job: { id: d.id, type: claimed.type, args: claimed.args }, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now() } });
               }
-              return res.status(200).json({ job: null, config: { folders: (snap.data().folders || []), watches } });
+              return res.status(200).json({ job: null, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now() } });
             }
             if (action === "agent_event") {
               const rref = db.collection("homeRoutines").doc(String(body.watchId || "x")); const rd = await rref.get();
@@ -1340,6 +1366,7 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
             if (!d.exists || d.data().ownerUid !== uid) return res.status(404).json({ error: "No such device." });
             const args = validateJob(type, body.args);
             if (!args) return res.status(400).json({ error: "Invalid arguments for this action." });
+            if (type === "browser_view") await dref.update({ viewUntil: Date.now() + 45000 });
             const jref = db.collection("homeJobs").doc();
             await jref.set({ ownerUid: uid, deviceId: dref.id, type, args, summary: clip(body.summary, 120), status: "pending", createdAt: Date.now() });
             return res.status(200).json({ id: jref.id });

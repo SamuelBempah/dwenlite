@@ -22,7 +22,7 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import dns from 'node:dns/promises';
 
-export const VERSION = '2.4.0';
+export const VERSION = '2.5.0';
 export const DEFAULT_URL = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/homeApi';
 export const SITE = 'https://www.dwenlite.space';
 const MAX_OUT = 100000;      // characters of command output sent back
@@ -625,6 +625,23 @@ export function createBrowser({ root, api, log }) {
     const act = a.action;
     if (act === 'close') { await closeAll(); return 'Browser closed.'; }
     if (act === 'logins') { const n = vaultNames(root); return n.length ? 'Saved logins (passwords stay on this computer):\n' + n.map((x) => `- ${x.name} (${x.host})`).join('\n') : 'No logins are saved. The owner adds them on this computer with: node dwenlite-agent.mjs vault add'; }
+    if (act === 'view') { // the owner looking at, and helping in, the private browser (to sign in, solve a check, and so on)
+      if (!proc || !page || page.closed) return { text: JSON.stringify({ open: false }), image: '' };
+      const p = page; const op = String(a.op || 'frame');
+      if (op === 'tap') {
+        const x = Math.max(0, Number(a.x) || 0), y = Math.max(0, Number(a.y) || 0);
+        await p.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+        await p.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+        await p.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+        await settle(p, 700);
+      } else if (op === 'text') { await p.send('Input.insertText', { text: String(a.text || '').slice(0, 2000) }); await sleep(200); }
+      else if (op === 'key') { await press(p, String(a.key || 'enter')); await settle(p, 900); }
+      else if (op === 'scroll') { await evalJs(p, `window.scrollBy(0, ${Math.max(-3000, Math.min(3000, Number(a.dy) || 0))})`); await sleep(250); }
+      else if (op === 'back') { await evalJs(p, 'history.back()'); await settle(p, 900); }
+      const meta = await evalJs(p, '({ w: innerWidth, h: innerHeight, url: location.href, title: document.title })');
+      const shot = await p.send('Page.captureScreenshot', { format: 'jpeg', quality: 55 });
+      return { text: JSON.stringify({ open: true, w: meta.w, h: meta.h, url: String(meta.url).slice(0, 300), title: String(meta.title).slice(0, 120) }), image: shot.data.length < 650000 ? shot.data : '' };
+    }
     const p = await ensurePage(!!a.visible);
     if (act === 'open') {
       const loaded = p.once('Page.loadEventFired', 20000);
@@ -1361,6 +1378,7 @@ export function createAgent(opts) {
       needGui();
       return await browser.run(a);
     },
+    async browser_view(a) { needGui(); return await browser.run({ ...a, action: 'view' }); },
     async android(a) { needShell(); return await androidRun(a); },
     async network_scan(a) {
       needShell();
@@ -1781,9 +1799,10 @@ Start-Process $u`;
         const { job, config } = await api('agent_poll', { platform: process.platform, hostname: os.hostname(), version: VERSION, caps: { shell: opts.shell, gui: opts.gui }, state: { locked: state.locked } });
         fails = 0; state.lastOk = Date.now();
         if (config && Array.isArray(config.folders)) extraRoots = config.folders.map(presetFolder).filter((f) => typeof f === 'string' && path.isAbsolute(f) && fs.existsSync(f)).map((f) => fs.realpathSync(f));
+        state.fast = !!(config && config.fast);
         if (config && Array.isArray(config.watches) && config.watches.length) scanWatches(config.watches).catch(() => {});
         if (job) {
-          log(`job ${job.id}: ${job.type} ${job.type === 'shell' ? clip(job.args.command, 200) : JSON.stringify(job.args).slice(0, 200)}`);
+          log(`job ${job.id}: ${job.type} ${job.type === 'shell' ? clip(job.args.command, 200) : job.type === 'browser_view' ? job.args.op : JSON.stringify(job.args).slice(0, 200)}`);
           let ok = true; let output = ''; let image = '';
           state.busy++; keepAwake(true);
           try { const r = await runJob(job); output = r.text; image = r.image || ''; } catch (e) { ok = false; output = e.message || String(e); } finally { state.busy--; if (!state.busy) keepAwake(false); }
@@ -1798,7 +1817,7 @@ Start-Process $u`;
         await sleep(Math.min(30000, 2000 * fails));
         continue;
       }
-      await sleep(opts.interval);
+      await sleep(state.fast ? 450 : opts.interval);
     }
   }
   return { loop, actions, runJob, api, log, state, shutdown: () => { try { awake && awake.kill(); } catch { /* gone */ } return browser.close(); } };

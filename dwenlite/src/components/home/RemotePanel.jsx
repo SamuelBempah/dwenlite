@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Monitor, Eye, Square, Send, OctagonX, Wifi, WifiOff } from 'lucide-react';
+import { X, Globe, Monitor, Eye, Square, Send, OctagonX, Wifi, WifiOff } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { homeCall } from '../../lib/homeClient';
 import { sleep } from '../../lib/homeTimer';
 import { plainText } from '../../lib/homePlain';
 import DwenLogo from './DwenLogo';
 import PhoneLink from './PhoneLink';
+import BrowserView from './BrowserView';
 import { Sheet, Spinner, Tap, motion, spring } from './motion';
 
 const clock = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
@@ -15,6 +16,7 @@ const clock = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return `${
 export default function RemotePanel({ devices, onClose, onStopAll }) {
   const [runs, setRuns] = useState(null);
   const [say, setSay] = useState({});
+  const [browse, setBrowse] = useState(null);
   const [peek, setPeek] = useState(null); // { name, image } | { name, loading }
   const [, tick] = useState(0);
   const alive = useRef(true);
@@ -86,6 +88,7 @@ export default function RemotePanel({ devices, onClose, onStopAll }) {
             <div key={d.id} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-slate-900/60 p-3 text-sm">
               <Monitor size={20} className="shrink-0 text-violet-300" />
               <div className="min-w-0 flex-1"><p className="truncate font-semibold">{d.name}</p><p className="flex items-center gap-1 text-xs">{d.online ? <><Wifi size={11} className="text-emerald-400" /><span className="text-emerald-400">connected{d.locked ? ' · screen locked' : ''}</span></> : <><WifiOff size={11} className="text-slate-500" /><span className="text-slate-500">not connected</span></>}</p></div>
+              <Tap onClick={() => setBrowse({ id: d.id, name: d.name })} disabled={!d.online} className="flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-2 text-xs font-semibold hover:bg-slate-700 disabled:opacity-40"><Globe size={14} /> Browser</Tap>
               <Tap onClick={() => look(d)} disabled={!d.online} className="flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-2 text-xs font-semibold hover:bg-slate-700 disabled:opacity-40"><Eye size={14} /> See screen</Tap>
             </div>
           ))}
@@ -97,6 +100,7 @@ export default function RemotePanel({ devices, onClose, onStopAll }) {
         <p className="mt-2 text-center text-xs text-slate-500">Tasks keep running on our servers even if you close the app. You will get a notification when they finish.</p>
       </div>
 
+      {browse && <BrowserView device={browse} onClose={() => setBrowse(null)} />}
       {peek && createPortal(
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-3" onClick={() => setPeek(null)}>
           <div className="max-h-full w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>

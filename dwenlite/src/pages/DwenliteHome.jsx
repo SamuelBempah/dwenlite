@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Home, Monitor, Brain, SlidersHorizontal, RotateCcw, History, Repeat, Mic, Volume2, VolumeX, Bell, BookmarkPlus, FileUp, MessagesSquare, Radio, Mail, Paperclip, Camera, Send, Square, X, Wifi, WifiOff, ShieldAlert, Trash2, Sparkles, CalendarCheck } from 'lucide-react';
+import { Home, Monitor, Brain, SlidersHorizontal, RotateCcw, History, Repeat, Mic, Volume2, VolumeX, Bell, BookmarkPlus, FileUp, MessagesSquare, Radio, Mail, Paperclip, Camera, Send, Square, X, Wifi, WifiOff, ShieldAlert, Trash2, Sparkles, CalendarCheck, Globe } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { auth } from '../firebase';
 import ChatAnswer from '../components/ChatAnswer';
@@ -11,6 +11,7 @@ import RoutinesPanel from '../components/home/RoutinesPanel';
 import ChatsPanel from '../components/home/ChatsPanel';
 import { sleep, keepWorking } from '../lib/homeTimer';
 import { startWake, wakeSupported } from '../lib/homeWake';
+import BrowserView from '../components/home/BrowserView';
 import AskCard from '../components/home/AskCard';
 import TodayPanel, { myZone } from '../components/home/TodayPanel';
 import DwenLogo from '../components/home/DwenLogo';
@@ -70,6 +71,8 @@ export default function DwenliteHome() {
   const [project, setProject] = useState(() => readJson('dwenliteProject', null));
   const [pending, setPending] = useState([]);
   const [shareSkills, setShareSkills] = useState(true);
+  const [browserDev, setBrowserDev] = useState(null); // set once the assistant has used its browser during this task
+  const [showBrowser, setShowBrowser] = useState(false);
   const [gLink, setGLink] = useState({ available: false, linked: false });
   const [wakeOn, setWakeOn] = useState(() => readJson('dwenliteWake', false) === true);
   const [panel, setPanel] = useState(null); // devices | memory | settings | activity | routines
@@ -512,9 +515,9 @@ export default function DwenliteHome() {
         runRef.current.after = Math.max(runRef.current.after, ev.n);
         if (ev.type === 'text') add({ id: uid(), type: 'ai', content: ev.text, typing: false });
         else if (ev.type === 'plan') setItems((p) => { const last = [...p].reverse().find((i) => i.type === 'plan'); if (last && !last.steps.every((x) => x.status === 'done')) return p.map((i) => (i.id === last.id ? { ...i, steps: ev.steps } : i)); return [...p, { id: uid(), type: 'plan', steps: ev.steps }]; });
-        else if (ev.type === 'ask') add({ id: `ask_${ev.id}`, type: 'ask', question: ev.question, answer: 'waiting' });
+        else if (ev.type === 'ask') add({ id: `ask_${ev.id}`, type: 'ask', question: ev.question, answer: 'waiting', handoff: !!ev.handoff, deviceId: ev.deviceId, deviceName: ev.deviceName });
         else if (ev.type === 'ask_done') setItems((p) => p.map((i) => (i.id === `ask_${ev.id}` ? { ...i, answer: ev.answer } : i)));
-        else if (ev.type === 'tool_start') { actionsThisTurn.current += 1; add({ id: ev.id, type: 'action', tool: ev.name, args: ev.args, deviceName: ev.deviceName, deviceId: ev.deviceId, status: 'running' }); if (stealsFor(ev.name, ev.args)) awayFrom.current = ev.deviceId; }
+        else if (ev.type === 'tool_start') { if (ev.name === 'browser' && ev.deviceId) setBrowserDev({ id: ev.deviceId, name: ev.deviceName }); actionsThisTurn.current += 1; add({ id: ev.id, type: 'action', tool: ev.name, args: ev.args, deviceName: ev.deviceName, deviceId: ev.deviceId, status: 'running' }); if (stealsFor(ev.name, ev.args)) awayFrom.current = ev.deviceId; }
         else if (ev.type === 'tool_end') { const fm = /\[file:([\w-]+):(\d+):(\d+)\]/.exec(ev.output || ''); setItems((p) => p.map((i) => (i.id === ev.id ? { ...i, status: ev.status, output: ev.output, ...(fm && i.tool === 'send_file' ? { fileMeta: { jobId: fm[1], total: Number(fm[2]), size: Number(fm[3]), name: String((i.args && i.args.path) || 'file').split(/[\\/]/).pop() } } : {}) } : i))); }
         else if (ev.type === 'done') {
           (ev.messages || []).forEach((m) => convo.current.push(m));
@@ -530,7 +533,7 @@ export default function DwenliteHome() {
     }
     const mine = runRef.current && runRef.current.id === runId;
     if (mine) runRef.current = null;
-    setLive(null); setBusy(false); returnHome();
+    setLive(null); setBusy(false); setBrowserDev(null); returnHome();
     if (mine && actionsThisTurn.current > 0 && lastPrompt.current) setSavable(lastPrompt.current); else setSavable('');
     if (mine && finalText && speakRef.current) { const say = forSpeech(finalText); if (say) voiceRef.current = speak(say, { onStart: () => setSpeaking(true), onEnd: (stopped) => { setSpeaking(false); if (!stopped && fromMic.current && speakRef.current) startMic(); } }); }
   }
@@ -714,18 +717,20 @@ export default function DwenliteHome() {
           );
           if (m.type === 'ask') return <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><AskCard item={m} /></div>;
           if (m.type === 'plan') return pinnedPlan && pinnedPlan.id === m.id ? null : <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><PlanCard steps={m.steps} /></div>;
+          if (m.type === 'action' && m.tool === 'browser') return null; // the browser's inner workings are never shown; the Browser button shows the real thing
           if (m.type === 'action') return <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><ActionCard item={m} onUndo={undoAction} onDownload={downloadFile} /></div>;
           return <p key={m.id} className="text-center text-xs italic text-slate-500">{plainText(m.text)}</p>;
         })}
       </div>
 
-      {pinnedPlan && <div className="max-h-[32dvh] overflow-y-auto border-t border-violet-500/20 bg-[#0e0e13] px-3 pt-1"><PlanCard steps={pinnedPlan.steps} /></div>}
+      {pinnedPlan && <div className="max-h-[32dvh] overflow-y-auto border-t border-violet-500/20 bg-[#0e0e13] px-3 pt-1"><PlanCard steps={pinnedPlan.steps} active /></div>}
       <AnimatePresence initial={false}>
         {live && (
           <motion.div key="live" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={spring} style={{ overflow: 'hidden' }} className="border-t border-violet-500/20 bg-violet-500/10 px-3">
             <div className="flex items-center gap-2.5 py-2">
               <DwenLogo size={26} working />
               <div className="min-w-0 flex-1"><p className="truncate text-sm text-violet-100">{live.stopping ? 'Stopping...' : plainText(live.note) || 'Working on it...'}</p><p className="text-[11px] text-violet-300/70">Running in the cloud · {Math.floor((Date.now() - live.startedAt) / 60000)}:{String(Math.floor(((Date.now() - live.startedAt) % 60000) / 1000)).padStart(2, '0')} · you can type to tell it something new</p></div>
+              {browserDev && <Tap onClick={() => setShowBrowser(true)} aria-label="Watch the browser" className="flex shrink-0 items-center gap-1 rounded-lg bg-slate-800 px-2.5 py-1.5 text-xs font-semibold hover:bg-slate-700"><Globe size={13} /> Browser</Tap>}
               <Tap onClick={stopNow} disabled={live.stopping} aria-label="Stop the task" className="shrink-0 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold hover:bg-red-500 disabled:opacity-50">Stop</Tap>
             </div>
           </motion.div>
@@ -777,6 +782,7 @@ export default function DwenliteHome() {
 
       {/* panels */}
       <AnimatePresence>
+      {showBrowser && browserDev && <BrowserView device={browserDev} onClose={() => setShowBrowser(false)} />}
       {panel === 'remote' && <RemotePanel key="remote" devices={devices} onClose={() => setPanel(null)} onStopAll={() => { if (runRef.current) runRef.current.stopping = true; }} />}
       {panel === 'today' && <TodayPanel key="today" project={project} onPickProject={(p) => { setProject(p); try { localStorage.setItem('dwenliteProject', JSON.stringify(p)); } catch { /* optional */ } }} onClose={() => setPanel(null)} />}
       {panel === 'chats' && <ChatsPanel key="chats" currentId={chatId} onOpen={openChat} onClose={() => setPanel(null)} />}
