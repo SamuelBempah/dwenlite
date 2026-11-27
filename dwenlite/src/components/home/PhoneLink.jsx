@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { ClipboardPaste, ClipboardCopy, FileUp, FileDown, ExternalLink, Lock, Moon, VolumeX, Volume1, Volume2, Play, SkipForward, SkipBack, Smartphone } from 'lucide-react';
+import { Folder, File as FileIcon, ChevronLeft, ClipboardPaste, ClipboardCopy, FileUp, FileDown, ExternalLink, Lock, Moon, VolumeX, Volume1, Volume2, Play, SkipForward, SkipBack, Smartphone } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { homeCall } from '../../lib/homeClient';
 import { uploadPieces, downloadPieces, MAX_FILE } from '../../lib/homeFiles';
@@ -19,6 +19,7 @@ export default function PhoneLink({ devices }) {
   const [url, setUrl] = useState('');
   const [path, setPath] = useState('');
   const fileRef = useRef(null);
+  const [dir, setDir] = useState(null); // { path, entries, loading, error }
   if (!online.length) return null;
 
   const job = async (type, args, summary) => {
@@ -33,6 +34,18 @@ export default function PhoneLink({ devices }) {
   };
   const doing = async (key, fn, ok) => { setBusy(key); try { const r = await fn(); if (ok) toast.success(typeof ok === 'function' ? ok(r) : ok); } catch (e) { toast.error(e.message); } finally { setBusy(''); } };
   const pasteFromPhone = async () => { try { const t = await navigator.clipboard.readText(); if (t) setText(t); else toast('Nothing copied on this phone.'); } catch { toast.error('Allow pasting for this site, or type it in the box.'); } };
+  const browse = async (p) => {
+    setDir({ path: p, entries: [], loading: true });
+    try {
+      const r = await job('list_dir', { path: p }, 'Looking through a folder');
+      const lines = r.out.split('\n'); const real = lines[0].trim();
+      const entries = lines.slice(1).map((l) => /^(dir |file)\s+(\d*)\s+(\S+)\s+(.*)$/.exec(l)).filter(Boolean).map((m) => ({ dir: m[1].trim() === 'dir', size: Number(m[2]) || 0, name: m[4] }));
+      setDir({ path: real || p, entries: entries.sort((a, b) => (b.dir - a.dir) || a.name.localeCompare(b.name)) });
+    } catch (e) { setDir({ path: p, entries: [], error: e.message }); }
+  };
+  const joinPath = (base, name) => `${base.replace(/[\\/]+$/, '')}${base.includes('\\') ? '\\' : '/'}${name}`;
+  const parentOf = (p) => { const m = /^(.*)[\\/][^\\/]+[\\/]?$/.exec(p); return m && m[1] ? m[1] : null; };
+  const fetchFile = (full) => doing('fd', async () => { const r = await job('send_file', { path: full }, 'Getting a file'); const m = /\[file:([\w-]+):(\d+):(\d+)\]/.exec(r.out); if (!m) throw new Error('That file could not be sent (up to 8 MB).'); await downloadPieces(m[1], Number(m[2]), full.split(/[\\/]/).pop()); }, 'Downloaded to this phone');
   const control = (action, label) => doing(action, () => job('pc_control', { action }, label));
   const Btn = ({ icon: Icon, label, onClick, k }) => <Tap onClick={onClick} disabled={!!busy} aria-label={label} title={label} className="flex h-10 flex-1 items-center justify-center rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-40">{busy === k ? <Spinner size={15} /> : <Icon size={17} />}</Tap>;
 
@@ -61,6 +74,20 @@ export default function PhoneLink({ devices }) {
             <input value={path} onChange={(e) => setPath(e.target.value)} placeholder="Get a file from the computer, like Documents/report.docx" className={inp} />
             <Tap type="submit" disabled={!path.trim() || !!busy} aria-label="Get the file" className="rounded-xl bg-slate-800 px-3 hover:bg-slate-700 disabled:opacity-40">{busy === 'fd' ? <Spinner size={15} /> : <FileDown size={16} />}</Tap>
           </form>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">{[['Work folder', '.'], ['Documents', '~Documents'], ['Desktop', '~Desktop'], ['Downloads', '~Downloads'], ['Pictures', '~Pictures']].map(([n, p]) => <Tap key={n} onClick={() => browse(p)} disabled={!!busy} className="flex items-center gap-1 rounded-full border border-white/10 bg-slate-800 px-2.5 py-1 text-xs hover:border-violet-500/50 disabled:opacity-40"><Folder size={12} /> {n}</Tap>)}</div>
+          {dir && (
+            <div className="mt-2 rounded-xl border border-white/10 bg-slate-950 p-2">
+              <div className="mb-1 flex items-center gap-2"><button aria-label="Up one folder" disabled={!parentOf(dir.path)} onClick={() => browse(parentOf(dir.path))} className="rounded p-1 text-slate-300 hover:bg-white/10 disabled:opacity-30"><ChevronLeft size={16} /></button><p className="min-w-0 flex-1 truncate text-xs text-slate-400" title={dir.path}>{dir.path}</p><button aria-label="Close the list" onClick={() => setDir(null)} className="text-xs text-slate-500 hover:text-slate-200">Close</button></div>
+              {dir.loading && <div className="flex justify-center py-4"><Spinner size={18} className="text-violet-300" /></div>}
+              {dir.error && <p className="px-1 py-2 text-xs text-red-300">{/outside the folders/i.test(dir.error) ? 'It does not have access to that folder yet. Add it under Your computers, then the folder icon.' : dir.error}</p>}
+              <div className="max-h-56 overflow-y-auto">{(dir.entries || []).map((e) => (
+                <button key={e.name} onClick={() => (e.dir ? browse(joinPath(dir.path, e.name)) : fetchFile(joinPath(dir.path, e.name)))} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-white/10">
+                  {e.dir ? <Folder size={14} className="shrink-0 text-violet-300" /> : <FileIcon size={14} className="shrink-0 text-slate-500" />}<span className="min-w-0 flex-1 truncate">{e.name}</span>{!e.dir && <span className="shrink-0 text-slate-500">{e.size >= 1048576 ? (e.size / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(e.size / 1024)) + ' KB'}</span>}
+                </button>))}
+                {!dir.loading && !dir.error && !(dir.entries || []).length && <p className="px-2 py-2 text-xs text-slate-500">Empty.</p>}</div>
+              <p className="mt-1 px-1 text-[11px] text-slate-500">Tap a folder to open it, or a file to download it here.</p>
+            </div>
+          )}
           <p className="mt-1 text-[11px] text-slate-500">Not sure where a file is? Ask in the chat: "find my tax invoice and send it to me".</p>
         </div>
 

@@ -1462,7 +1462,7 @@ export function createAgent(opts) {
     },
     // a file from this computer to the owner's browser
     async send_file(a, job) {
-      const f = safePath(root, a.path, extra());
+      const f = safePath(root, presetFolder(a.path), extra());
       const st = fs.statSync(f);
       if (!st.isFile()) throw new Error('That is not a file.');
       if (st.size > 8 * 1024 * 1024) throw new Error(`That file is ${(st.size / 1048576).toFixed(1)} MB. Files up to 8 MB can be sent.`);
@@ -1489,7 +1489,7 @@ export function createAgent(opts) {
       return JSON.stringify(info, null, 2);
     },
     async list_dir(a) {
-      const dir = safePath(root, a.path, extra());
+      const dir = safePath(root, presetFolder(a.path), extra());
       const items = fs.readdirSync(dir, { withFileTypes: true }).slice(0, 300).map((d) => {
         let size = '', mtime = '';
         try { const st = fs.statSync(path.join(dir, d.name)); size = d.isFile() ? st.size : ''; mtime = st.mtime.toISOString().slice(0, 16); } catch { /* ignore */ }

@@ -93,7 +93,10 @@ function create({ axios, logger }) {
     const pages = (r.data && r.data.query && r.data.query.pages) || {};
     return Object.values(pages).sort((a, b) => (a.index || 0) - (b.index || 0)).map((p) => ({ title: p.title, url: p.fullurl, snippet: String(p.extract || "").slice(0, 600) }));
   }
-  async function search(q) {
+  const cache = new Map(); // repeated look-ups within a few minutes cost nothing
+  const cached = async (key, fn) => { const hit = cache.get(key); if (hit && Date.now() - hit.at < 600000) return hit.v; const v = await fn(); cache.set(key, { at: Date.now(), v }); if (cache.size > 100) cache.delete(cache.keys().next().value); return v; };
+  async function search(q) { return cached("s:" + String(q).toLowerCase().trim(), () => searchUncached(q)); }
+  async function searchUncached(q) {
     const [d, b, w] = await Promise.allSettled([searchDuck(q), searchBing(q), searchWiki(q)]);
     if (d.status === "rejected") logger.warn("ddg failed", d.reason && d.reason.message);
     if (b.status === "rejected") logger.warn("bing failed", b.reason && b.reason.message);
@@ -104,7 +107,8 @@ function create({ axios, logger }) {
     return text;
   }
 
-  async function readPage(rawUrl, maxChars = 12000) {
+  async function readPage(rawUrl, maxChars = 12000) { return cached("r:" + maxChars + ":" + String(rawUrl).trim(), () => readPageUncached(rawUrl, maxChars)); }
+  async function readPageUncached(rawUrl, maxChars = 12000) {
     let url = String(rawUrl || "").trim();
     if (!/^https?:\/\/[^\s]+$/i.test(url) || url.length > 2000) throw new Error("Give a full http or https link.");
     let res = null;

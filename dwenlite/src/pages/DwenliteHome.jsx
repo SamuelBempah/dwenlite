@@ -11,6 +11,7 @@ import RoutinesPanel from '../components/home/RoutinesPanel';
 import ChatsPanel from '../components/home/ChatsPanel';
 import { sleep, keepWorking } from '../lib/homeTimer';
 import { startWake, wakeSupported } from '../lib/homeWake';
+import AskCard from '../components/home/AskCard';
 import TodayPanel, { myZone } from '../components/home/TodayPanel';
 import DwenLogo from '../components/home/DwenLogo';
 import { plainText } from '../lib/homePlain';
@@ -509,6 +510,8 @@ export default function DwenliteHome() {
         runRef.current.after = Math.max(runRef.current.after, ev.n);
         if (ev.type === 'text') add({ id: uid(), type: 'ai', content: ev.text, typing: false });
         else if (ev.type === 'plan') setItems((p) => { const last = [...p].reverse().find((i) => i.type === 'plan'); if (last && !last.steps.every((x) => x.status === 'done')) return p.map((i) => (i.id === last.id ? { ...i, steps: ev.steps } : i)); return [...p, { id: uid(), type: 'plan', steps: ev.steps }]; });
+        else if (ev.type === 'ask') add({ id: `ask_${ev.id}`, type: 'ask', question: ev.question, answer: 'waiting' });
+        else if (ev.type === 'ask_done') setItems((p) => p.map((i) => (i.id === `ask_${ev.id}` ? { ...i, answer: ev.answer } : i)));
         else if (ev.type === 'tool_start') { actionsThisTurn.current += 1; add({ id: ev.id, type: 'action', tool: ev.name, args: ev.args, deviceName: ev.deviceName, deviceId: ev.deviceId, status: 'running' }); if (stealsFor(ev.name, ev.args)) awayFrom.current = ev.deviceId; }
         else if (ev.type === 'tool_end') { const fm = /\[file:([\w-]+):(\d+):(\d+)\]/.exec(ev.output || ''); setItems((p) => p.map((i) => (i.id === ev.id ? { ...i, status: ev.status, output: ev.output, ...(fm && i.tool === 'send_file' ? { fileMeta: { jobId: fm[1], total: Number(fm[2]), size: Number(fm[3]), name: String((i.args && i.args.path) || 'file').split(/[\\/]/).pop() } } : {}) } : i))); }
         else if (ev.type === 'done') {
@@ -707,6 +710,7 @@ export default function DwenliteHome() {
               <ChatAnswer content={plainText(m.content)} typing={m.typing} live={m.live} />
             </Appear>
           );
+          if (m.type === 'ask') return <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><AskCard item={m} /></div>;
           if (m.type === 'plan') return pinnedPlan && pinnedPlan.id === m.id ? null : <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><PlanCard steps={m.steps} /></div>;
           if (m.type === 'action') return <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><ActionCard item={m} onUndo={undoAction} onDownload={downloadFile} /></div>;
           return <p key={m.id} className="text-center text-xs italic text-slate-500">{plainText(m.text)}</p>;
