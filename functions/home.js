@@ -83,10 +83,20 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
   const GEMINI_API_KEY = defineString("GEMINI_API_KEY", { default: "" });
   const GEMINI_MODEL = defineString("GEMINI_MODEL", { default: "gemini-3.5-flash" });
 
-  const isAdmin = (decoded) => {
-    const allowed = ADMIN_EMAILS.value().split(/[,;]+/).map(normEmail).filter(Boolean);
-    return !!(decoded && decoded.email && decoded.email_verified && allowed.includes(normEmail(decoded.email)));
-  };
+  // Anyone signed in may use Home (no admin list). To protect the AI budget each person gets a daily allowance.
+  const DAILY = { chat: 150, see: 100 };
+  async function capUsage(uid, kind) {
+    const ref = db.collection("homeUsage").doc(uid);
+    const day = new Date().toISOString().slice(0, 10);
+    return db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const d = snap.exists ? snap.data() : {};
+      const cur = d.day === day ? d : { day };
+      if ((cur[kind] || 0) >= DAILY[kind]) return false;
+      tx.set(ref, { ...cur, day, [kind]: (cur[kind] || 0) + 1 });
+      return true;
+    });
+  }
   const hash = (t) => crypto.createHash("sha256").update(String(t)).digest("hex");
   const clip = (t, n) => String(t == null ? "" : t).slice(0, n);
 
@@ -330,6 +340,7 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
               return res.status(200).json({ ok: true });
             }
             if (action === "agent_see") {
+              if (!(await capUsage(snap.data().ownerUid, "see"))) return res.status(429).json({ error: "Daily screen-reading allowance used. It resets tomorrow." });
               const b64 = String(body.image || "");
               if (!b64 || b64.length > 4000000) return res.status(413).json({ error: "Image missing or too large." });
               try {
@@ -342,14 +353,13 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
             return res.status(400).json({ error: "Unknown agent action." });
           }
 
-          // ================= everything else: signed-in ADMIN only =================
+          // ================= everything else: signed-in users =================
           const m = (req.get("Authorization") || "").match(/^Bearer (.+)$/);
           if (!m) return res.status(401).json({ error: "Please sign in." });
           let decoded;
           try { decoded = await admin.auth().verifyIdToken(m[1]); } catch (e) { return res.status(401).json({ error: "Session expired. Please sign in again." }); }
-          if (!isAdmin(decoded)) {
-            const n = ADMIN_EMAILS.value().split(",").map((x) => x.trim()).filter(Boolean).length;
-            return res.status(403).json({ error: `Not allowed. Signed in as ${decoded.email || "no email"} (verified: ${!!decoded.email_verified}). The server's admin list has ${n} email${n === 1 ? "" : "s"}.` });
+          if (action === "chat" || action === "see") {
+            if (!(await capUsage(decoded.uid, action))) return res.status(429).json({ error: "You have used today's Dwenlite Home allowance. It resets tomorrow." });
           }
           const uid = decoded.uid;
 
