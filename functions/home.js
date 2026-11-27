@@ -91,10 +91,10 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
   const OPENROUTER_VISION_MODEL = defineString("OPENROUTER_VISION_MODEL", { default: "openrouter/free" }); // a router that picks a free model that accepts images
   const HF_TOKEN = defineString("HF_TOKEN", { default: "" });
   const HF_VISION_MODEL = defineString("HF_VISION_MODEL", { default: "Qwen/Qwen2.5-VL-72B-Instruct" });
-  const VISION_ORDER = defineString("VISION_ORDER", { default: "groq,openrouter,gemini,huggingface" });
+  const VISION_ORDER = defineString("VISION_ORDER", { default: "groq" }); // Groq only; add others (comma separated) to use them as backups
 
   const visionKeys = () => ({ groq: GROQ_API_KEY.value(), openrouter: OPENROUTER_API_KEY.value(), gemini: GEMINI_API_KEY.value(), huggingface: HF_TOKEN.value() });
-  const hasVision = () => Object.values(visionKeys()).some(Boolean);
+  const hasVision = () => { const k = visionKeys(); return VISION_ORDER.value().split(",").map((x) => x.trim().toLowerCase()).some((x) => k[x]); };
   const cooldown = {}; // provider -> time (ms) until which it is skipped
   const lastGood = {}; // provider -> the model name that worked last
   const seen = new Map(); // identical picture + question within a minute or two: reuse the answer
@@ -158,7 +158,7 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
 
   async function vision({ b64, mime, mode, instruction, lang, width, height }) {
     const keys = visionKeys();
-    if (!hasVision()) { const e = new Error("Image model is not configured. Add GROQ_API_KEY, OPENROUTER_API_KEY or GEMINI_API_KEY to functions/.env."); e.code = "no_vision"; throw e; }
+    if (!hasVision()) { const e = new Error("Image model is not configured. Add GROQ_API_KEY to functions/.env."); e.code = "no_vision"; throw e; }
     mime = mime || "image/jpeg";
     let prompt = (VISION_PROMPTS[mode] || VISION_PROMPTS.describe).replace("{lang}", clip(lang || "English", 30));
     if (instruction) prompt += `\n\nInstruction from the user: ${clip(instruction, 1000)}`;
