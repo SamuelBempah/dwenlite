@@ -13,9 +13,8 @@ const db = admin.firestore();
 const DEEPSEEK_API_KEY = defineSecret("DEEPSEEK_API_KEY");
 // Comma separated emails allowed to open the usage dashboard. Put ADMIN_EMAILS=you@example.com in functions/.env
 const ADMIN_EMAILS = defineString("ADMIN_EMAILS", { default: "" });
-// lowercase, no spaces; for Gmail dots and +tags do not change the mailbox
-const normEmail = (e) => { const x = String(e || "").toLowerCase().replace(/\s+/g, ""); const m = /^([^@]+)@(gmail\.com|googlemail\.com)$/.exec(x); return m ? `${m[1].split("+")[0].replace(/\./g, "")}@gmail.com` : x; };
-const isAdminUser = (decoded) => !!(decoded && decoded.email && decoded.email_verified && ADMIN_EMAILS.value().split(/[,;]+/).map(normEmail).filter(Boolean).includes(normEmail(decoded.email)));
+const admins = require("./admins").create({ db, ADMIN_EMAILS }); // owner + ADMIN_EMAILS + admins added in the app
+const isAdminUser = (decoded) => admins.isAdmin(decoded);
 const LANG_NAMES = { fr: "French", es: "Spanish", pt: "Portuguese", de: "German", it: "Italian" };
 
 // ---------------------------------------------------------------------------
@@ -528,9 +527,21 @@ exports.generateNotesProxy = onRequest(
       // 2. Validate input.
       const { prompt, task = "general", messages, material, userName, weak, style, level, language, folders } = req.body || {};
 
+      // Admin only: who the admins are (add and remove from the usage page).
+      if (task === "admin_list" || task === "admin_add" || task === "admin_remove") {
+        if (!(await isAdminUser(decoded))) return res.status(403).json({ error: "Not allowed." });
+        try {
+          const email = req.body && req.body.email;
+          const list = task === "admin_add" ? await admins.add(email) : task === "admin_remove" ? await admins.remove(email, decoded.email) : await admins.all();
+          return res.status(200).json({ admins: list, you: decoded.email });
+        } catch (e) {
+          return res.status(e.status || 500).json({ error: e.status ? e.message : "Could not update the admin list." });
+        }
+      }
+
       // Admin only: daily token usage, for the usage dashboard.
       if (task === "admin_stats") {
-        if (!isAdminUser(decoded)) {
+        if (!(await isAdminUser(decoded))) {
           return res.status(403).json({ error: "Not allowed." });
         }
         try {
@@ -549,7 +560,7 @@ exports.generateNotesProxy = onRequest(
         try {
           const snap = await db.collection("aiUsage").doc(uid).get();
           const d = snap.exists ? snap.data() : {};
-          if (isAdminUser(decoded)) return res.status(200).json({ voice: { used: 0, limit: 0, unlimited: true } });
+          if (await isAdminUser(decoded)) return res.status(200).json({ voice: { used: 0, limit: 0, unlimited: true } });
           return res.status(200).json({ voice: { used: d[voiceKey()] || 0, limit: VOICE_DAILY_CHARS } });
         } catch (e) {
           return res.status(500).json({ error: "Could not load usage." });
@@ -610,7 +621,7 @@ exports.generateNotesProxy = onRequest(
       if (cached) return res.status(200).json(cached);
 
       // 4. Rate limit.
-      const adminUser = isAdminUser(decoded); // admins have no usage limits
+      const adminUser = await isAdminUser(decoded); // admins have no usage limits
       const usage = adminUser ? { ok: true, voiceUsed: 0, unlimited: true } : await checkAndCountUsage(uid, WEIGHTS[task] || 1, { voice: task === "teacher" });
       if (!usage.ok) {
         if (usage.reason === "voice") {
@@ -705,6 +716,6 @@ exports.generateNotesProxy = onRequest(
 
 // Dwenlite Home (admin only): personal assistant that codes, sees images and operates the owner's devices.
 const { onSchedule } = require("firebase-functions/v2/scheduler");
-const homeParts = require("./home").create({ admin, db, logger, axios, cors, onRequest, onSchedule, defineString, DEEPSEEK_API_KEY, ADMIN_EMAILS });
+const homeParts = require("./home").create({ admin, db, logger, axios, cors, onRequest, onSchedule, defineString, DEEPSEEK_API_KEY, ADMIN_EMAILS, admins });
 exports.homeApi = homeParts.homeApi;
 exports.homeScheduler = homeParts.homeScheduler; // runs saved routines every 5 minutes

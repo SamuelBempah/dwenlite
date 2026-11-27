@@ -96,7 +96,8 @@ const normEmail = (e) => {
   return m ? `${m[1].split("+")[0].replace(/\./g, "")}@gmail.com` : x;
 };
 
-function create({ admin, db, logger, axios, cors, onRequest, onSchedule, webpush, defineString, DEEPSEEK_API_KEY, ADMIN_EMAILS }) {
+function create({ admin, db, logger, axios, cors, onRequest, onSchedule, webpush, defineString, DEEPSEEK_API_KEY, ADMIN_EMAILS, admins }) {
+  const adminsApi = admins || require("./admins").create({ db, ADMIN_EMAILS });
   const JOB_POLL_MS = 1500;
   const NEVER = 9e15; // nextRun for routines that are not scheduled
   const GEMINI_API_KEY = defineString("GEMINI_API_KEY", { default: "" });
@@ -105,14 +106,14 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, webpush
   // Anyone signed in may use Home (no admin list). To protect the AI budget each person gets a daily allowance.
   const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30 };
   // Admins (ADMIN_EMAILS) have no limits anywhere in Home.
-  const isAdminDecoded = (decoded) => !!(decoded && decoded.email && decoded.email_verified && ADMIN_EMAILS.value().split(/[,;]+/).map(normEmail).filter(Boolean).includes(normEmail(decoded.email)));
+  const isAdminDecoded = (decoded) => adminsApi.isAdmin(decoded);
   const adminCache = new Map(); // uid -> { yes, at }
-  const noteAdmin = (decoded) => { adminCache.set(decoded.uid, { yes: isAdminDecoded(decoded), at: Date.now() }); return adminCache.get(decoded.uid).yes; };
+  const noteAdmin = async (decoded) => { const yes = await isAdminDecoded(decoded); adminCache.set(decoded.uid, { yes, at: Date.now() }); return yes; };
   async function uidIsAdmin(uid) {
     const hit = adminCache.get(uid);
-    if (hit && Date.now() - hit.at < 600000) return hit.yes;
+    if (hit && Date.now() - hit.at < 60000) return hit.yes;
     let yes = false;
-    try { const u = await admin.auth().getUser(uid); yes = isAdminDecoded({ uid, email: u.email, email_verified: u.emailVerified }); } catch (e) { /* not found: not an admin */ }
+    try { const u = await admin.auth().getUser(uid); yes = await isAdminDecoded({ uid, email: u.email, email_verified: u.emailVerified }); } catch (e) { /* not found: not an admin */ }
     adminCache.set(uid, { yes, at: Date.now() });
     return yes;
   }
@@ -586,7 +587,7 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, webpush
           if (!m) return res.status(401).json({ error: "Please sign in." });
           let decoded;
           try { decoded = await admin.auth().verifyIdToken(m[1]); } catch (e) { return res.status(401).json({ error: "Session expired. Please sign in again." }); }
-          noteAdmin(decoded);
+          await noteAdmin(decoded);
           if (action === "chat" || action === "see") {
             if (!(await capUsage(decoded.uid, action))) return res.status(429).json({ error: "You have used today's Dwenlite Home allowance. It resets tomorrow." });
           }

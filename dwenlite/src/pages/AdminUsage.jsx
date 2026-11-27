@@ -3,11 +3,32 @@ import { auth } from '../firebase';
 
 const URL = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
 const fmt = (n) => (n || 0).toLocaleString();
+const SOURCE = { owner: 'Owner', setting: 'Server setting', added: 'Added here' };
+
+async function adminCall(task, body = {}) {
+  const token = await auth.currentUser?.getIdToken();
+  const res = await fetch(URL, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ task, ...body }) });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(j.error || 'Something went wrong.');
+  return j;
+}
 
 // AI usage per day (admin only). The server checks your email, this page only displays the numbers.
 export default function AdminUsage() {
   const [state, setState] = useState({ loading: true, days: [], error: '' });
   const [open, setOpen] = useState(null);
+  const [admins, setAdmins] = useState(null);
+  const [you, setYou] = useState('');
+  const [email, setEmail] = useState('');
+  const [adminMsg, setAdminMsg] = useState({ type: '', text: '' });
+  const [busy, setBusy] = useState(false);
+
+  const loadAdmins = async () => { try { const j = await adminCall('admin_list'); setAdmins(j.admins); setYou(j.you || ''); } catch (e) { setAdmins(null); } };
+  const changeAdmin = async (task, addr) => {
+    setBusy(true); setAdminMsg({ type: '', text: '' });
+    try { const j = await adminCall(task, { email: addr }); setAdmins(j.admins); setEmail(''); setAdminMsg({ type: 'ok', text: task === 'admin_add' ? `${addr} is now an admin. They get it the next time they open the app.` : `${addr} is no longer an admin.` }); }
+    catch (e) { setAdminMsg({ type: 'err', text: e.message }); } finally { setBusy(false); }
+  };
 
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (user) => {
@@ -22,6 +43,7 @@ export default function AdminUsage() {
         const j = await res.json();
         if (!res.ok) throw new Error(res.status === 403 ? 'This page is only for admins.' : `${j.error || 'Could not load usage.'}${j.detail ? ' (' + j.detail + ')' : ''}`);
         setState({ loading: false, days: j.days || [], error: '' });
+        loadAdmins();
       } catch (err) {
         setState({ loading: false, days: [], error: err.message });
       }
@@ -40,6 +62,27 @@ export default function AdminUsage() {
 
   return (
     <div className="mx-auto max-w-3xl p-4 md:p-8 text-white">
+      {admins && (
+        <section className="mb-8 rounded-2xl border border-white/10 bg-slate-900/60 p-4">
+          <h2 className="text-lg font-bold">Admins</h2>
+          <p className="mt-1 text-xs text-slate-400">Admins see this page and have no usage limits on Dwenlite Home and the Teacher. They must sign in with a verified email (Google works).</p>
+          <ul className="mt-3 space-y-1.5">
+            {admins.map((a) => (
+              <li key={a.email} className="flex items-center gap-2 rounded-xl bg-slate-800/60 px-3 py-2 text-sm">
+                <span className="min-w-0 flex-1 truncate">{a.email}{a.email.toLowerCase() === you.toLowerCase() ? ' (you)' : ''}</span>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${a.source === 'owner' ? 'bg-amber-400/15 text-amber-200' : a.source === 'setting' ? 'bg-slate-700 text-slate-300' : 'bg-sky-500/15 text-sky-200'}`}>{SOURCE[a.source]}</span>
+                {a.source === 'added' && a.email.toLowerCase() !== you.toLowerCase() && <button onClick={() => { if (window.confirm(`Remove ${a.email} as an admin?`)) changeAdmin('admin_remove', a.email); }} disabled={busy} aria-label={`Remove ${a.email}`} className="shrink-0 rounded-lg px-2 py-1 text-xs text-red-300 hover:bg-red-500/10 disabled:opacity-40">Remove</button>}
+              </li>
+            ))}
+          </ul>
+          <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); if (email.trim()) changeAdmin('admin_add', email.trim()); }}>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email of the new admin" className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm outline-none focus:border-sky-500" />
+            <button type="submit" disabled={busy || !email.trim()} className="shrink-0 rounded-xl bg-sky-600 px-4 text-sm font-semibold hover:bg-sky-500 disabled:opacity-40">Add admin</button>
+          </form>
+          {adminMsg.text && <p className={`mt-2 text-xs ${adminMsg.type === 'ok' ? 'text-emerald-300' : 'text-red-300'}`}>{adminMsg.text}</p>}
+        </section>
+      )}
+
       <h1 className="text-2xl font-bold">AI usage</h1>
       <p className="mt-1 text-sm text-slate-400">Last 14 days. Input tokens that hit the cache are cheaper, so a higher cache % means lower cost.</p>
 

@@ -1,11 +1,12 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BookOpen, PenTool, HelpCircle, Coins, X, Home } from 'lucide-react';
-import { useIsOwner } from '../lib/homeClient';
+import { BookOpen, PenTool, HelpCircle, Coins, X, Home, BarChart3 } from 'lucide-react';
+import { useIsOwner, useIsAdmin } from '../lib/homeClient';
 
 const TeacherSidebar = ({ isOpen, onClose }) => {
   const isOwner = useIsOwner();
+  const isAdmin = useIsAdmin();
   return (
     <AnimatePresence>
       {isOpen && (
@@ -45,6 +46,12 @@ const TeacherSidebar = ({ isOpen, onClose }) => {
                 <Link to="/dwenlite-home" className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-800 text-gray-300 hover:text-white transition group">
                   <Home size={20} className="text-violet-400 group-hover:scale-110 transition" />
                   <span className="font-medium">Dwenlite Home</span>
+                </Link>
+              )}
+              {isAdmin && (
+                <Link to="/admin-usage" className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-800 text-gray-300 hover:text-white transition group">
+                  <BarChart3 size={20} className="text-sky-400 group-hover:scale-110 transition" />
+                  <span className="font-medium">Usage & admins</span>
                 </Link>
               )}
               <Link to="/support" className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-800 text-gray-300 hover:text-white transition group">

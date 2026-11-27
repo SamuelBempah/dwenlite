@@ -3,11 +3,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { auth, db } from '../../firebase';
 import StreakChip from '../StreakChip';
-import { useIsOwner } from '../../lib/homeClient';
+import { useIsOwner, useIsAdmin } from '../../lib/homeClient';
 import { doc, getDoc } from 'firebase/firestore';
 import { 
   Menu, X, LayoutDashboard, GraduationCap, 
-  HelpCircle, Coins, LogOut, User, Sparkles, Home
+  HelpCircle, Coins, LogOut, User, Sparkles, Home, BarChart3
 } from 'lucide-react';
 
 const AppLayout = ({ children }) => {
@@ -19,6 +19,7 @@ const AppLayout = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
   // set by the admin pages once the server has confirmed you are the owner; the server still checks every request
   const isOwner = useIsOwner();
+  const isAdmin = useIsAdmin();
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -138,6 +139,7 @@ const AppLayout = ({ children }) => {
                   <NavItem icon={<Sparkles size={20} />} label="Exams Prep" to="/exams-preparation" />
                   <NavItem icon={<HelpCircle size={20} />} label="Support" to="/community-support" />
                   {isOwner && <NavItem icon={<Home size={20} />} label="Dwenlite Home" to="/dwenlite-home" />}
+                  {isAdmin && <NavItem icon={<BarChart3 size={20} />} label="Usage & admins" to="/admin-usage" />}
                 </nav>
 
                 <div className="pt-4 border-t border-white/5 space-y-1">

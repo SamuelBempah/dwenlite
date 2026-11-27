@@ -148,3 +148,22 @@ export function useIsOwner() {
   }, []);
   return owner;
 }
+
+// True when the signed-in user is an admin (the server decides: the owner, the ADMIN_EMAILS setting, or someone added on the usage page).
+export function useIsAdmin() {
+  const [admin, setAdmin] = useState(() => { try { return localStorage.getItem('dwenliteIsAdmin') === auth.currentUser?.uid; } catch { return false; } });
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged(async (user) => {
+      if (!user) { setAdmin(false); return; }
+      try { setAdmin(localStorage.getItem('dwenliteIsAdmin') === user.uid); } catch { /* ignore */ }
+      try {
+        const r = await homeCall('whoami');
+        const yes = r.admin === true;
+        setAdmin(yes);
+        try { if (yes) localStorage.setItem('dwenliteIsAdmin', user.uid); else localStorage.removeItem('dwenliteIsAdmin'); } catch { /* ignore */ }
+      } catch { /* offline: keep what we knew */ }
+    });
+    return unsub;
+  }, []);
+  return admin;
+}
