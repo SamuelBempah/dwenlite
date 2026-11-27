@@ -16,7 +16,7 @@ import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-export const VERSION = '1.3.2';
+export const VERSION = '1.4.0';
 const MAX_OUT = 100000;      // characters of command output sent back
 const MAX_READ = 200000;     // bytes read from a file
 const IS_WIN = process.platform === 'win32';
@@ -134,6 +134,7 @@ public class DwenNative {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
   [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
   [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr dc, uint flags);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
@@ -228,7 +229,7 @@ if ($App) {
   $blank=$true; $first=$bmp.GetPixel(1,1)
   foreach ($fx in 0.2,0.5,0.8) { foreach ($fy in 0.2,0.5,0.8) { if ($bmp.GetPixel([int]($ww*$fx),[int]($wh*$fy)).ToArgb() -ne $first.ToArgb()) { $blank=$false } } }
   if ($blank -and $r.Left -gt -30000) { $g.CopyFromScreen($r.Left,$r.Top,0,0,(New-Object System.Drawing.Size $ww,$wh)) }
-  if ($wasMin) { [DwenNative]::ShowWindow($hw,7) | Out-Null }
+  if ($wasMin) { [DwenNative]::SetWindowPos($hw,[IntPtr]1,0,0,0,0,0x13) | Out-Null }  # keep it running: restored, but behind every other window
   $offX=$r.Left; $offY=$r.Top
   $b=New-Object System.Drawing.Rectangle 0,0,$ww,$wh
 } else {
@@ -279,6 +280,9 @@ Add-Type @"
 using System; using System.Runtime.InteropServices;
 public class DwenBg {
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] public static extern bool GetGUIThreadInfo(uint tid, ref GUITHREADINFO i);
   [DllImport("user32.dll")] public static extern IntPtr ChildWindowFromPointEx(IntPtr h, POINT p, uint f);
@@ -292,6 +296,8 @@ public class DwenBg {
 [DwenBg]::SetProcessDPIAware() | Out-Null
 ${PS_FIND}
 $h=Find-Win $App
+# a minimised program is paused by Windows: restore it without activating, then tuck it behind everything so it keeps running unseen
+if ([DwenBg]::IsIconic($h)) { [DwenBg]::ShowWindow($h,4) | Out-Null; Start-Sleep -Milliseconds 500; [DwenBg]::SetWindowPos($h,[IntPtr]1,0,0,0,0,0x13) | Out-Null }
 function Focus-Target($h) {
   $pid2=[uint32]0; $tid=[DwenBg]::GetWindowThreadProcessId($h,[ref]$pid2)
   $gi=New-Object DwenBg+GUITHREADINFO; $gi.cbSize=[Runtime.InteropServices.Marshal]::SizeOf($gi)
@@ -445,12 +451,13 @@ export function createAgent(opts) {
       if (IS_WIN) {
         const script = `$u='${a.url.replace(/'/g, "''")}'
 $id=''; try { $id=(Get-ItemProperty 'HKCU:\\Software\\Microsoft\\Windows\\Shell\\Associations\\UrlAssociations\\https\\UserChoice' -ErrorAction Stop).ProgId } catch {}
-$exe=$null; $arg='--new-window'
-if ($id -like 'ChromeHTML*') { $exe='chrome' } elseif ($id -like 'MSEdgeHTM*') { $exe='msedge' } elseif ($id -like 'BraveHTML*') { $exe='brave' } elseif ($id -like 'FirefoxURL*') { $exe='firefox'; $arg='-new-window' }
-if ($exe) { try { Start-Process $exe -ArgumentList $arg,$u -ErrorAction Stop; exit 0 } catch {} }
+$exe=$null
+$flags=@('--new-window',"--user-data-dir=$HOME\\dwenlite-browser",'--no-first-run','--no-default-browser-check','--disable-backgrounding-occluded-windows','--disable-renderer-backgrounding','--disable-background-timer-throttling','--disable-features=CalculateNativeWinOcclusion')
+if ($id -like 'ChromeHTML*') { $exe='chrome' } elseif ($id -like 'MSEdgeHTM*') { $exe='msedge' } elseif ($id -like 'BraveHTML*') { $exe='brave' } elseif ($id -like 'FirefoxURL*') { $exe='firefox'; $flags=@('-new-window') }
+if ($exe) { try { Start-Process $exe -ArgumentList ($flags + $u) -ErrorAction Stop; exit 0 } catch {} }
 Start-Process $u`;
         await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script]);
-        return `Opened ${a.url} in a new browser window. Use list_windows to find its exact title.`;
+        return `Opened ${a.url} in a separate browser window with its own profile (it keeps running while hidden or behind other windows; sign in there once if a site needs it). Use list_windows to find its exact title.`;
       }
       else if (IS_MAC) await run('open', [a.url]);
       else spawn('xdg-open', [a.url], { detached: true, stdio: 'ignore' }).unref();
