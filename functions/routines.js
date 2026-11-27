@@ -51,6 +51,9 @@ function allowedUnattended(name, args = {}, allowActions = false) {
   if (name === "android") return allowActions || SAFE.android.has(args.action);
   if (name === "document") return allowActions || args.action === "read";
   if (name === "app_ui") return allowActions || args.action === "read";
+  if (name === "google_mail") return allowActions || ["search", "read"].includes(args.action);
+  if (name === "google_calendar") return allowActions || args.action === "list";
+  if (name === "google_drive") return allowActions || ["search", "recent", "read"].includes(args.action);
   if (name.startsWith("google_")) return !!allowActions;
   if (name === "lan_http") return allowActions || String(args.method || "GET").toUpperCase() === "GET";
   if (["run_shell", "write_file", "click", "type_text", "press_key", "scroll", "open_url", "run_tests", "send_file", "clipboard", "pc_control"].includes(name)) return !!allowActions;

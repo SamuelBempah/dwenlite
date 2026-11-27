@@ -70,6 +70,7 @@ export default function DwenliteHome() {
   const [project, setProject] = useState(() => readJson('dwenliteProject', null));
   const [pending, setPending] = useState([]);
   const [shareSkills, setShareSkills] = useState(true);
+  const [gLink, setGLink] = useState({ available: false, linked: false });
   const [wakeOn, setWakeOn] = useState(() => readJson('dwenliteWake', false) === true);
   const [panel, setPanel] = useState(null); // devices | memory | settings | activity | routines
   const [routineDraft, setRoutineDraft] = useState(null);
@@ -141,6 +142,7 @@ export default function DwenliteHome() {
   }, []);
 
   const loadDevices = useCallback(async () => { try { setDevices((await homeCall('device_list')).devices || []); } catch { /* keep the last list */ } }, []);
+  useEffect(() => { if (gate === 'ok' && panel === 'settings') homeCall('google_link_status').then(setGLink).catch(() => {}); }, [gate, panel]);
   useEffect(() => { if (gate === 'ok') homeCall('settings_get').then((r) => setShareSkills(r.shareSkills !== false)).catch(() => {}); }, [gate]);
   const loadMemory = useCallback(async () => { try { { const m = await homeCall('memory_get'); setMemory(m.facts || []); setPending(m.pending || []); } } catch { /* optional */ } }, []);
   useEffect(() => {
@@ -832,6 +834,14 @@ export default function DwenliteHome() {
                 <span className="shrink-0 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold">{googleOn ? 'Disconnect' : 'Connect Google'}</span>
               </button>
             </div>
+            {gLink.available && (
+              <div className="mt-3 rounded-2xl border border-white/10 bg-slate-900/60 p-3 text-sm">
+                <button onClick={async () => { try { if (gLink.linked) { await homeCall('google_link_remove'); setGLink({ ...gLink, linked: false }); toast.success('Disconnected'); } else { const r = await homeCall('google_link_start'); window.open(r.url, '_blank', 'noopener'); toast('Finish in the Google window, then come back here.'); const t = setInterval(() => homeCall('google_link_status').then((x) => { setGLink(x); if (x.linked) clearInterval(t); }).catch(() => {}), 3000); setTimeout(() => clearInterval(t), 180000); } } catch (e) { toast.error(e.message); } }} className="flex w-full items-center justify-between gap-3 text-left">
+                  <span className="flex items-center gap-2"><Mail size={16} className="text-violet-300" /><span><b>Keep Google connected</b><span className="block text-xs text-slate-400">{gLink.linked ? 'Connected. Your routines and morning briefing can read your mail, calendar and Drive while you are away. They can only read unless you allow changes for that routine. Tap to disconnect.' : 'Let routines and your morning briefing use your mail, calendar and Drive while you are away, without you opening this page.'}</span></span></span>
+                  <span className="shrink-0 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold">{gLink.linked ? 'Disconnect' : 'Connect'}</span>
+                </button>
+              </div>
+            )}
             <label className="mt-3 flex items-center justify-between gap-3 text-sm text-slate-300"><span>Help it learn for everyone<span className="block text-xs text-slate-500">It learns general methods from jobs that went well, like the steps for sorting photos, and shares them so it gets better for all users. Never your files, names, messages or anything personal.</span></span>
               <button type="button" role="switch" aria-checked={shareSkills} onClick={() => { const v = !shareSkills; setShareSkills(v); homeCall('settings_set', { shareSkills: v }).catch(() => {}); }} className={`h-6 w-11 shrink-0 rounded-full p-0.5 transition-colors ${shareSkills ? 'bg-violet-600' : 'bg-slate-700'}`}><span className={`block h-5 w-5 rounded-full bg-white transition-transform ${shareSkills ? 'translate-x-5' : ''}`} /></button>
             </label>

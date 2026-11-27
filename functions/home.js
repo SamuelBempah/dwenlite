@@ -123,7 +123,7 @@ const normEmail = (e) => {
   return m ? `${m[1].split("+")[0].replace(/\./g, "")}@gmail.com` : x;
 };
 
-function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskDispatched, enqueueTask, webpush, defineString, DEEPSEEK_API_KEY, ADMIN_EMAILS, admins }) {
+function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskDispatched, enqueueTask, webpush, defineString, DEEPSEEK_API_KEY, ADMIN_EMAILS, admins, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET }) {
   const adminsApi = admins || require("./admins").create({ db, ADMIN_EMAILS });
   const JOB_POLL_MS = 1500;
   const NEVER = 9e15; // nextRun for routines that are not scheduled
@@ -304,9 +304,10 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
 
   // ---- unattended runs (saved routines, on a schedule or on demand) ----
   const DEVICE_TOOLS = new Set(["document", "app_ui", "run_shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows", "browser", "android", "network_scan", "lan_http", "git", "run_tests", "find_files", "pc_health", "github", "clipboard", "pc_control"]);
-  const MIXED = new Set(["browser", "git", "android", "lan_http", "document", "app_ui", "github"]);
+  const MIXED = new Set(["browser", "git", "android", "lan_http", "document", "app_ui", "github", "google_mail", "google_calendar", "google_drive"]);
   async function runTask({ uid, prompt, deviceId, allowActions, watch = false, previous = "", maxSteps = 10, deadline = Date.now() + 360000 }) {
-    const tools = TOOLS.filter((t) => { const n = t.function.name; return n !== "run_js" && n !== "send_file" && n !== "project_note" && n !== "run_when_online" && !n.startsWith("google_") && (SERVER_TOOLS.has(n) || MIXED.has(n) || routines.allowedUnattended(n, {}, allowActions)); });
+    const linked = await googleLinked(uid);
+    const tools = TOOLS.filter((t) => { const n = t.function.name; return n !== "run_js" && n !== "send_file" && n !== "project_note" && n !== "run_when_online" && (!n.startsWith("google_") || linked) && (SERVER_TOOLS.has(n) || MIXED.has(n) || routines.allowedUnattended(n, {}, allowActions)); });
     const dq = await db.collection("homeDevices").where("ownerUid", "==", uid).get();
     const now = Date.now();
     const devs = dq.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, online: now - (x.lastSeen || 0) < ONLINE_MS, platform: x.platform || "" }; });
@@ -337,7 +338,10 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
   }
   async function execUnattended({ uid, name, args, devs, deviceId, allowActions, deadline, googleToken, shouldStop, tz, projectId }) {
     if (SERVER_TOOLS.has(name)) return await serverTool(uid, name, args, { tz, projectId });
-    if (name.startsWith("google_")) return await googleApi.run(name, args, googleToken);
+    if (name.startsWith("google_")) {
+      if (!routines.allowedUnattended(name, args, allowActions) && !googleToken) return "Not allowed in an unattended routine. The owner has not allowed changes for this routine.";
+      return await googleApi.run(name, args, googleToken || (await googleAccessFor(uid)));
+    }
     if (!routines.allowedUnattended(name, args, allowActions)) return "Not allowed in an unattended routine. The owner has not allowed changes for this routine.";
     if (name === "web_search") return await web.search(clip(args.query, 300));
     if (name === "read_page") return await web.readPage(args.url);
@@ -394,6 +398,30 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
     return { status, text, steps, runId: runRef.id };
   }
 
+  // ---- Google that stays connected: the owner agrees once, and routines can then read mail, calendar and Drive while they are away ----
+  const gId = () => String((GOOGLE_CLIENT_ID && GOOGLE_CLIENT_ID.value && GOOGLE_CLIENT_ID.value()) || "").trim();
+  const gSecret = () => String((GOOGLE_CLIENT_SECRET && GOOGLE_CLIENT_SECRET.value && GOOGLE_CLIENT_SECRET.value()) || "").trim();
+  const G_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.compose", "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/drive.readonly", "https://www.googleapis.com/auth/drive.file"];
+  const gKey = () => crypto.createHash("sha256").update("dwenlite-google|" + gSecret()).digest();
+  const gSeal = (t) => { const iv = crypto.randomBytes(12); const c = crypto.createCipheriv("aes-256-gcm", gKey(), iv); const enc = Buffer.concat([c.update(String(t), "utf8"), c.final()]); return Buffer.concat([iv, c.getAuthTag(), enc]).toString("base64"); };
+  const gOpen = (b) => { const raw = Buffer.from(String(b), "base64"); const d = crypto.createDecipheriv("aes-256-gcm", gKey(), raw.subarray(0, 12)); d.setAuthTag(raw.subarray(12, 28)); return Buffer.concat([d.update(raw.subarray(28)), d.final()]).toString("utf8"); };
+  const gSign = (t) => crypto.createHmac("sha256", gKey()).update(t).digest("base64url");
+  const gAccess = new Map(); // uid -> { token, exp }
+  async function googleAccessFor(uid) { // a fresh short-lived Google token for this owner, or "" if they have not connected
+    if (!gId() || !gSecret()) return "";
+    const hit = gAccess.get(uid); if (hit && hit.exp > Date.now() + 60000) return hit.token;
+    const d = await db.collection("homeGoogleTokens").doc(uid).get(); if (!d.exists) return "";
+    let refresh; try { refresh = gOpen(d.data().enc); } catch (e) { return ""; }
+    try {
+      const r = await axios.post("https://oauth2.googleapis.com/token", new URLSearchParams({ client_id: gId(), client_secret: gSecret(), refresh_token: refresh, grant_type: "refresh_token" }).toString(), { headers: { "Content-Type": "application/x-www-form-urlencoded" }, timeout: 15000 });
+      const token = r.data.access_token; gAccess.set(uid, { token, exp: Date.now() + (Number(r.data.expires_in) || 3000) * 1000 });
+      return token;
+    } catch (e) {
+      if (e.response && e.response.data && e.response.data.error === "invalid_grant") { await db.collection("homeGoogleTokens").doc(uid).delete().catch(() => {}); gAccess.delete(uid); }
+      return "";
+    }
+  }
+  async function googleLinked(uid) { try { const d = await db.collection("homeGoogleTokens").doc(uid).get(); return d.exists && !!gId() && !!gSecret(); } catch (e) { return false; } }
   // ---- triggers: a routine that runs because something happened (a file appeared, the computer came back, a link was called) ----
   const TRIGGER_KINDS = ["file", "online", "hook"];
   async function fireTrigger(rid, routine, context) {
@@ -635,7 +663,8 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
       if (Date.now() - (cur.lastPoll || 0) > 20000) { try { await notify(uid, { title: status === "error" ? "Dwenlite Home hit a problem" : status === "stopped" ? "Stopped" : "Dwenlite Home finished", body: text || "Finished." }); } catch (e) { /* optional */ } }
     };
     const devs = (await buildSystemPrompt(uid, { tz: run.tz, projectId: run.projectId })).devs;
-    const tools = TOOLS.filter((t) => t.function.name !== "run_js" && (!t.function.name.startsWith("google_") || ctx.googleToken));
+    const linkedG = await googleLinked(uid);
+    const tools = TOOLS.filter((t) => t.function.name !== "run_js" && (!t.function.name.startsWith("google_") || ctx.googleToken || linkedG));
     const shouldStop = async () => !!(await ref.get()).data().stop;
     try {
       for (; step < run.maxSteps; step++) {
@@ -909,6 +938,22 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
           res.set("Access-Control-Allow-Methods", "POST");
           res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
           return res.status(204).send("");
+        }
+        if (req.method === "GET" && (req.query || {}).state && ((req.query || {}).code || (req.query || {}).error)) { // Google sends the owner back here after they agree
+          const page = (msg) => res.status(200).set("Content-Type", "text/html; charset=utf-8").send(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dwenlite</title><body style="font-family:system-ui;background:#0b0b10;color:#eee;display:grid;place-items:center;min-height:100vh;margin:0"><div style="max-width:380px;padding:24px;text-align:center"><h2>${msg}</h2><p style="color:#9ca3af">You can close this window and go back to Dwenlite Home.</p></div>`);
+          try {
+            const [payload, sig] = String(req.query.state).split(".");
+            const want = gSign(payload || "");
+            if (!sig || sig.length !== want.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(want))) return page("That link is not valid.");
+            const st = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+            if (!st.uid || st.exp < Date.now()) return page("That link ran out. Start again from Dwenlite Home.");
+            if (req.query.error) return page("Google was not connected.");
+            const r = await axios.post("https://oauth2.googleapis.com/token", new URLSearchParams({ code: String(req.query.code), client_id: gId(), client_secret: gSecret(), redirect_uri: hookBase, grant_type: "authorization_code" }).toString(), { headers: { "Content-Type": "application/x-www-form-urlencoded" }, timeout: 15000 });
+            if (!r.data.refresh_token) return page("Google did not keep the connection. Remove Dwenlite in your Google account's connected apps and try again.");
+            await db.collection("homeGoogleTokens").doc(st.uid).set({ enc: gSeal(r.data.refresh_token), scope: String(r.data.scope || ""), at: Date.now() });
+            gAccess.set(st.uid, { token: r.data.access_token, exp: Date.now() + (Number(r.data.expires_in) || 3000) * 1000 });
+            return page("Google is connected");
+          } catch (e) { logger.warn("google connect failed", e.message); return page("Google could not be connected."); }
         }
         const isHook = req.method === "GET" && String((req.query || {}).action || "") === "hook_fire";
         if (req.method !== "POST" && !isHook) return res.status(405).send("Method Not Allowed");
@@ -1375,6 +1420,18 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
             if (action === "skills_delete") { await db.collection("homeSkills").doc(String(body.id || "x")).delete(); skillsCache.at = 0; return res.status(200).json({ ok: true }); }
             return res.status(200).json({ skills: (await allSkills(true)).sort((a, b) => (b.wins || 0) - (a.wins || 0)).slice(0, 200) });
           }
+          if (action === "google_link_status") return res.status(200).json({ available: !!gId() && !!gSecret(), linked: await googleLinked(uid), redirect: hookBase });
+          if (action === "google_link_start") {
+            if (!gId() || !gSecret()) return res.status(501).json({ error: "Keeping Google connected is not set up on the server yet." });
+            const payload = Buffer.from(JSON.stringify({ uid, exp: Date.now() + 15 * 60000 })).toString("base64url");
+            const url = "https://accounts.google.com/o/oauth2/v2/auth?" + new URLSearchParams({ client_id: gId(), redirect_uri: hookBase, response_type: "code", scope: G_SCOPES.join(" "), access_type: "offline", prompt: "consent", include_granted_scopes: "true", state: `${payload}.${gSign(payload)}` }).toString();
+            return res.status(200).json({ url });
+          }
+          if (action === "google_link_remove") {
+            const d = await db.collection("homeGoogleTokens").doc(uid).get();
+            if (d.exists) { try { await axios.post("https://oauth2.googleapis.com/revoke", new URLSearchParams({ token: gOpen(d.data().enc) }).toString(), { headers: { "Content-Type": "application/x-www-form-urlencoded" }, timeout: 10000 }); } catch (e) { /* it may already be revoked */ } await db.collection("homeGoogleTokens").doc(uid).delete(); }
+            gAccess.delete(uid); return res.status(200).json({ ok: true });
+          }
           if (action === "approval_answer") {
             const ref = db.collection("homeApprovals").doc(String(body.id || "x")); const d = await ref.get();
             if (!d.exists || d.data().ownerUid !== uid) return res.status(404).json({ error: "No such request." });
@@ -1423,7 +1480,7 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
             if (!/^\d{1,2}:\d{2}$/.test(body.time || "")) return res.status(400).json({ error: "Pick a time for your briefing." });
             const schedule = { kind: "daily", time: body.time, tz };
             if (!routines.computeNextRun(schedule)) return res.status(400).json({ error: "That time is not valid." });
-            const doc = { ownerUid: uid, name: "Morning briefing", briefing: true, prompt: "Give the owner a short, friendly morning briefing. Check their reminders and to-do list with the tools and mention what matters today. If you can, add the weather or one headline worth knowing from a quick web search. Keep it brief and warm, in plain words.", deviceId: "", schedule, allowActions: false, watch: false, enabled: true, nextRun: routines.computeNextRun(schedule) };
+            const doc = { ownerUid: uid, name: "Morning briefing", briefing: true, prompt: "Give the owner a short, friendly morning briefing. Check their reminders and to-do list with the tools and mention what matters today. If you have the Google tools, also look at today's calendar and any important unread mail. If you can, add the weather or one headline worth knowing from a quick web search. Keep it brief and warm, in plain words.", deviceId: "", schedule, allowActions: false, watch: false, enabled: true, nextRun: routines.computeNextRun(schedule) };
             settingsRef(uid).set({ tz }, { merge: true }).catch(() => {});
             if (cur) await cur.ref.update(doc); else await db.collection("homeRoutines").doc().set({ ...doc, createdAt: Date.now(), lastRun: 0, lastStatus: "", lastText: "", running: 0 });
             return res.status(200).json({ ok: true });
@@ -1491,7 +1548,7 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
     ? onSchedule({ schedule: "every 1 minutes", timeoutSeconds: 60, memory: "256MiB", maxInstances: 1 }, async () => { await remindersTick(); })
     : null;
 
-  return { homeApi, homeScheduler, homeReminderTick, runTaskWorker, _test: { setAskPoll: (n) => { askPollMs = n; }, learnSkill, findSkills, allSkills, remindersTick, serverTool, runChat, runAdhoc, schedulerTick, runTask, notify, vapid, validateJob, cleanMessages, hash, TOOLS, JOB_TYPES } };
+  return { homeApi, homeScheduler, homeReminderTick, runTaskWorker, _test: { googleAccessFor, setAskPoll: (n) => { askPollMs = n; }, learnSkill, findSkills, allSkills, remindersTick, serverTool, runChat, runAdhoc, schedulerTick, runTask, notify, vapid, validateJob, cleanMessages, hash, TOOLS, JOB_TYPES } };
 }
 
 module.exports = { create };
