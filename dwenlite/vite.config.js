@@ -16,6 +16,7 @@ export default defineConfig({
         theme_color: '#1f2937',
         background_color: '#1f2937',
         display: 'standalone',
+        share_target: { action: '/share-target', method: 'POST', enctype: 'multipart/form-data', params: { title: 'title', text: 'text', url: 'url', files: [{ name: 'files', accept: ['*/*'] }] } },
         icons: [
           {
             src: 'pwa-192x192.png',

@@ -14,3 +14,19 @@ self.addEventListener('notificationclick', (event) => {
     return self.clients.openWindow(url);
   }));
 });
+
+// Share to Dwenlite from the phone's Share menu: keep what was shared, then open Dwenlite Home to use it.
+self.addEventListener('fetch', (event) => {
+  const url = new URL(event.request.url);
+  if (event.request.method !== 'POST' || url.pathname !== '/share-target') return;
+  event.respondWith((async () => {
+    try {
+      const form = await event.request.formData();
+      const cache = await caches.open('dwenlite-share');
+      await cache.put('/__shared/meta', new Response(JSON.stringify({ title: form.get('title') || '', text: form.get('text') || '', url: form.get('url') || '' }), { headers: { 'Content-Type': 'application/json' } }));
+      const files = form.getAll('files').filter((f) => f && typeof f !== 'string').slice(0, 10);
+      for (let i = 0; i < files.length; i++) await cache.put('/__shared/' + i, new Response(files[i], { headers: { 'X-Name': encodeURIComponent(files[i].name || 'file'), 'X-Type': files[i].type || 'application/octet-stream' } }));
+    } catch (e) { /* open the app anyway */ }
+    return Response.redirect('/dwenlite-home?shared=1', 303);
+  })());
+});

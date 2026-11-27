@@ -9,13 +9,13 @@ const ago = (t) => { if (!t) return 'never'; const s = Math.max(1, Math.round((D
 const tz = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } };
 
 function Editor({ draft, devices, onCancel, onSaved }) {
-  const [f, setF] = useState({ name: '', prompt: '', deviceId: '', when: 'none', time: '08:00', every: 60, allowActions: false, enabled: true, ...draft });
+  const [f, setF] = useState({ name: '', prompt: '', deviceId: '', when: 'none', time: '08:00', every: 60, allowActions: false, watch: false, enabled: true, ...draft });
   const [busy, setBusy] = useState(false);
   const save = async () => {
     setBusy(true);
     try {
       const schedule = f.when === 'none' ? null : f.when === 'interval' ? { kind: 'interval', everyMinutes: Number(f.every) } : { kind: f.when, time: f.time, tz: tz() };
-      await homeCall('routine_save', { id: f.id, name: f.name, prompt: f.prompt, deviceId: f.deviceId, schedule, allowActions: f.allowActions, enabled: f.enabled });
+      await homeCall('routine_save', { id: f.id, name: f.name, prompt: f.prompt, deviceId: f.deviceId, schedule, allowActions: f.allowActions, watch: f.watch, enabled: f.enabled });
       toast.success('Saved'); onSaved();
     } catch (e) { toast.error(e.message); } finally { setBusy(false); }
   };
@@ -38,6 +38,10 @@ function Editor({ draft, devices, onCancel, onSaved }) {
       <label className="flex items-start gap-2 rounded-xl border border-white/10 bg-slate-900/60 p-3">
         <input type="checkbox" checked={f.allowActions} onChange={(e) => setF({ ...f, allowActions: e.target.checked })} className="mt-1 accent-violet-500" />
         <span><b>Allow it to change things</b><span className="block text-xs text-slate-400">Off by default: when you are not there it can only read, look and search. Turn this on to let it run commands, save files and click, with no one to approve. Dangerous commands stay blocked.</span></span>
+      </label>
+      <label className="flex items-start gap-2 rounded-xl border border-white/10 bg-slate-900/60 p-3">
+        <input type="checkbox" checked={f.watch} onChange={(e) => setF({ ...f, watch: e.target.checked })} className="mt-1 accent-violet-500" />
+        <span><b>Watch mode: only tell me when something changes</b><span className="block text-xs text-slate-400">It checks on schedule and stays quiet (no notification) unless there is something new since the last check. Good for "tell me when this page changes".</span></span>
       </label>
       <p className="text-xs text-slate-500">Scheduled runs happen on our server every few minutes, so the time can be a few minutes late. Your computer must be on, with the agent running, for anything that uses it. You get a notification when a run finishes (turn it on in Settings).</p>
       <div className="flex gap-2">
@@ -62,9 +66,9 @@ export default function RoutinesPanel({ devices, draft, onClose, onRunHere }) {
     setBusyId(r.id);
     try { const out = await homeCall('routine_run', { id: r.id }); toast.success(out.status === 'error' ? 'It ran into a problem.' : 'Finished. See the result below.'); } catch (e) { toast.error(e.message); } finally { setBusyId(''); load(); }
   };
-  const toggle = async (r) => { try { await homeCall('routine_save', { id: r.id, name: r.name, prompt: r.prompt, deviceId: r.deviceId, schedule: r.schedule, allowActions: r.allowActions, enabled: !r.enabled }); load(); } catch (e) { toast.error(e.message); } };
+  const toggle = async (r) => { try { await homeCall('routine_save', { id: r.id, name: r.name, prompt: r.prompt, deviceId: r.deviceId, schedule: r.schedule, allowActions: r.allowActions, watch: r.watch, enabled: !r.enabled }); load(); } catch (e) { toast.error(e.message); } };
   const del = async (r) => { if (!window.confirm(`Delete "${r.name}"?`)) return; try { await homeCall('routine_delete', { id: r.id }); load(); } catch (e) { toast.error(e.message); } };
-  const startEdit = (r) => setEdit({ id: r.id, name: r.name, prompt: r.prompt, deviceId: r.deviceId, allowActions: r.allowActions, enabled: r.enabled, when: r.schedule ? r.schedule.kind : 'none', time: (r.schedule && r.schedule.time) || '08:00', every: (r.schedule && r.schedule.everyMinutes) || 60 });
+  const startEdit = (r) => setEdit({ id: r.id, name: r.name, prompt: r.prompt, deviceId: r.deviceId, allowActions: r.allowActions, watch: r.watch, enabled: r.enabled, when: r.schedule ? r.schedule.kind : 'none', time: (r.schedule && r.schedule.time) || '08:00', every: (r.schedule && r.schedule.everyMinutes) || 60 });
 
   return (
     <Sheet onClose={onClose} className="max-h-[90dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-white/10 bg-[#121217] p-5 text-white shadow-2xl sm:rounded-3xl">
@@ -81,7 +85,7 @@ export default function RoutinesPanel({ devices, draft, onClose, onRunHere }) {
                   <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-semibold">{r.name}</p>
-                      <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-400"><Clock size={11} />{describe(r.schedule)}{r.allowActions ? ' · can change things' : ''}</p>
+                      <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-400"><Clock size={11} />{describe(r.schedule)}{r.watch ? ' · watching for changes' : ''}{r.allowActions ? ' · can change things' : ''}</p>
                     </div>
                     <button onClick={() => toggle(r)} role="switch" aria-checked={r.enabled} aria-label={`${r.enabled ? 'Pause' : 'Resume'} ${r.name}`} className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors ${r.enabled ? 'bg-emerald-500' : 'bg-slate-600'}`}><motion.span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white" animate={{ x: r.enabled ? 16 : 0 }} transition={spring} /></button>
                   </div>

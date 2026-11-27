@@ -108,7 +108,8 @@ export default function DevicePanel({ devices, reload, onClose }) {
                 <button onClick={() => copy(command)} className="mt-1 flex items-center gap-1.5 text-xs text-violet-300 hover:text-violet-200"><Copy size={13} /> Copy command</button>
               </li>
             </ol>
-            <p className="mt-3 text-xs text-amber-200/80">The key in that command is shown only once and replaces the old one (the old command stops working). If the agent disconnects later, open Your devices and press Reconnect. Keep the agent running while you want Dwenlite Home to use this computer. It works inside a folder called "dwenlite-home" in your user folder, and logs everything it does there.</p>
+            <p className="mt-3 text-xs text-amber-200/80">To let Home sign in to websites for you without ever seeing your passwords, save a login on that computer: run <span className="font-mono">node dwenlite-agent.mjs vault add</span> there. The password stays encrypted on that computer. </p>
+            <p className="mt-2 text-xs text-amber-200/80">The key in that command is shown only once and replaces the old one (the old command stops working). If the agent disconnects later, open Your devices and press Reconnect. Keep the agent running while you want Dwenlite Home to use this computer. It works inside a folder called "dwenlite-home" in your user folder, and logs everything it does there.</p>
           </div>
         )}
       </div>

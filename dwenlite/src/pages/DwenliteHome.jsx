@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Home, Monitor, Brain, SlidersHorizontal, RotateCcw, History, Repeat, Mic, Volume2, VolumeX, Bell, BookmarkPlus, FileUp, Paperclip, Camera, Send, Square, X, Wifi, WifiOff, ShieldAlert, Trash2, Sparkles } from 'lucide-react';
+import { Home, Monitor, Brain, SlidersHorizontal, RotateCcw, History, Repeat, Mic, Volume2, VolumeX, Bell, BookmarkPlus, FileUp, MessagesSquare, CloudCog, Mail, Paperclip, Camera, Send, Square, X, Wifi, WifiOff, ShieldAlert, Trash2, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { auth } from '../firebase';
 import ChatAnswer from '../components/ChatAnswer';
@@ -8,6 +8,9 @@ import DevicePanel from '../components/home/DevicePanel';
 import PlanCard from '../components/home/PlanCard';
 import ActivityPanel from '../components/home/ActivityPanel';
 import RoutinesPanel from '../components/home/RoutinesPanel';
+import ChatsPanel from '../components/home/ChatsPanel';
+import { packChat, unpackChat } from '../lib/homeChats';
+import { googleStatus, connectGoogle, disconnectGoogle, runGoogleTool } from '../lib/homeGoogle';
 import { pushSupported, pushState, enablePush, disablePush, pingMe } from '../lib/push';
 import { micSupported, listenOnce, speak, forSpeech } from '../lib/homeVoice';
 import { uploadPieces, downloadPieces, MAX_FILE } from '../lib/homeFiles';
@@ -18,6 +21,21 @@ import { homeCall, homeChatStream, imageToText, IMAGE_MODES, runJs, formatJsResu
 
 const READ_ONLY = new Set(['read_file', 'list_dir', 'system_info', 'list_windows', 'send_file']);
 const GIT_FREE = new Set(['status', 'diff', 'log', 'show', 'branch']);
+const CATS = [
+  ['reading', 'Reading files and folders'], ['web', 'Browsing the web, email and calendar'], ['screen', 'Controlling the screen, mouse and programs'],
+  ['phone', 'Using your phone'], ['writing', 'Saving and changing files'], ['commands', 'Running commands and tests'],
+];
+function categoryOf(name, args = {}) {
+  if (['read_file', 'list_dir', 'system_info', 'list_windows', 'send_file'].includes(name)) return 'reading';
+  if (name === 'document') return args.action === 'read' ? 'reading' : 'writing';
+  if (name === 'git') return GIT_FREE.has(args.action) ? 'reading' : 'writing';
+  if (name === 'browser' || name === 'google_mail' || name === 'google_calendar') return 'web';
+  if (['screenshot', 'click', 'type_text', 'press_key', 'scroll', 'app_ui'].includes(name)) return 'screen';
+  if (name === 'android') return 'phone';
+  if (name === 'write_file') return 'writing';
+  return 'commands';
+}
+const readJson = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || 'null') ?? d; } catch { return d; } };
 const SCREEN = new Set(['screenshot', 'click', 'type_text', 'press_key', 'scroll', 'browser', 'app_ui']);
 const JOB_TYPE = { run_shell: 'shell' };
 const uid = () => Math.random().toString(36).slice(2, 10);
@@ -50,6 +68,19 @@ export default function DwenliteHome() {
   const [maxSteps, setMaxSteps] = useState(15);
   const [panel, setPanel] = useState(null); // devices | memory | settings | activity | routines
   const [routineDraft, setRoutineDraft] = useState(null);
+  const [rules, setRules] = useState(() => readJson('dwenliteHomeRules', {})); // category -> 'ask' | 'allow'
+  const [autoTimer, setAutoTimer] = useState(() => Number(readJson('dwenliteAutoTimer', 0)) || 0);
+  const [autoUntil, setAutoUntil] = useState(() => Number(readJson('dwenliteAutoUntil', 0)) || 0);
+  const [bg, setBg] = useState(() => readJson('dwenliteHomeBg', false));
+  const [googleOn, setGoogleOn] = useState(() => googleStatus().connected);
+  const mounted = useRef(true);
+  useEffect(() => () => { mounted.current = false; }, []);
+  const bgRef = useRef(false);
+  const chatIdRef = useRef('');
+  const [chatId, setChatId] = useState('');
+  const rulesRef = useRef(rules); rulesRef.current = rules;
+  bgRef.current = bg;
+  const autoUntilRef = useRef(autoUntil); autoUntilRef.current = autoUntil;
   const [savable, setSavable] = useState('');
   const [pushOn, setPushOn] = useState('off');
   const [listening, setListening] = useState(false);
@@ -141,9 +172,18 @@ export default function DwenliteHome() {
   };
 
   const ANDROID_FREE = new Set(['devices', 'info', 'read', 'tap', 'scroll', 'swipe', 'text', 'key', 'open_app', 'apps', 'screenshot']);
+  const effectiveMode = () => {
+    if (modeRef.current === 'auto' && autoUntilRef.current && Date.now() > autoUntilRef.current) { setMode('ask'); setAutoUntil(0); try { localStorage.setItem('dwenliteHomeMode', 'ask'); localStorage.setItem('dwenliteAutoUntil', '0'); } catch { /* ignore */ } toast('Auto mode timed out. It will ask again.', { icon: '⏱' }); modeRef.current = 'ask'; }
+    return modeRef.current;
+  };
   const needsApproval = (name, args = {}) => {
-    const m = modeRef.current;
+    const m = effectiveMode();
     if (m === 'auto') return false;
+    const rule = rulesRef.current[categoryOf(name, args)];
+    if (rule === 'allow') return false;
+    if (rule === 'ask') return true;
+    if (name === 'google_mail') return m === 'screen' ? false : true;
+    if (name === 'google_calendar') return args.action === 'create';
     if (name === 'android') return m === 'screen' ? !ANDROID_FREE.has(args.action) : true;
     if (name === 'git') return m === 'screen' ? !GIT_FREE.has(args.action) : true;
     if (name === 'document') return m === 'screen' ? args.action !== 'read' : true;
@@ -194,6 +234,18 @@ export default function DwenliteHome() {
     }
     const id = uid();
     // searching from the owner's own computer works much better than from a cloud server (search engines block those)
+    if (name === 'google_mail' || name === 'google_calendar') {
+      const ask = needsApproval(name, args);
+      add({ id, type: 'action', tool: name, args, status: ask ? 'asking' : 'running', note: 'Asking Google...' });
+      if (ask) {
+        returnHome(); pingMe('Needs your OK', args.summary || 'Dwenlite Home is waiting for your approval.');
+        const ok = await new Promise((resolve) => { approvals.current[id] = resolve; });
+        if (!ok) { patch(id, { status: 'denied' }); return 'The owner denied this action. Do not try it again. Ask what they would like instead.'; }
+        patch(id, { status: 'running' });
+      }
+      try { const out = await runGoogleTool(name, args); patch(id, { status: 'done', output: out }); return String(out).slice(0, 9000); }
+      catch (e) { patch(id, { status: 'error', output: e.message }); return `Error: ${e.message}`; }
+    }
     if (name === 'web_search') {
       const pick = pickDevice(args.device);
       if (!pick.error && pick.d.online) {
@@ -420,9 +472,65 @@ export default function DwenliteHome() {
       + analysis.map((a, i) => `\n\n[Image ${i + 1}, ${modeLabel}, as read by the image model:\n${a}\n]`).join('');
     add({ id: uid(), type: 'user', text: t, thumbs: imgs.map((i) => i.url), analysis });
     const notes = pendingNotes.current.splice(0).join('\n');
-    convo.current.push({ role: 'user', content: notes ? `${notes}\n\n${content}` : content });
+    const full = notes ? `${notes}\n\n${content}` : content;
+    convo.current.push({ role: 'user', content: full });
+    if (bgRef.current) { await startBackground(full); return; }
     await runLoop();
   }
+
+  // a task that keeps running on our server, even if this page is closed
+  async function startBackground(prompt) {
+    const pick = pickDevice(''); const noteId = uid();
+    add({ id: noteId, type: 'info', text: 'Working on it in the background. You can leave this page: you will get a notification when it is done.' });
+    try {
+      const r = await homeCall('task_start', { prompt, deviceId: pick.d ? pick.d.id : '', allowActions: effectiveMode() === 'auto' });
+      setBusy(false);
+      if (r.mode === 'inline') { finishBg(r.status, r.text); return; }
+      pollBg(r.runId);
+    } catch (e) { setBusy(false); patch(noteId, { text: `Could not start it in the background: ${e.message}` }); toast.error(e.message); }
+  }
+  const finishBg = (status, text) => { const t = text || (status === 'error' ? 'The task ran into a problem.' : '(no answer)'); add({ id: uid(), type: 'ai', content: t, typing: false }); convo.current.push({ role: 'assistant', content: t }); };
+  const pollBg = async (runId) => {
+    for (let i = 0; i < 400; i++) {
+      await sleep(3000);
+      if (!mounted.current) return;
+      try { const j = await homeCall('run_get', { id: runId }); if (j.status === 'done' || j.status === 'error') { finishBg(j.status, j.text); return; } } catch { /* keep trying */ }
+    }
+  };
+
+  async function openChat(id) {
+    try {
+      stopNow();
+      const r = await homeCall('chat_get', { id }); const d = unpackChat(r.data);
+      convo.current = d.convo; setItems(d.items); chatIdRef.current = id; setChatId(id); setSavable(''); setPanel(null);
+    } catch (e) { toast.error(e.message); }
+  }
+  // every conversation is kept automatically
+  useEffect(() => {
+    if (busy || items.length === 0 || gate !== 'ok') return undefined;
+    const t = setTimeout(async () => {
+      try { const p = packChat(items, convo.current); const r = await homeCall('chat_save', { id: chatIdRef.current || undefined, ...p }); if (r.id && r.id !== chatIdRef.current) { chatIdRef.current = r.id; setChatId(r.id); } } catch { /* saving is a bonus */ }
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [items, busy, gate]);
+  // things shared to Dwenlite from the phone's Share menu arrive here
+  useEffect(() => {
+    if (gate !== 'ok') return;
+    const u = new URL(window.location.href);
+    if (u.searchParams.get('shared') !== '1') return;
+    (async () => {
+      try {
+        const c = await caches.open('dwenlite-share');
+        const metaRes = await c.match('/__shared/meta'); const meta = metaRes ? await metaRes.json() : {};
+        const text = [meta.title, meta.text, meta.url].filter(Boolean).join('\n'); if (text) setInput(text);
+        const files = [];
+        for (let i = 0; i < 10; i++) { const r = await c.match(`/__shared/${i}`); if (!r) break; const blob = await r.blob(); files.push(new File([blob], decodeURIComponent(r.headers.get('X-Name') || `file${i}`), { type: r.headers.get('X-Type') || blob.type })); }
+        if (files.length) addPicked(files);
+        await caches.delete('dwenlite-share');
+      } catch { /* nothing shared */ }
+      u.searchParams.delete('shared'); window.history.replaceState({}, '', u.pathname + u.search);
+    })();
+  }, [gate]);
 
   function startMic() {
     if (!micSupported()) { toast.error('Talking needs Chrome, Edge or Safari.'); return; }
@@ -438,7 +546,7 @@ export default function DwenliteHome() {
 
   function newChat() {
     stopNow();
-    setSavable(''); pendingNotes.current = [];
+    setSavable(''); pendingNotes.current = []; chatIdRef.current = ''; setChatId('');
     convo.current = [];
     setItems([]);
   }
@@ -447,9 +555,15 @@ export default function DwenliteHome() {
   const chooseMode = (m) => {
     let confirmed = false; try { confirmed = localStorage.getItem('dwenliteAutoOk') === '1'; } catch { /* ignore */ }
     if (m === 'auto' && !confirmed && !window.confirm('Autonomous mode lets the assistant run commands, write files, click and type on your devices WITHOUT asking each time.\n\nYou can press Stop at any moment. Turn it on?')) return;
-    setMode(m);
-    try { if (m === 'auto') localStorage.setItem('dwenliteAutoOk', '1'); localStorage.setItem('dwenliteHomeMode', m); } catch { /* ignore */ }
+    setMode(m); modeRef.current = m;
+    const until = m === 'auto' && autoTimer ? Date.now() + autoTimer * 60000 : 0;
+    setAutoUntil(until); autoUntilRef.current = until;
+    try { if (m === 'auto') localStorage.setItem('dwenliteAutoOk', '1'); localStorage.setItem('dwenliteHomeMode', m); localStorage.setItem('dwenliteAutoUntil', String(until)); } catch { /* ignore */ }
   };
+  const setRule = (cat, v) => { const next = { ...rules }; if (v === 'default') delete next[cat]; else next[cat] = v; setRules(next); try { localStorage.setItem('dwenliteHomeRules', JSON.stringify(next)); } catch { /* ignore */ } };
+  const setTimer = (n) => { setAutoTimer(n); try { localStorage.setItem('dwenliteAutoTimer', String(n)); } catch { /* ignore */ } };
+  const toggleBg = () => { const v = !bg; setBg(v); try { localStorage.setItem('dwenliteHomeBg', JSON.stringify(v)); } catch { /* ignore */ } };
+  const doConnectGoogle = async () => { try { await connectGoogle(); setGoogleOn(true); toast.success('Google connected for about an hour.'); } catch (e) { toast.error(e.message || 'Could not connect Google.'); } };
 
   // ---------------------------------------------------------------- screens
   if (gate !== 'ok') {
@@ -471,7 +585,7 @@ export default function DwenliteHome() {
   }
 
   const onlineCount = devices.filter((d) => d.online).length;
-  const modeBanner = mode === 'screen' ? 'Computer-use mode: screen actions run on their own' : mode === 'auto' ? 'AUTONOMOUS: everything runs without asking' : '';
+  const modeBanner = mode === 'screen' ? 'Computer-use mode: screen actions run on their own' : mode === 'auto' ? `AUTONOMOUS: everything runs without asking${autoUntil ? ' until ' + new Date(autoUntil).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}` : '';
 
   return (
     <Motion>
@@ -494,6 +608,7 @@ export default function DwenliteHome() {
           <span className="hidden sm:inline">{devices.length ? `${onlineCount}/${devices.length} online` : 'Add a computer'}</span>
           <Monitor size={13} className="sm:hidden" />
         </motion.button>
+        <IconBtn icon={MessagesSquare} anim="pop" onClick={() => setPanel('chats')} aria-label="Earlier chats" title="Your earlier conversations" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
         <IconBtn icon={Repeat} anim="spin" onClick={() => { setRoutineDraft(null); setPanel('routines'); }} aria-label="Routines" title="Saved and scheduled tasks" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
         <IconBtn icon={History} anim="clock" onClick={() => setPanel('activity')} aria-label="Activity" title="What it did recently" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
         <IconBtn icon={Brain} anim="pulse" onClick={() => setPanel('memory')} aria-label="Memory" title="What it remembers" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
@@ -586,6 +701,7 @@ export default function DwenliteHome() {
           <input ref={camRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { addImages(e.target.files); e.target.value = ''; }} />
           <IconBtn icon={Paperclip} size={20} anim="tilt" onClick={() => fileRef.current?.click()} aria-label="Attach an image or a file" title="Attach an image, or send a file to your computer" className="rounded-xl p-2.5 text-slate-400 hover:bg-white/10 hover:text-white" />
           <IconBtn icon={Camera} size={20} anim="pop" onClick={() => camRef.current?.click()} aria-label="Take a photo" className="rounded-xl p-2.5 text-slate-400 hover:bg-white/10 hover:text-white" />
+          <IconBtn icon={CloudCog} size={20} anim="pulse" onClick={toggleBg} aria-pressed={bg} aria-label="Keep going in the background" title={bg ? 'Background mode is on: the next task keeps running on our server even if you close this page (it can only read and search unless Auto is on).' : 'Run the next task in the background, so it keeps going if you close this page'} className={`rounded-xl p-2.5 transition-colors ${bg ? 'bg-violet-500/25 text-violet-200' : 'text-slate-400 hover:bg-white/10 hover:text-white'}`} />
           <IconBtn icon={listening ? Mic : Mic} size={20} anim="pulse" onClick={toggleMic} aria-label={listening ? 'Stop listening' : 'Talk'} title="Talk instead of typing" className={`rounded-xl p-2.5 transition-colors ${listening ? 'bg-red-500/20 text-red-300' : 'text-slate-400 hover:bg-white/10 hover:text-white'}`} />
           <textarea
             value={input}
@@ -604,6 +720,7 @@ export default function DwenliteHome() {
 
       {/* panels */}
       <AnimatePresence>
+      {panel === 'chats' && <ChatsPanel key="chats" currentId={chatId} onOpen={openChat} onClose={() => setPanel(null)} />}
       {panel === 'routines' && <RoutinesPanel key="routines" devices={devices} draft={routineDraft} onClose={() => setPanel(null)} onRunHere={(p) => { setPanel(null); send(p); }} />}
       {panel === 'activity' && <ActivityPanel key="activity" devices={devices} onClose={() => setPanel(null)} />}
       {panel === 'devices' && <DevicePanel key="devices" devices={devices} reload={loadDevices} onClose={() => setPanel(null)} />}
@@ -647,6 +764,30 @@ export default function DwenliteHome() {
               <button onClick={toggleSpeak} className="flex w-full items-center justify-between gap-3 text-left">
                 <span className="flex items-center gap-2">{speakOn ? <Volume2 size={16} className="text-violet-300" /> : <VolumeX size={16} className="text-slate-500" />}<span><b>Speak the answers</b><span className="block text-xs text-slate-400">Reads each finished answer aloud. Use the microphone button to talk back.</span></span></span>
                 <span className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${speakOn ? 'bg-emerald-500' : 'bg-slate-600'}`}><motion.span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white" animate={{ x: speakOn ? 16 : 0 }} transition={spring} /></span>
+              </button>
+            </div>
+            <div className="mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-3 text-sm">
+              <p className="font-semibold">Fine-tune what it may do alone</p>
+              <p className="mb-2 mt-0.5 text-xs text-slate-400">Override the mode above for one kind of action. Auto mode still wins.</p>
+              <div className="space-y-1.5">
+                {CATS.map(([id, label]) => (
+                  <label key={id} className="flex items-center justify-between gap-3 text-xs text-slate-300"><span>{label}</span>
+                    <select value={rules[id] || 'default'} onChange={(e) => setRule(id, e.target.value)} className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1">
+                      <option value="default">Use the mode</option><option value="ask">Always ask</option><option value="allow">Allow</option>
+                    </select>
+                  </label>
+                ))}
+              </div>
+              <label className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-300"><span>When Auto is on</span>
+                <select value={autoTimer} onChange={(e) => setTimer(Number(e.target.value))} className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1">
+                  <option value={0}>Stay on until I turn it off</option><option value={30}>Turn off after 30 minutes</option><option value={60}>Turn off after 1 hour</option><option value={240}>Turn off after 4 hours</option>
+                </select>
+              </label>
+            </div>
+            <div className="mt-3 rounded-2xl border border-white/10 bg-slate-900/60 p-3 text-sm">
+              <button onClick={googleOn ? () => { disconnectGoogle(); setGoogleOn(false); } : doConnectGoogle} className="flex w-full items-center justify-between gap-3 text-left">
+                <span className="flex items-center gap-2"><Mail size={16} className="text-violet-300" /><span><b>Gmail and Calendar</b><span className="block text-xs text-slate-400">{googleOn ? 'Connected for about an hour. It can read mail, save drafts (never send) and manage calendar events. Tap to disconnect.' : 'Let it read your mail, write drafts and manage your calendar. You allow it with Google, and it lasts about an hour.'}</span></span></span>
+                <span className="shrink-0 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold">{googleOn ? 'Disconnect' : 'Connect Google'}</span>
               </button>
             </div>
             <label className="mt-4 flex items-center justify-between text-sm text-slate-300">Steps before it pauses
