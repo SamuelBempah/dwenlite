@@ -26,6 +26,7 @@ import Bundles from './pages/Bundles';
 import Reports from './pages/Reports';
 import AITeacher from './pages/AITeacher';
 import AdminUsage from './pages/AdminUsage';
+import DwenliteHome from './pages/DwenliteHome';
 
 import AppLayout from './components/layout/AppLayout';
 import PwaInstallPrompt from './components/PwaInstallPrompt';
@@ -220,6 +221,7 @@ function AppContent() {
         <Route path="/exams-preparation" element={<MaintenanceRoute component={ExamsPreparation} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
         <Route path="/reports" element={<MaintenanceRoute component={Reports} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
         <Route path="/ai-teacher" element={<MaintenanceRoute component={AITeacher} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
+        <Route path="/dwenlite-home" element={<MaintenanceRoute component={DwenliteHome} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
         <Route path="/admin-usage" element={<MaintenanceRoute component={AdminUsage} setShowBanPopup={setShowBanPopup} isAuthenticated={isAuthenticated} isAccountDisabled={isAccountDisabled} />} />
         <Route path="/maintenance" element={<Maintenance />} />
         <Route path="*" element={isMaintenanceWindow() ? <Maintenance /> : <NotFound />} />

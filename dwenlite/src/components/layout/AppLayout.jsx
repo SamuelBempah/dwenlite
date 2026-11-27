@@ -6,7 +6,7 @@ import StreakChip from '../StreakChip';
 import { doc, getDoc } from 'firebase/firestore';
 import { 
   Menu, X, LayoutDashboard, GraduationCap, 
-  HelpCircle, Coins, LogOut, User, Sparkles
+  HelpCircle, Coins, LogOut, User, Sparkles, Home
 } from 'lucide-react';
 
 const AppLayout = ({ children }) => {
@@ -16,6 +16,8 @@ const AppLayout = ({ children }) => {
   const [logoutLoading, setLogoutLoading] = useState(false);
   const [gCoins, setGCoins] = useState(0);
   const [currentUser, setCurrentUser] = useState(null);
+  // set by the admin pages once the server has confirmed you are the owner; the server still checks every request
+  const isOwner = (() => { try { return localStorage.getItem('dwenliteAdmin') === '1'; } catch { return false; } })();
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(user => {
@@ -134,6 +136,7 @@ const AppLayout = ({ children }) => {
                   <NavItem icon={<GraduationCap size={20} />} label="AI Teacher" to="/ai-teacher" />
                   <NavItem icon={<Sparkles size={20} />} label="Exams Prep" to="/exams-preparation" />
                   <NavItem icon={<HelpCircle size={20} />} label="Support" to="/community-support" />
+                  {isOwner && <NavItem icon={<Home size={20} />} label="Dwenlite Home" to="/dwenlite-home" />}
                 </nav>
 
                 <div className="pt-4 border-t border-white/5 space-y-1">

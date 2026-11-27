@@ -24,5 +24,11 @@ export function normalizeTables(md) {
 export function renderMarkdown(md) {
   if (!md) return '';
   const html = DOMPurify.sanitize(marked.parse(normalizeTables(md)));
-  return html.replace(/<table/g, '<div class="md-table-wrap"><table').replace(/<\/table>/g, '</table></div>');
+  return html
+    .replace(/<table/g, '<div class="md-table-wrap"><table').replace(/<\/table>/g, '</table></div>')
+    // code blocks get a small bar with Copy (and Run for JavaScript or HTML on the Dwenlite Home page)
+    .replace(/<pre><code(?: class="language-([\w+#-]{1,20})")?>([\s\S]*?)<\/code><\/pre>/g, (m, lang, code) => {
+      const runnable = /^(js|javascript|html)$/i.test(lang || '');
+      return `<div class="md-code"><div class="md-code-bar"><span>${lang || 'code'}</span><span><button type="button" data-copy>Copy</button>${runnable ? `<button type="button" data-run="${lang.toLowerCase()}">Run</button>` : ''}</span></div><pre><code>${code}</code></pre></div>`;
+    });
 }

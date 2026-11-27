@@ -698,3 +698,6 @@ exports.generateNotesProxy = onRequest(
     });
   }
 );
+
+// Dwenlite Home (admin only): personal assistant that codes, sees images and operates the owner's devices.
+exports.homeApi = require("./home").create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPSEEK_API_KEY, ADMIN_EMAILS }).homeApi;

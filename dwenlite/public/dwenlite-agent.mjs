@@ -1,0 +1,374 @@
+#!/usr/bin/env node
+// Dwenlite Home agent: lets YOUR Dwenlite Home assistant act on THIS computer, only when you approve.
+//
+//   node dwenlite-agent.mjs --url <API URL> --device <ID> --token <TOKEN> [--root <folder>] [--allow-shell] [--allow-gui]
+//
+// - Needs Node 18 or newer. No other installs.
+// - Safe by default: it can only read, write and list files inside the work folder (--root).
+//   Running shell commands needs --allow-shell. Screenshots, mouse, keyboard and opening links need --allow-gui.
+// - Every action is written to dwenlite-agent.log in the work folder.
+// - Stop it any time with Ctrl+C. Delete the device in Dwenlite Home to revoke its token for good.
+// - Run it as a normal (non-admin) user. Only run it on computers you own.
+
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn, execFile } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
+
+export const VERSION = '1.0.0';
+const MAX_OUT = 100000;      // characters of command output sent back
+const MAX_READ = 200000;     // bytes read from a file
+const IS_WIN = process.platform === 'win32';
+const IS_MAC = process.platform === 'darwin';
+
+// ----------------------------------------------------------------------------- options
+export function parseArgs(argv, env = process.env) {
+  const o = { url: env.DWENLITE_URL || '', device: env.DWENLITE_DEVICE || '', token: env.DWENLITE_TOKEN || '', root: env.DWENLITE_ROOT || '', shell: false, gui: false, interval: 3000 };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--url') o.url = argv[++i];
+    else if (a === '--device') o.device = argv[++i];
+    else if (a === '--token') o.token = argv[++i];
+    else if (a === '--root') o.root = argv[++i];
+    else if (a === '--interval') o.interval = Math.max(1000, Number(argv[++i]) || 3000);
+    else if (a === '--allow-shell') o.shell = true;
+    else if (a === '--allow-gui') o.gui = true;
+    else if (a === '--help' || a === '-h') o.help = true;
+  }
+  if (!o.root) o.root = path.join(os.homedir(), 'dwenlite-home');
+  return o;
+}
+
+// ----------------------------------------------------------------------------- helpers
+const clip = (t, n) => { const s = String(t ?? ''); return s.length > n ? s.slice(0, n) + `\n...[cut, ${s.length - n} more characters]` : s; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Resolve a path inside the work folder. Absolute paths and ".." are allowed only if they stay inside it.
+export function safePath(root, p) {
+  const realRoot = fs.realpathSync(root);
+  const full = path.resolve(realRoot, p || '.');
+  // follow symlinks of the nearest existing parent, so a link cannot lead outside the folder
+  let probe = full;
+  while (!fs.existsSync(probe)) { const up = path.dirname(probe); if (up === probe) break; probe = up; }
+  const realProbe = fs.realpathSync(probe);
+  const rel = path.relative(realRoot, realProbe);
+  if (rel.startsWith('..') || path.isAbsolute(rel)) throw new Error('That path is outside the work folder (' + realRoot + ').');
+  const relFull = path.relative(realRoot, full);
+  if (relFull.startsWith('..') || path.isAbsolute(relFull)) throw new Error('That path is outside the work folder (' + realRoot + ').');
+  return full;
+}
+
+export function jpegSize(buf) {
+  if (buf[0] !== 0xff || buf[1] !== 0xd8) return null;
+  let i = 2;
+  while (i < buf.length - 9) {
+    if (buf[i] !== 0xff) { i++; continue; }
+    const m = buf[i + 1];
+    if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { h: buf.readUInt16BE(i + 5), w: buf.readUInt16BE(i + 7) };
+    i += 2 + buf.readUInt16BE(i + 2);
+  }
+  return null;
+}
+export function pngSize(buf) {
+  if (buf.length < 24 || buf.readUInt32BE(0) !== 0x89504e47) return null;
+  return { w: buf.readUInt32BE(16), h: buf.readUInt32BE(20) };
+}
+export const imageSize = (buf) => jpegSize(buf) || pngSize(buf);
+
+function run(cmd, args, { timeout = 30000, input } = {}) {
+  return new Promise((resolve, reject) => {
+    const p = execFile(cmd, args, { timeout, maxBuffer: 20 * 1024 * 1024, windowsHide: true }, (err, stdout, stderr) => {
+      if (err) { err.stdout = stdout; err.stderr = stderr; return reject(err); }
+      resolve({ stdout: String(stdout), stderr: String(stderr) });
+    });
+    if (input) p.stdin.end(input);
+  });
+}
+const have = async (cmd) => { try { await run(IS_WIN ? 'where' : 'which', [cmd], { timeout: 5000 }); return true; } catch { return false; } };
+
+// ----------------------------------------------------------------------------- keys
+const WIN_KEYS = { enter: '{ENTER}', return: '{ENTER}', tab: '{TAB}', esc: '{ESC}', escape: '{ESC}', backspace: '{BACKSPACE}', delete: '{DELETE}', del: '{DELETE}', up: '{UP}', down: '{DOWN}', left: '{LEFT}', right: '{RIGHT}', home: '{HOME}', end: '{END}', pageup: '{PGUP}', pgup: '{PGUP}', pagedown: '{PGDN}', pgdn: '{PGDN}', space: ' ', insert: '{INSERT}' };
+const sendKeysEscape = (c) => ('+^%~(){}[]'.includes(c) ? `{${c}}` : c);
+export function toSendKeys(combo) {
+  const parts = String(combo).toLowerCase().split('+').map((s) => s.trim()).filter(Boolean);
+  const key = parts.pop();
+  let mods = '';
+  for (const m of parts) {
+    if (m === 'ctrl' || m === 'control') mods += '^';
+    else if (m === 'alt') mods += '%';
+    else if (m === 'shift') mods += '+';
+    else throw new Error(`Modifier "${m}" is not supported on Windows (use ctrl, alt or shift).`);
+  }
+  let k;
+  if (/^f([1-9]|1[0-6])$/.test(key)) k = `{${key.toUpperCase()}}`;
+  else if (WIN_KEYS[key] !== undefined) k = WIN_KEYS[key];
+  else if (key.length === 1) k = sendKeysEscape(key);
+  else throw new Error(`Unknown key "${key}".`);
+  return mods + k;
+}
+const XDO_KEYS = { enter: 'Return', return: 'Return', esc: 'Escape', escape: 'Escape', backspace: 'BackSpace', delete: 'Delete', del: 'Delete', pageup: 'Prior', pgup: 'Prior', pagedown: 'Next', pgdn: 'Next', space: 'space', tab: 'Tab', up: 'Up', down: 'Down', left: 'Left', right: 'Right', home: 'Home', end: 'End', insert: 'Insert', win: 'super', cmd: 'super', super: 'super', ctrl: 'ctrl', control: 'ctrl', alt: 'alt', shift: 'shift' };
+export function toXdotool(combo) {
+  return String(combo).toLowerCase().split('+').map((s) => s.trim()).filter(Boolean)
+    .map((k) => XDO_KEYS[k] || (/^f([1-9]|1[0-2])$/.test(k) ? k.toUpperCase() : k)).join('+');
+}
+const MAC_CODES = { enter: 36, return: 36, tab: 48, esc: 53, escape: 53, backspace: 51, delete: 117, left: 123, right: 124, down: 125, up: 126, space: 49, home: 115, end: 119, pageup: 116, pgup: 116, pagedown: 121, pgdn: 121 };
+export function toMacScript(combo) {
+  const parts = String(combo).toLowerCase().split('+').map((s) => s.trim()).filter(Boolean);
+  const key = parts.pop();
+  const mods = parts.map((m) => ({ ctrl: 'control down', control: 'control down', alt: 'option down', option: 'option down', shift: 'shift down', cmd: 'command down', command: 'command down', win: 'command down', super: 'command down' }[m])).filter(Boolean);
+  const using = mods.length ? ` using {${mods.join(', ')}}` : '';
+  if (MAC_CODES[key] !== undefined) return `tell application "System Events" to key code ${MAC_CODES[key]}${using}`;
+  if (key.length === 1) return `tell application "System Events" to keystroke "${key.replace(/["\\]/g, '\\$&')}"${using}`;
+  throw new Error(`Unknown key "${key}".`);
+}
+
+// ----------------------------------------------------------------------------- Windows scripts
+const PS_DPI = `Add-Type @"
+using System; using System.Runtime.InteropServices;
+public class DwenNative {
+  [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint dx, uint dy, uint d, UIntPtr e);
+}
+"@
+[DwenNative]::SetProcessDPIAware() | Out-Null
+`;
+const PS_SHOT = `param([string]$Out,[int]$MaxW)
+Add-Type -AssemblyName System.Windows.Forms,System.Drawing
+${PS_DPI}
+$b=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+$bmp=New-Object System.Drawing.Bitmap $b.Width,$b.Height
+$g=[System.Drawing.Graphics]::FromImage($bmp)
+$g.CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size)
+$w=$b.Width; $h=$b.Height
+if ($w -gt $MaxW) { $h=[int]($h*$MaxW/$w); $w=$MaxW }
+$small=New-Object System.Drawing.Bitmap $w,$h
+$g2=[System.Drawing.Graphics]::FromImage($small)
+$g2.InterpolationMode=[System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+$g2.DrawImage($bmp,0,0,$w,$h)
+$enc=[System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' }
+$ep=New-Object System.Drawing.Imaging.EncoderParameters 1
+$ep.Param[0]=New-Object System.Drawing.Imaging.EncoderParameter ([System.Drawing.Imaging.Encoder]::Quality),([int64]60)
+$small.Save($Out,$enc,$ep)
+Write-Output ("{0}x{1}" -f $b.Width,$b.Height)
+`;
+const PS_CLICK = `param([int]$X,[int]$Y,[string]$Button,[int]$Count)
+${PS_DPI}
+[DwenNative]::SetCursorPos($X,$Y) | Out-Null
+Start-Sleep -Milliseconds 80
+if ($Button -eq 'right') { $d=0x0008; $u=0x0010 } else { $d=0x0002; $u=0x0004 }
+for ($i=0; $i -lt $Count; $i++) { [DwenNative]::mouse_event($d,0,0,0,[UIntPtr]::Zero); [DwenNative]::mouse_event($u,0,0,0,[UIntPtr]::Zero); Start-Sleep -Milliseconds 70 }
+`;
+const PS_SCROLL = `param([int]$Amount)
+${PS_DPI}
+[DwenNative]::mouse_event(0x0800,0,0,[uint32]($Amount),[UIntPtr]::Zero)
+`;
+const PS_KEYS = `param([string]$Keys)
+Add-Type -AssemblyName System.Windows.Forms
+[System.Windows.Forms.SendKeys]::SendWait($Keys)
+`;
+const psFile = (name, content) => { const f = path.join(os.tmpdir(), `dwenlite-${name}.ps1`); fs.writeFileSync(f, content); return f; };
+const ps = (file, args) => run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file, ...args], { timeout: 30000 });
+
+// ----------------------------------------------------------------------------- the agent
+export function createAgent(opts) {
+  const root = opts.root;
+  fs.mkdirSync(root, { recursive: true });
+  const logFile = path.join(root, 'dwenlite-agent.log');
+  const log = (m) => { const line = `${new Date().toISOString()} ${m}`; console.log(line); try { fs.appendFileSync(logFile, line + '\n'); } catch { /* ignore */ } };
+  let lastShot = null; // sizes of the last screenshot, to turn screenshot pixels into real screen coordinates
+
+  async function api(action, body) {
+    const r = await fetch(opts.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, deviceId: opts.device, token: opts.token, ...body }) });
+    const j = await r.json().catch(() => ({}));
+    if (r.status === 401) { const e = new Error('This device was removed or its token is wrong.'); e.fatal = true; throw e; }
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    return j;
+  }
+
+  const needShell = () => { if (!opts.shell) throw new Error('Shell commands are switched off on this device. Restart the agent with --allow-shell to enable them.'); };
+  const needGui = () => { if (!opts.gui) throw new Error('Screen, mouse and keyboard control is switched off on this device. Restart the agent with --allow-gui to enable it.'); };
+
+  // ---- actions ----
+  const actions = {
+    async system_info() {
+      const info = { platform: process.platform, release: os.release(), arch: os.arch(), hostname: os.hostname(), user: os.userInfo().username, cpus: `${os.cpus().length} x ${(os.cpus()[0] || {}).model || ''}`.trim(),
+        memory_total_gb: +(os.totalmem() / 1e9).toFixed(1), memory_free_gb: +(os.freemem() / 1e9).toFixed(1), uptime_hours: +(os.uptime() / 3600).toFixed(1), node: process.version, work_folder: root, shell_allowed: opts.shell, gui_allowed: opts.gui };
+      try { if (!IS_WIN) info.disk = (await run('df', ['-h', root], { timeout: 5000 })).stdout.trim(); } catch { /* optional */ }
+      return JSON.stringify(info, null, 2);
+    },
+    async list_dir(a) {
+      const dir = safePath(root, a.path);
+      const items = fs.readdirSync(dir, { withFileTypes: true }).slice(0, 300).map((d) => {
+        let size = '', mtime = '';
+        try { const st = fs.statSync(path.join(dir, d.name)); size = d.isFile() ? st.size : ''; mtime = st.mtime.toISOString().slice(0, 16); } catch { /* ignore */ }
+        return `${d.isDirectory() ? 'dir ' : 'file'}  ${String(size).padStart(10)}  ${mtime}  ${d.name}`;
+      });
+      return `${dir}\n${items.join('\n') || '(empty)'}`;
+    },
+    async read_file(a) {
+      const f = safePath(root, a.path);
+      const st = fs.statSync(f);
+      if (!st.isFile()) throw new Error('That is not a file.');
+      const buf = fs.readFileSync(f).subarray(0, MAX_READ);
+      if (buf.includes(0)) throw new Error('That looks like a binary file, not text.');
+      return buf.toString('utf8') + (st.size > MAX_READ ? `\n...[file is ${st.size} bytes, showing the first ${MAX_READ}]` : '');
+    },
+    async write_file(a) {
+      const f = safePath(root, a.path);
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      (a.append ? fs.appendFileSync : fs.writeFileSync)(f, a.content, 'utf8');
+      return `${a.append ? 'Appended to' : 'Wrote'} ${f} (${Buffer.byteLength(a.content)} bytes)`;
+    },
+    async shell(a) {
+      needShell();
+      const cwd = a.cwd ? safePath(root, a.cwd) : root;
+      const timeout = Math.min(600, Math.max(1, Number(a.timeout_s) || 60)) * 1000;
+      return new Promise((resolve) => {
+        const child = IS_WIN
+          ? spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', a.command], { cwd, windowsHide: true })
+          : spawn('/bin/sh', ['-c', a.command], { cwd, detached: true });
+        let out = '';
+        const add = (d) => { if (out.length < MAX_OUT * 2) out += d.toString(); };
+        child.stdout.on('data', add); child.stderr.on('data', add);
+        let timedOut = false;
+        const killer = setTimeout(() => {
+          timedOut = true;
+          try { if (IS_WIN) spawn('taskkill', ['/pid', String(child.pid), '/T', '/F']); else process.kill(-child.pid, 'SIGKILL'); } catch { try { child.kill('SIGKILL'); } catch { /* gone */ } }
+        }, timeout);
+        child.on('error', (e) => { clearTimeout(killer); resolve(`Could not start the command: ${e.message}`); });
+        child.on('close', (code) => { clearTimeout(killer); resolve(`${clip(out, MAX_OUT).trimEnd()}\n[exit code ${code}${timedOut ? `, stopped after ${timeout / 1000}s timeout` : ''}]`); });
+      });
+    },
+    async open_url(a) {
+      needGui();
+      if (!/^https?:\/\//i.test(a.url)) throw new Error('Only http and https links can be opened.');
+      if (IS_WIN) await run('powershell.exe', ['-NoProfile', '-Command', 'Start-Process', `'${a.url.replace(/'/g, "''")}'`]);
+      else if (IS_MAC) await run('open', [a.url]);
+      else spawn('xdg-open', [a.url], { detached: true, stdio: 'ignore' }).unref();
+      return `Opened ${a.url}`;
+    },
+    async screenshot(a) {
+      needGui();
+      const out = path.join(os.tmpdir(), `dwenlite-shot-${Date.now()}.${IS_WIN || IS_MAC ? 'jpg' : 'png'}`);
+      let screenW; let screenH; let pointsW; let pointsH; let file = out;
+      try {
+        if (IS_WIN) {
+          const r = await ps(psFile('shot', PS_SHOT), ['-Out', out, '-MaxW', '1280']);
+          [screenW, screenH] = r.stdout.trim().split('x').map(Number);
+        } else if (IS_MAC) {
+          await run('screencapture', ['-x', '-t', 'jpg', out]);
+          const dims = await run('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', out]);
+          screenW = Number(/pixelWidth:\s*(\d+)/.exec(dims.stdout)[1]); screenH = Number(/pixelHeight:\s*(\d+)/.exec(dims.stdout)[1]);
+          await run('sips', ['-Z', '1280', '--setProperty', 'formatOptions', '60', out]);
+          try { const b = await run('osascript', ['-e', 'tell application "Finder" to get bounds of window of desktop']); const n = b.stdout.trim().split(',').map((x) => Number(x.trim())); pointsW = n[2]; pointsH = n[3]; } catch { /* use pixels */ }
+        } else {
+          const tries = [['import', ['-window', 'root', out]], ['scrot', ['-o', out]], ['gnome-screenshot', ['-f', out]], ['grim', [out]]];
+          let ok = false;
+          for (const [cmd, args] of tries) { if (await have(cmd)) { try { await run(cmd, args); ok = true; break; } catch { /* try the next tool */ } } }
+          if (!ok) throw new Error('No screenshot tool found. Install one of: imagemagick (import), scrot, gnome-screenshot or grim.');
+          const sz = imageSize(fs.readFileSync(out)); screenW = sz.w; screenH = sz.h;
+          const conv = (await have('magick')) ? ['magick', []] : (await have('convert')) ? ['convert', []] : null;
+          if (conv && screenW > 1280) { const small = out.replace(/\.png$/, '-s.jpg'); await run(conv[0], [out, '-resize', '1280x', '-quality', '60', small]); file = small; }
+        }
+      } catch (e) {
+        throw new Error('Screenshot failed: ' + (e.stderr || e.message).toString().trim().slice(0, 400));
+      }
+      const buf = fs.readFileSync(file);
+      const sz = imageSize(buf) || { w: screenW, h: screenH };
+      lastShot = { shotW: sz.w, shotH: sz.h, screenW: pointsW || screenW, screenH: pointsH || screenH };
+      try { fs.unlinkSync(out); if (file !== out) fs.unlinkSync(file); } catch { /* ignore */ }
+      let text = '';
+      try {
+        const r = await api('agent_see', { image: buf.toString('base64'), mime: buf[0] === 0xff ? 'image/jpeg' : 'image/png', look: a.look, width: sz.w, height: sz.h });
+        text = r.text;
+      } catch (e) { text = `(The screenshot was taken but could not be read by the image model: ${e.message})`; }
+      return { text, image: buf.length < 520000 ? buf.toString('base64') : '' };
+    },
+    async click(a) {
+      needGui();
+      const k = lastShot ? { x: lastShot.screenW / lastShot.shotW, y: lastShot.screenH / lastShot.shotH } : { x: 1, y: 1 };
+      const x = Math.round(a.x * k.x); const y = Math.round(a.y * k.y);
+      const count = a.double ? 2 : 1;
+      if (IS_WIN) await ps(psFile('click', PS_CLICK), ['-X', String(x), '-Y', String(y), '-Button', a.button || 'left', '-Count', String(count)]);
+      else if (IS_MAC) {
+        if (await have('cliclick')) await run('cliclick', [`${a.button === 'right' ? 'rc' : a.double ? 'dc' : 'c'}:${x},${y}`]);
+        else if (a.button === 'right') throw new Error('Right click on macOS needs cliclick (brew install cliclick).');
+        else for (let i = 0; i < count; i++) await run('osascript', ['-e', `tell application "System Events" to click at {${x}, ${y}}`]);
+      } else await run('xdotool', ['mousemove', String(x), String(y), 'click', '--repeat', String(count), '--delay', '80', a.button === 'right' ? '3' : '1']);
+      return `Clicked (${a.x}, ${a.y})${lastShot ? ` -> screen (${x}, ${y})` : ''}`;
+    },
+    async type_text(a) {
+      needGui();
+      if (IS_WIN) await ps(psFile('keys', PS_KEYS), ['-Keys', a.text.split(/\r?\n/).map((part) => part.replace(/[+^%~(){}[\]]/g, (c) => `{${c}}`)).join('{ENTER}')]);
+      else if (IS_MAC) await run('osascript', ['-e', `tell application "System Events" to keystroke "${a.text.replace(/["\\]/g, '\\$&')}"`]);
+      else await run('xdotool', ['type', '--delay', '25', '--', a.text]);
+      return `Typed ${a.text.length} characters`;
+    },
+    async press_key(a) {
+      needGui();
+      if (IS_WIN) await ps(psFile('keys', PS_KEYS), ['-Keys', toSendKeys(a.keys)]);
+      else if (IS_MAC) await run('osascript', ['-e', toMacScript(a.keys)]);
+      else await run('xdotool', ['key', toXdotool(a.keys)]);
+      return `Pressed ${a.keys}`;
+    },
+    async scroll(a) {
+      needGui();
+      const n = Math.max(1, Math.min(50, Number(a.amount) || 5));
+      if (IS_WIN) await ps(psFile('scroll', PS_SCROLL), ['-Amount', String((a.direction === 'up' ? 1 : -1) * 120 * n)]);
+      else if (IS_MAC) for (let i = 0; i < n; i++) await run('osascript', ['-e', `tell application "System Events" to key code ${a.direction === 'up' ? 126 : 125}`]);
+      else await run('xdotool', ['click', '--repeat', String(n), '--delay', '40', a.direction === 'up' ? '4' : '5']);
+      return `Scrolled ${a.direction} ${n}`;
+    },
+  };
+
+  async function runJob(job) {
+    const fn = actions[job.type];
+    if (!fn) throw new Error(`Unknown action "${job.type}".`);
+    const r = await fn(job.args || {});
+    return typeof r === 'string' ? { text: r, image: '' } : r;
+  }
+
+  async function loop(stop = { stopped: false }) {
+    log(`Dwenlite agent ${VERSION} started. Work folder: ${root}. Shell: ${opts.shell ? 'ON' : 'off'}. Screen/mouse/keyboard: ${opts.gui ? 'ON' : 'off'}.`);
+    let fails = 0;
+    while (!stop.stopped) {
+      try {
+        const { job } = await api('agent_poll', { platform: process.platform, hostname: os.hostname(), version: VERSION, caps: { shell: opts.shell, gui: opts.gui } });
+        fails = 0;
+        if (job) {
+          log(`job ${job.id}: ${job.type} ${job.type === 'shell' ? clip(job.args.command, 200) : JSON.stringify(job.args).slice(0, 200)}`);
+          let ok = true; let output = ''; let image = '';
+          try { const r = await runJob(job); output = r.text; image = r.image || ''; } catch (e) { ok = false; output = e.message || String(e); }
+          log(`job ${job.id}: ${ok ? 'done' : 'error'} - ${clip(output, 160).replace(/\n/g, ' ')}`);
+          await api('agent_result', { jobId: job.id, ok, output, image });
+          continue; // look for the next job straight away
+        }
+      } catch (e) {
+        if (e.fatal) { log('STOPPED: ' + e.message); return; }
+        fails++;
+        log(`Cannot reach Dwenlite (${e.message}). Retrying...`);
+        await sleep(Math.min(30000, 2000 * fails));
+        continue;
+      }
+      await sleep(opts.interval);
+    }
+  }
+  return { loop, actions, runJob, api, log };
+}
+
+// ----------------------------------------------------------------------------- start
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  const o = parseArgs(process.argv.slice(2));
+  if (o.help || !o.url || !o.device || !o.token) {
+    console.log('Usage: node dwenlite-agent.mjs --url <API URL> --device <ID> --token <TOKEN> [--root <folder>] [--allow-shell] [--allow-gui] [--interval 3000]');
+    process.exit(o.help ? 0 : 1);
+  }
+  const major = Number(process.versions.node.split('.')[0]);
+  if (major < 18) { console.error('Node 18 or newer is needed. You have ' + process.version); process.exit(1); }
+  const agent = createAgent(o);
+  const stop = { stopped: false };
+  process.on('SIGINT', () => { stop.stopped = true; console.log('\nStopping...'); setTimeout(() => process.exit(0), 300); });
+  agent.loop(stop);
+}
