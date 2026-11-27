@@ -35,12 +35,14 @@ const HOME_SYSTEM =
   "TALKING TO THE OWNER\n" +
   "- Speak plainly, like a helpful person, not a terminal. Keep technical detail out of your message: do not paste commands or raw output unless asked. Say what you found and what you did, in a few friendly sentences.\n" +
   "- Always give each tool call a short plain-English `summary`.\n" +
+  "- Input to a named `app` is sent in the BACKGROUND by default (virtual mouse/keyboard; nothing is pulled in front of the owner). Background typing, clicks and scrolling work for most desktop programs (Word, Notepad, Explorer); shortcuts like ctrl+s and browsers/Electron apps are less reliable. Always verify with an app screenshot, and only retry with foreground=true if it did not work; tell the owner when you do, because that will bring the program forward.\n" +
   "- When working inside a program (Word, Chrome, ...) ALWAYS pass `app` on screenshot, type_text, press_key, click and scroll. That brings the program forward before typing and makes screenshots show only that program, so the owner can keep watching this page. After typing, take a screenshot of that app to confirm the text really appeared before saying it worked; if the screenshot cannot be read, say so honestly.\n" +
   "- Screenshots you take are hidden from the owner unless they explicitly asked to see one. After looking at the screen, simply explain in plain words what is on it; never say \"see the screenshot\".\n\n" +
   "STYLE: Markdown. No emojis unless the owner uses them. Short answers for simple questions.";
 
 const dev = { type: "string", description: "Device id or name. Optional when only one device is online." };
 const app = { type: "string", description: "Name of the program to act on, e.g. \"Word\", \"Chrome\", \"Notepad\". ALWAYS set this when working in a specific program: it is brought to the front before typing/keys, and screenshots capture only that program (even if minimised) so the owner can keep watching this page. Leave empty only to see the whole screen." };
+const foreground = { type: "boolean", description: "Only set true to use the real mouse/keyboard and bring the program to the front. By default, when `app` is set, input is sent to that program in the BACKGROUND (own virtual mouse/keyboard) so the owner can keep using the computer. Use foreground only if background input did not work (e.g. the screenshot shows nothing happened) and the program is a browser/Electron app." };
 const summary = { type: "string", description: "REQUIRED. One short plain-English sentence (max 10 words) for a non-technical reader about what you are doing, e.g. 'Checking how much disk space is free'. No commands or jargon." };
 const TOOLS = [
   { name: "run_shell", description: "Run a shell command on a device (PowerShell/cmd on Windows, sh elsewhere) in the agent's work folder and return stdout, stderr and the exit code.", properties: { device: dev, command: { type: "string" }, cwd: { type: "string", description: "Optional folder, relative to the work folder." }, timeout_s: { type: "number", description: "Seconds, default 60, max 600." } }, required: ["command"] },
@@ -48,11 +50,11 @@ const TOOLS = [
   { name: "write_file", description: "Create or overwrite (or append to) a text file on a device.", properties: { device: dev, path: { type: "string" }, content: { type: "string" }, append: { type: "boolean" } }, required: ["path", "content"] },
   { name: "list_dir", description: "List a folder on a device with file sizes.", properties: { device: dev, path: { type: "string", description: "Default: the work folder." } }, required: [] },
   { name: "system_info", description: "OS, CPU, memory, disk, uptime, user and work folder of a device.", properties: { device: dev }, required: [] },
-  { name: "screenshot", description: "Take a screenshot of a device's screen and look at it with a vision model. Returns a text description with clickable elements as 'label @ (x,y)' in screenshot pixels, plus the screenshot size.", properties: { device: dev, app, look: { type: "string", description: "What to look for or do, e.g. 'find the Save button' or 'what error is shown?'" } }, required: ["look"] },
-  { name: "click", description: "Click at screenshot-pixel coordinates (from the last screenshot).", properties: { device: dev, app, x: { type: "number" }, y: { type: "number" }, button: { type: "string", enum: ["left", "right"] }, double: { type: "boolean" } }, required: ["x", "y"] },
-  { name: "type_text", description: "Type text into the focused field on a device.", properties: { device: dev, app, text: { type: "string" } }, required: ["text"] },
-  { name: "press_key", description: "Press a key or combination, e.g. 'enter', 'tab', 'esc', 'ctrl+c', 'alt+tab', 'ctrl+shift+t', 'f5'.", properties: { device: dev, app, keys: { type: "string" } }, required: ["keys"] },
-  { name: "scroll", description: "Scroll the window under the mouse.", properties: { device: dev, app, direction: { type: "string", enum: ["up", "down"] }, amount: { type: "number", description: "Notches, default 5." } }, required: ["direction"] },
+  { name: "screenshot", description: "Take a screenshot of a device's screen and look at it with a vision model. Returns a text description with clickable elements as 'label @ (x,y)' in screenshot pixels, plus the screenshot size.", properties: { device: dev, app, foreground, look: { type: "string", description: "What to look for or do, e.g. 'find the Save button' or 'what error is shown?'" } }, required: ["look"] },
+  { name: "click", description: "Click at screenshot-pixel coordinates (from the last screenshot).", properties: { device: dev, app, foreground, x: { type: "number" }, y: { type: "number" }, button: { type: "string", enum: ["left", "right"] }, double: { type: "boolean" } }, required: ["x", "y"] },
+  { name: "type_text", description: "Type text into the focused field on a device.", properties: { device: dev, app, foreground, text: { type: "string" } }, required: ["text"] },
+  { name: "press_key", description: "Press a key or combination, e.g. 'enter', 'tab', 'esc', 'ctrl+c', 'alt+tab', 'ctrl+shift+t', 'f5'.", properties: { device: dev, app, foreground, keys: { type: "string" } }, required: ["keys"] },
+  { name: "scroll", description: "Scroll the window under the mouse.", properties: { device: dev, app, foreground, direction: { type: "string", enum: ["up", "down"] }, amount: { type: "number", description: "Notches, default 5." } }, required: ["direction"] },
   { name: "open_url", description: "Open an http(s) link in the device's default browser.", properties: { device: dev, url: { type: "string" } }, required: ["url"] },
   { name: "run_js", description: "Run JavaScript in a sandbox inside the owner's browser (no device needed) and return console output and the result. Good for quick calculations and testing snippets.", properties: { code: { type: "string" } }, required: ["code"] },
   { name: "remember", description: "Save a lasting fact or preference about the owner to long-term memory.", properties: { fact: { type: "string" } }, required: ["fact"] },
@@ -192,11 +194,11 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
         ? { path: clip(a.path, 1000), content: a.content, append: !!a.append } : null;
       case "list_dir": return { path: clip(a.path || ".", 1000) };
       case "system_info": return {};
-      case "screenshot": return { look: clip(a.look || "Describe what is on the screen.", 1000), app: clip(a.app, 80) };
-      case "click": return num(a.x, 0, 20000) && num(a.y, 0, 20000) ? { x: a.x, y: a.y, button: a.button === "right" ? "right" : "left", double: !!a.double, app: clip(a.app, 80) } : null;
-      case "type_text": return typeof a.text === "string" && a.text.length > 0 && a.text.length <= 4000 ? { text: a.text, app: clip(a.app, 80) } : null;
-      case "press_key": return typeof a.keys === "string" && /^[\w+\- ]{1,60}$/.test(a.keys) ? { keys: a.keys, app: clip(a.app, 80) } : null;
-      case "scroll": return { direction: a.direction === "up" ? "up" : "down", amount: num(a.amount, 1, 50) ? a.amount : 5, app: clip(a.app, 80) };
+      case "screenshot": return { look: clip(a.look || "Describe what is on the screen.", 1000), app: clip(a.app, 80), foreground: !!a.foreground };
+      case "click": return num(a.x, 0, 20000) && num(a.y, 0, 20000) ? { x: a.x, y: a.y, button: a.button === "right" ? "right" : "left", double: !!a.double, app: clip(a.app, 80), foreground: !!a.foreground } : null;
+      case "type_text": return typeof a.text === "string" && a.text.length > 0 && a.text.length <= 4000 ? { text: a.text, app: clip(a.app, 80), foreground: !!a.foreground } : null;
+      case "press_key": return typeof a.keys === "string" && /^[\w+\- ]{1,60}$/.test(a.keys) ? { keys: a.keys, app: clip(a.app, 80), foreground: !!a.foreground } : null;
+      case "scroll": return { direction: a.direction === "up" ? "up" : "down", amount: num(a.amount, 1, 50) ? a.amount : 5, app: clip(a.app, 80), foreground: !!a.foreground };
       case "open_url": return typeof a.url === "string" && /^https?:\/\/[^\s]+$/i.test(a.url) && a.url.length <= 2000 ? { url: a.url } : null;
       default: return null;
     }

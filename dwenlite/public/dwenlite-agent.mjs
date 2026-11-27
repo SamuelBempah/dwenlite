@@ -16,7 +16,7 @@ import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-export const VERSION = '1.1.0';
+export const VERSION = '1.2.0';
 const MAX_OUT = 100000;      // characters of command output sent back
 const MAX_READ = 200000;     // bytes read from a file
 const IS_WIN = process.platform === 'win32';
@@ -211,6 +211,87 @@ const PS_KEYS = `param([string]$Keys)
 Add-Type -AssemblyName System.Windows.Forms
 [System.Windows.Forms.SendKeys]::SendWait($Keys)
 `;
+const VK = { enter: 13, return: 13, tab: 9, esc: 27, escape: 27, backspace: 8, delete: 46, del: 46, up: 38, down: 40, left: 37, right: 39, home: 36, end: 35, pageup: 33, pgup: 33, pagedown: 34, pgdn: 34, space: 32, insert: 45, ctrl: 17, control: 17, alt: 18, shift: 16, win: 91 };
+export function toVks(combo) {
+  return String(combo).toLowerCase().split('+').map((s) => s.trim()).filter(Boolean).map((k) => {
+    if (VK[k]) return VK[k];
+    if (/^f([1-9]|1[0-2])$/.test(k)) return 111 + Number(k.slice(1));
+    if (/^[a-z]$/.test(k)) return k.toUpperCase().charCodeAt(0);
+    if (/^[0-9]$/.test(k)) return k.charCodeAt(0);
+    throw new Error(`Unknown key "${k}".`);
+  }).join(',');
+}
+// Background input: messages posted straight to the program's own window, so the real mouse/keyboard and focus are untouched.
+const PS_BG = `param([string]$Action,[string]$App,[string]$TextB64,[string]$Vks,[int]$X,[int]$Y,[string]$Button,[int]$Count,[int]$Amount)
+Add-Type @"
+using System; using System.Runtime.InteropServices;
+public class DwenBg {
+  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("user32.dll")] public static extern bool GetGUIThreadInfo(uint tid, ref GUITHREADINFO i);
+  [DllImport("user32.dll")] public static extern IntPtr ChildWindowFromPointEx(IntPtr h, POINT p, uint f);
+  [DllImport("user32.dll")] public static extern bool ScreenToClient(IntPtr h, ref POINT p);
+  [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+  [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
+  [StructLayout(LayoutKind.Sequential)] public struct GUITHREADINFO { public int cbSize, flags; public IntPtr hwndActive, hwndFocus, hwndCapture, hwndMenuOwner, hwndMoveSize, hwndCaret; public RECT rcCaret; }
+}
+"@
+[DwenBg]::SetProcessDPIAware() | Out-Null
+${PS_FIND}
+$h=Find-Win $App
+function Focus-Target($h) {
+  $pid2=[uint32]0; $tid=[DwenBg]::GetWindowThreadProcessId($h,[ref]$pid2)
+  $gi=New-Object DwenBg+GUITHREADINFO; $gi.cbSize=[Runtime.InteropServices.Marshal]::SizeOf($gi)
+  if ([DwenBg]::GetGUIThreadInfo($tid,[ref]$gi) -and $gi.hwndFocus -ne [IntPtr]::Zero) { return $gi.hwndFocus }
+  return $h
+}
+function Post($t,$m,$w,$l) { [DwenBg]::PostMessage($t,[uint32]$m,[IntPtr]$w,[IntPtr]$l) | Out-Null }
+function Under($h,$sx,$sy) {
+  $cur=$h
+  for ($i=0; $i -lt 8; $i++) {
+    $p=New-Object DwenBg+POINT; $p.X=$sx; $p.Y=$sy
+    [DwenBg]::ScreenToClient($cur,[ref]$p) | Out-Null
+    $c=[DwenBg]::ChildWindowFromPointEx($cur,$p,0x5)
+    if ($c -eq [IntPtr]::Zero -or $c -eq $cur) { break }
+    $cur=$c
+  }
+  return $cur
+}
+function Lp($t,$sx,$sy) { $p=New-Object DwenBg+POINT; $p.X=$sx; $p.Y=$sy; [DwenBg]::ScreenToClient($t,[ref]$p) | Out-Null; return ((($p.Y -band 0xFFFF) -shl 16) -bor ($p.X -band 0xFFFF)) }
+switch ($Action) {
+  'type' {
+    $text=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($TextB64))
+    $f=Focus-Target $h
+    foreach ($ch in $text.ToCharArray()) {
+      if ($ch -eq [char]10) { continue }
+      if ($ch -eq [char]13) { Post $f 0x100 13 0; Post $f 0x102 13 0; Post $f 0x101 13 0 } else { Post $f 0x102 ([int]$ch) 0 }
+      Start-Sleep -Milliseconds 6
+    }
+  }
+  'key' {
+    $f=Focus-Target $h
+    $v=@($Vks.Split(',') | ForEach-Object { [int]$_ })
+    foreach ($k in $v) { Post $f 0x100 $k 0 }
+    if ($v.Count -eq 2 -and $v[0] -eq 17 -and $v[1] -ge 65 -and $v[1] -le 90) { Post $f 0x102 ($v[1]-64) 0 }
+    [array]::Reverse($v)
+    foreach ($k in $v) { Post $f 0x101 $k 0xC0000000 }
+  }
+  'click' {
+    $t=Under $h $X $Y
+    $lp=Lp $t $X $Y
+    if ($Button -eq 'right') { $d=0x204; $u=0x205; $mk=2 } else { $d=0x201; $u=0x202; $mk=1 }
+    Post $t 0x200 0 $lp
+    for ($i=0; $i -lt $Count; $i++) { Post $t $d $mk $lp; Start-Sleep -Milliseconds 40; Post $t $u 0 $lp; Start-Sleep -Milliseconds 60; if ($Count -gt 1 -and $i -eq 0 -and $Button -ne 'right') { Post $t 0x203 $mk $lp } }
+  }
+  'scroll' {
+    $f=Focus-Target $h
+    $notch=[int]($Amount*120)
+    $w=[int64](($notch -band 0xFFFF) -shl 16)
+    Post $f 0x20A $w 0
+  }
+}
+`;
 const psFile = (name, content) => { const f = path.join(os.tmpdir(), `dwenlite-${name}.ps1`); fs.writeFileSync(f, content); return f; };
 const ps = (file, args) => run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file, ...args], { timeout: 30000 });
 
@@ -234,7 +315,10 @@ export function createAgent(opts) {
   const needGui = () => { if (!opts.gui) throw new Error('Screen, mouse and keyboard control is switched off on this device. Restart the agent with --allow-gui to enable it.'); };
 
   // bring a named program to the front before typing/clicking in it
+  const background = (a) => IS_WIN && a && a.app && !a.foreground;
+  const bgRun = (action, a, extra) => ps(psFile('bg', PS_BG), ['-Action', action, '-App', String(a.app), ...extra]).catch((e) => { throw new Error((e.stderr || e.message).toString().replace(/\r?\n.*$/s, '').slice(0, 400)); });
   async function focusApp(a) {
+    if (background(a)) return;
     const app = a && a.app ? String(a.app).trim() : '';
     if (!app) return;
     if (IS_WIN) { try { await ps(psFile('focus', PS_FOCUS), ['-App', app]); } catch (e) { throw new Error((e.stderr || e.message).toString().replace(/\r?\n.*$/s, '').slice(0, 400)); } }
@@ -344,35 +428,39 @@ export function createAgent(opts) {
       await focusApp(a);
       const x = Math.round(a.x * k.x) + (lastShot ? lastShot.offX : 0); const y = Math.round(a.y * k.y) + (lastShot ? lastShot.offY : 0);
       const count = a.double ? 2 : 1;
-      if (IS_WIN) await ps(psFile('click', PS_CLICK), ['-X', String(x), '-Y', String(y), '-Button', a.button || 'left', '-Count', String(count)]);
+      if (background(a)) await bgRun('click', a, ['-X', String(x), '-Y', String(y), '-Button', a.button || 'left', '-Count', String(count)]);
+      else if (IS_WIN) await ps(psFile('click', PS_CLICK), ['-X', String(x), '-Y', String(y), '-Button', a.button || 'left', '-Count', String(count)]);
       else if (IS_MAC) {
         if (await have('cliclick')) await run('cliclick', [`${a.button === 'right' ? 'rc' : a.double ? 'dc' : 'c'}:${x},${y}`]);
         else if (a.button === 'right') throw new Error('Right click on macOS needs cliclick (brew install cliclick).');
         else for (let i = 0; i < count; i++) await run('osascript', ['-e', `tell application "System Events" to click at {${x}, ${y}}`]);
       } else await run('xdotool', ['mousemove', String(x), String(y), 'click', '--repeat', String(count), '--delay', '80', a.button === 'right' ? '3' : '1']);
-      return `Clicked (${a.x}, ${a.y})${lastShot ? ` -> screen (${x}, ${y})` : ''}`;
+      return `Clicked (${a.x}, ${a.y})${background(a) ? ' in the background' : ''}${lastShot ? ` -> screen (${x}, ${y})` : ''}`;
     },
     async type_text(a) {
       needGui();
       await focusApp(a);
-      if (IS_WIN) await ps(psFile('keys', PS_KEYS), ['-Keys', a.text.split(/\r?\n/).map((part) => part.replace(/[+^%~(){}[\]]/g, (c) => `{${c}}`)).join('{ENTER}')]);
+      if (background(a)) await bgRun('type', a, ['-TextB64', Buffer.from(a.text, 'utf8').toString('base64')]);
+      else if (IS_WIN) await ps(psFile('keys', PS_KEYS), ['-Keys', a.text.split(/\r?\n/).map((part) => part.replace(/[+^%~(){}[\]]/g, (c) => `{${c}}`)).join('{ENTER}')]);
       else if (IS_MAC) await run('osascript', ['-e', `tell application "System Events" to keystroke "${a.text.replace(/["\\]/g, '\\$&')}"`]);
       else await run('xdotool', ['type', '--delay', '25', '--', a.text]);
-      return `Typed ${a.text.length} characters`;
+      return `Typed ${a.text.length} characters${background(a) ? ' (sent in the background; check with a screenshot)' : ''}`;
     },
     async press_key(a) {
       needGui();
       await focusApp(a);
-      if (IS_WIN) await ps(psFile('keys', PS_KEYS), ['-Keys', toSendKeys(a.keys)]);
+      if (background(a)) await bgRun('key', a, ['-Vks', toVks(a.keys)]);
+      else if (IS_WIN) await ps(psFile('keys', PS_KEYS), ['-Keys', toSendKeys(a.keys)]);
       else if (IS_MAC) await run('osascript', ['-e', toMacScript(a.keys)]);
       else await run('xdotool', ['key', toXdotool(a.keys)]);
-      return `Pressed ${a.keys}`;
+      return `Pressed ${a.keys}${background(a) ? ' (sent in the background; shortcuts can be ignored by some programs, check with a screenshot)' : ''}`;
     },
     async scroll(a) {
       needGui();
       await focusApp(a);
       const n = Math.max(1, Math.min(50, Number(a.amount) || 5));
-      if (IS_WIN) await ps(psFile('scroll', PS_SCROLL), ['-Amount', String((a.direction === 'up' ? 1 : -1) * 120 * n)]);
+      if (background(a)) await bgRun('scroll', a, ['-Amount', String((a.direction === 'up' ? 1 : -1) * n)]);
+      else if (IS_WIN) await ps(psFile('scroll', PS_SCROLL), ['-Amount', String((a.direction === 'up' ? 1 : -1) * 120 * n)]);
       else if (IS_MAC) for (let i = 0; i < n; i++) await run('osascript', ['-e', `tell application "System Events" to key code ${a.direction === 'up' ? 126 : 125}`]);
       else await run('xdotool', ['click', '--repeat', String(n), '--delay', '40', a.direction === 'up' ? '4' : '5']);
       return `Scrolled ${a.direction} ${n}`;
