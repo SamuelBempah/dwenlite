@@ -129,7 +129,7 @@ export function groupWords(words) {
 }
 
 export function createHqRecognizer({ getToken, heartbeat, lang, terms = [], onInterim, onFinal, onError, onState }) {
-  let audio = null; let ws = null; let rec = null; let stream = null; let want = false; let hb = null; let keep = null; let tries = 0;
+  let protoTry = 0; let audio = null; let ws = null; let rec = null; let stream = null; let want = false; let hb = null; let keep = null; let tries = 0;
   const cleanup = () => {
     clearInterval(hb); clearInterval(keep);
     try { rec && rec.state !== 'inactive' && rec.stop(); } catch { /* ignore */ }
@@ -162,9 +162,12 @@ export function createHqRecognizer({ getToken, heartbeat, lang, terms = [], onIn
     try { token = await getToken(); } catch (e) { return fail(e.message, true); }
     const q = new URLSearchParams({ model: 'nova-3', language: dgLang(lang), punctuate: 'true', smart_format: 'true', diarize: 'true', interim_results: 'true', endpointing: '400', utterance_end_ms: '1500', vad_events: 'false' });
     terms.slice(0, 30).forEach((t) => q.append('keyterm', t));
-    ws = new WebSocket(`wss://api.deepgram.com/v1/listen?${q}`, ['bearer', token]);
+    const url = `wss://api.deepgram.com/v1/listen?${q}`;
+    const protocols = [['bearer', token], ['token', token]];
+    let opened = false;
+    ws = new WebSocket(url, protocols[Math.min(protoTry, 1)]);
     ws.onopen = () => {
-      tries = 0;
+      opened = true; tries = 0;
       rec = new MediaRecorder(sendStream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 32000 });
       rec.ondataavailable = (e) => { if (e.data && e.data.size && ws && ws.readyState === 1) ws.send(e.data); };
       rec.start(250);
@@ -183,7 +186,10 @@ export function createHqRecognizer({ getToken, heartbeat, lang, terms = [], onIn
     ws.onclose = (e) => {
       if (!want) return;
       cleanup();
-      if (e.code === 1008 || e.code === 4001 || e.code === 4003 || ++tries > 3) return fail('High-accuracy transcription disconnected.', true);
+      // the connection was refused before it opened: try the other way of presenting the key once
+      if (!opened && protoTry === 0) { protoTry = 1; setTimeout(() => { if (want) open(); }, 200); return; }
+      if (!opened) return fail(`High accuracy could not connect (code ${e.code}${e.reason ? ', ' + e.reason : ''}). The speech service refused the connection.`, true);
+      if (e.code === 1008 || e.code === 4001 || e.code === 4003 || ++tries > 3) return fail(`High-accuracy transcription disconnected (code ${e.code}${e.reason ? ', ' + e.reason : ''}).`, true);
       onError && onError('Connection dropped. Reconnecting...');
       setTimeout(() => { if (want) open(); }, 800 * tries);
     };

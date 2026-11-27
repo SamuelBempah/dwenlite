@@ -100,7 +100,15 @@ function create({ admin, db, logger, axios, cors, onRequest, DEEPSEEK_API_KEY, D
             });
             if (!ok) return res.status(429).json({ error: "You have used today's high-accuracy meeting time. Standard transcription still works." });
             if (b.heartbeat) return res.status(200).json({ ok: true });
-            const r = await axios.post("https://api.deepgram.com/v1/auth/grant", { ttl_seconds: 120 }, { headers: { Authorization: `Token ${key}`, "Content-Type": "application/json" }, timeout: 10000 });
+            let r;
+            try {
+              r = await axios.post("https://api.deepgram.com/v1/auth/grant", { ttl_seconds: 120 }, { headers: { Authorization: `Token ${key}`, "Content-Type": "application/json" }, timeout: 10000 });
+            } catch (e) {
+              const st = e.response && e.response.status;
+              const msg = clip((e.response && e.response.data && (e.response.data.err_msg || e.response.data.message || JSON.stringify(e.response.data))) || e.message, 200);
+              logger.error("deepgram grant failed", st, msg);
+              return res.status(502).json({ error: `Deepgram refused the key (${st || "no response"}): ${msg}. Check the key is correct and has Member or higher access.` });
+            }
             const token = r.data && (r.data.access_token || r.data.key);
             if (!token) return res.status(502).json({ error: "Could not start high-accuracy transcription." });
             return res.status(200).json({ token });

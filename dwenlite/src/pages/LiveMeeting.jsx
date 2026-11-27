@@ -127,7 +127,7 @@ export default function LiveMeeting() {
         onError: (msg, fatal) => {
           setErr(msg);
           if (fatal && speechSupported()) { // quietly carry on with the standard recogniser
-            toast('High accuracy stopped, switching to standard transcription.', { icon: 'ℹ️' });
+            toast(`High accuracy stopped: ${msg}`, { icon: 'ℹ️', duration: 9000 });
             setMode('std'); recRef.current = makeRecognizer(false); recRef.current.start();
           }
         },
