@@ -16,7 +16,7 @@ import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-export const VERSION = '1.0.0';
+export const VERSION = '1.1.0';
 const MAX_OUT = 100000;      // characters of command output sent back
 const MAX_READ = 200000;     // bytes read from a file
 const IS_WIN = process.platform === 'win32';
@@ -130,17 +130,60 @@ public class DwenNative {
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint dx, uint dy, uint d, UIntPtr e);
+  [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr e);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+  [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr dc, uint flags);
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
 }
 "@
 [DwenNative]::SetProcessDPIAware() | Out-Null
 `;
-const PS_SHOT = `param([string]$Out,[int]$MaxW)
+const PS_FIND = `function Find-Win([string]$App) {
+  $a=$App.Trim().ToLower() -replace '^microsoft ',''
+  $w=Get-Process | Where-Object { $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle -ne '' }
+  $hit=$w | Where-Object { $_.ProcessName.ToLower() -like "*$a*" -or $_.MainWindowTitle.ToLower() -like "*$a*" } | Select-Object -First 1
+  if (-not $hit) { $names=($w | ForEach-Object { $_.MainWindowTitle } | Select-Object -First 15) -join '; '; Write-Error "Could not find a window for '$App'. Open windows: $names"; exit 3 }
+  return $hit.MainWindowHandle
+}
+`;
+const PS_FOCUS = `param([string]$App)
+${PS_DPI}
+${PS_FIND}
+$h=Find-Win $App
+if ([DwenNative]::IsIconic($h)) { [DwenNative]::ShowWindow($h,9) | Out-Null }
+[DwenNative]::keybd_event(0x12,0,0,[UIntPtr]::Zero); [DwenNative]::keybd_event(0x12,0,2,[UIntPtr]::Zero)
+[DwenNative]::SetForegroundWindow($h) | Out-Null
+Start-Sleep -Milliseconds 400
+`;
+const PS_SHOT = `param([string]$Out,[int]$MaxW,[string]$App)
 Add-Type -AssemblyName System.Windows.Forms,System.Drawing
 ${PS_DPI}
+${PS_FIND}
 $b=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-$bmp=New-Object System.Drawing.Bitmap $b.Width,$b.Height
-$g=[System.Drawing.Graphics]::FromImage($bmp)
-$g.CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size)
+$offX=0; $offY=0
+if ($App) {
+  $hw=Find-Win $App
+  $wasMin=[DwenNative]::IsIconic($hw)
+  if ($wasMin) { [DwenNative]::ShowWindow($hw,4) | Out-Null; Start-Sleep -Milliseconds 600 }
+  $r=New-Object DwenNative+RECT
+  [DwenNative]::GetWindowRect($hw,[ref]$r) | Out-Null
+  $ww=[Math]::Max(50,$r.Right-$r.Left); $wh=[Math]::Max(50,$r.Bottom-$r.Top)
+  $bmp=New-Object System.Drawing.Bitmap $ww,$wh
+  $g=[System.Drawing.Graphics]::FromImage($bmp)
+  $dc=$g.GetHdc()
+  [DwenNative]::PrintWindow($hw,$dc,2) | Out-Null
+  $g.ReleaseHdc($dc)
+  if ($wasMin) { [DwenNative]::ShowWindow($hw,7) | Out-Null }
+  $offX=$r.Left; $offY=$r.Top
+  $b=New-Object System.Drawing.Rectangle 0,0,$ww,$wh
+} else {
+  $bmp=New-Object System.Drawing.Bitmap $b.Width,$b.Height
+  $g=[System.Drawing.Graphics]::FromImage($bmp)
+  $g.CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size)
+}
 $w=$b.Width; $h=$b.Height
 if ($w -gt $MaxW) { $h=[int]($h*$MaxW/$w); $w=$MaxW }
 $small=New-Object System.Drawing.Bitmap $w,$h
@@ -151,7 +194,7 @@ $enc=[System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object 
 $ep=New-Object System.Drawing.Imaging.EncoderParameters 1
 $ep.Param[0]=New-Object System.Drawing.Imaging.EncoderParameter ([System.Drawing.Imaging.Encoder]::Quality),([int64]60)
 $small.Save($Out,$enc,$ep)
-Write-Output ("{0}x{1}" -f $b.Width,$b.Height)
+Write-Output ("{0}x{1}x{2}x{3}" -f $b.Width,$b.Height,$offX,$offY)
 `;
 const PS_CLICK = `param([int]$X,[int]$Y,[string]$Button,[int]$Count)
 ${PS_DPI}
@@ -189,6 +232,15 @@ export function createAgent(opts) {
 
   const needShell = () => { if (!opts.shell) throw new Error('Shell commands are switched off on this device. Restart the agent with --allow-shell to enable them.'); };
   const needGui = () => { if (!opts.gui) throw new Error('Screen, mouse and keyboard control is switched off on this device. Restart the agent with --allow-gui to enable it.'); };
+
+  // bring a named program to the front before typing/clicking in it
+  async function focusApp(a) {
+    const app = a && a.app ? String(a.app).trim() : '';
+    if (!app) return;
+    if (IS_WIN) { try { await ps(psFile('focus', PS_FOCUS), ['-App', app]); } catch (e) { throw new Error((e.stderr || e.message).toString().replace(/\r?\n.*$/s, '').slice(0, 400)); } }
+    else if (IS_MAC) { await run('osascript', ['-e', `tell application "${app.replace(/["\\]/g, '')}" to activate`]); await new Promise((r) => setTimeout(r, 400)); }
+    else if (await have('xdotool')) { try { await run('xdotool', ['search', '--name', app, 'windowactivate', '--sync']); } catch { /* keep going */ } }
+  }
 
   // ---- actions ----
   const actions = {
@@ -252,11 +304,11 @@ export function createAgent(opts) {
     async screenshot(a) {
       needGui();
       const out = path.join(os.tmpdir(), `dwenlite-shot-${Date.now()}.${IS_WIN || IS_MAC ? 'jpg' : 'png'}`);
-      let screenW; let screenH; let pointsW; let pointsH; let file = out;
+      let offX = 0; let offY = 0; let screenW; let screenH; let pointsW; let pointsH; let file = out;
       try {
         if (IS_WIN) {
-          const r = await ps(psFile('shot', PS_SHOT), ['-Out', out, '-MaxW', '1280']);
-          [screenW, screenH] = r.stdout.trim().split('x').map(Number);
+          const r = await ps(psFile('shot', PS_SHOT), ['-Out', out, '-MaxW', '1280', '-App', a.app ? String(a.app) : '']);
+          [screenW, screenH, offX, offY] = r.stdout.trim().split('x').map(Number);
         } else if (IS_MAC) {
           await run('screencapture', ['-x', '-t', 'jpg', out]);
           const dims = await run('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', out]);
@@ -277,7 +329,7 @@ export function createAgent(opts) {
       }
       const buf = fs.readFileSync(file);
       const sz = imageSize(buf) || { w: screenW, h: screenH };
-      lastShot = { shotW: sz.w, shotH: sz.h, screenW: pointsW || screenW, screenH: pointsH || screenH };
+      lastShot = { shotW: sz.w, shotH: sz.h, screenW: pointsW || screenW, screenH: pointsH || screenH, offX: offX || 0, offY: offY || 0 };
       try { fs.unlinkSync(out); if (file !== out) fs.unlinkSync(file); } catch { /* ignore */ }
       let text = '';
       try {
@@ -289,7 +341,8 @@ export function createAgent(opts) {
     async click(a) {
       needGui();
       const k = lastShot ? { x: lastShot.screenW / lastShot.shotW, y: lastShot.screenH / lastShot.shotH } : { x: 1, y: 1 };
-      const x = Math.round(a.x * k.x); const y = Math.round(a.y * k.y);
+      await focusApp(a);
+      const x = Math.round(a.x * k.x) + (lastShot ? lastShot.offX : 0); const y = Math.round(a.y * k.y) + (lastShot ? lastShot.offY : 0);
       const count = a.double ? 2 : 1;
       if (IS_WIN) await ps(psFile('click', PS_CLICK), ['-X', String(x), '-Y', String(y), '-Button', a.button || 'left', '-Count', String(count)]);
       else if (IS_MAC) {
@@ -301,6 +354,7 @@ export function createAgent(opts) {
     },
     async type_text(a) {
       needGui();
+      await focusApp(a);
       if (IS_WIN) await ps(psFile('keys', PS_KEYS), ['-Keys', a.text.split(/\r?\n/).map((part) => part.replace(/[+^%~(){}[\]]/g, (c) => `{${c}}`)).join('{ENTER}')]);
       else if (IS_MAC) await run('osascript', ['-e', `tell application "System Events" to keystroke "${a.text.replace(/["\\]/g, '\\$&')}"`]);
       else await run('xdotool', ['type', '--delay', '25', '--', a.text]);
@@ -308,6 +362,7 @@ export function createAgent(opts) {
     },
     async press_key(a) {
       needGui();
+      await focusApp(a);
       if (IS_WIN) await ps(psFile('keys', PS_KEYS), ['-Keys', toSendKeys(a.keys)]);
       else if (IS_MAC) await run('osascript', ['-e', toMacScript(a.keys)]);
       else await run('xdotool', ['key', toXdotool(a.keys)]);
@@ -315,6 +370,7 @@ export function createAgent(opts) {
     },
     async scroll(a) {
       needGui();
+      await focusApp(a);
       const n = Math.max(1, Math.min(50, Number(a.amount) || 5));
       if (IS_WIN) await ps(psFile('scroll', PS_SCROLL), ['-Amount', String((a.direction === 'up' ? 1 : -1) * 120 * n)]);
       else if (IS_MAC) for (let i = 0; i < n; i++) await run('osascript', ['-e', `tell application "System Events" to key code ${a.direction === 'up' ? 126 : 125}`]);
