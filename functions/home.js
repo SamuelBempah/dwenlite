@@ -32,9 +32,13 @@ const HOME_SYSTEM =
   "- To test on a device, write files into its work folder and run them; fix errors until it works, then summarise.\n\n" +
   "MEMORY\n" +
   "- When the owner shares a lasting preference or fact about themselves, their setup or projects, call remember.\n\n" +
+  "TALKING TO THE OWNER\n" +
+  "- Speak plainly, like a helpful person, not a terminal. Keep technical detail out of your message: do not paste commands or raw output unless asked. Say what you found and what you did, in a few friendly sentences.\n" +
+  "- Always give each tool call a short plain-English `summary`.\n\n" +
   "STYLE: Markdown. No emojis unless the owner uses them. Short answers for simple questions.";
 
 const dev = { type: "string", description: "Device id or name. Optional when only one device is online." };
+const summary = { type: "string", description: "REQUIRED. One short plain-English sentence (max 10 words) for a non-technical reader about what you are doing, e.g. 'Checking how much disk space is free'. No commands or jargon." };
 const TOOLS = [
   { name: "run_shell", description: "Run a shell command on a device (PowerShell/cmd on Windows, sh elsewhere) in the agent's work folder and return stdout, stderr and the exit code.", properties: { device: dev, command: { type: "string" }, cwd: { type: "string", description: "Optional folder, relative to the work folder." }, timeout_s: { type: "number", description: "Seconds, default 60, max 600." } }, required: ["command"] },
   { name: "read_file", description: "Read a text file on a device (max ~200 KB).", properties: { device: dev, path: { type: "string" } }, required: ["path"] },
@@ -49,7 +53,7 @@ const TOOLS = [
   { name: "open_url", description: "Open an http(s) link in the device's default browser.", properties: { device: dev, url: { type: "string" } }, required: ["url"] },
   { name: "run_js", description: "Run JavaScript in a sandbox inside the owner's browser (no device needed) and return console output and the result. Good for quick calculations and testing snippets.", properties: { code: { type: "string" } }, required: ["code"] },
   { name: "remember", description: "Save a lasting fact or preference about the owner to long-term memory.", properties: { fact: { type: "string" } }, required: ["fact"] },
-].map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: { type: "object", properties: t.properties, required: t.required } } }));
+].map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: { type: "object", properties: { ...t.properties, summary }, required: [...t.required, "summary"] } } }));
 
 const VISION_PROMPTS = {
   describe: "Describe this image in detail for an AI assistant that cannot see it. Include ALL visible text verbatim, the layout, objects, people (no identification by face), numbers, charts, tables and anything notable.",
@@ -72,18 +76,44 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
   const clip = (t, n) => String(t == null ? "" : t).slice(0, n);
 
   // ---- vision (a free image model turns pictures into text that DeepSeek can use) ----
+  let goodModel = ""; // remembers which model name worked
   async function vision({ b64, mime, mode, instruction, lang, width, height }) {
     const key = GEMINI_API_KEY.value();
     if (!key) { const e = new Error("Image model is not configured. Add GEMINI_API_KEY to functions/.env."); e.code = "no_vision"; throw e; }
     let prompt = (VISION_PROMPTS[mode] || VISION_PROMPTS.describe).replace("{lang}", clip(lang || "English", 30));
     if (instruction) prompt += `\n\nInstruction from the user: ${clip(instruction, 1000)}`;
-    const r = await axios.post(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL.value())}:generateContent`,
-      { contents: [{ role: "user", parts: [{ text: prompt }, { inline_data: { mime_type: mime || "image/jpeg", data: b64 } }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 2048 } },
-      { headers: { "x-goog-api-key": key, "Content-Type": "application/json" }, timeout: 60000 }
-    );
-    let text = ((r.data.candidates && r.data.candidates[0] && r.data.candidates[0].content && r.data.candidates[0].content.parts) || []).map((p) => p.text || "").join("").trim();
-    if (!text) throw new Error("The image model returned nothing.");
+    const body = { contents: [{ role: "user", parts: [{ text: prompt }, { inline_data: { mime_type: mime || "image/jpeg", data: b64 } }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 2048 } };
+
+    // the configured model first, then common alternatives if that name is not found
+    const models = [...new Set([goodModel, GEMINI_MODEL.value(), "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"].filter(Boolean))];
+    let lastErr = "";
+    let text = "";
+    for (const model of models) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+      let r = null;
+      for (const viaQuery of [false, true]) { // normal header first; some keys need the ?key= form
+        try {
+          r = await axios.post(viaQuery ? `${url}?key=${encodeURIComponent(key)}` : url, body, { headers: viaQuery ? { "Content-Type": "application/json" } : { "x-goog-api-key": key, "Content-Type": "application/json" }, timeout: 60000 });
+          break;
+        } catch (err) {
+          const st = err.response && err.response.status;
+          const msg = (err.response && err.response.data && err.response.data.error && err.response.data.error.message) || err.message;
+          lastErr = `${model}: ${st || ""} ${clip(msg, 220)}`.trim();
+          logger.error("gemini failed", lastErr);
+          if (!viaQuery && (st === 401 || st === 403 || st === 400) && /api key|credential|permission/i.test(String(msg))) continue; // retry with ?key=
+          break;
+        }
+      }
+      if (!r) {
+        if (/ 404 | not found|not supported|NOT_FOUND/i.test(" " + lastErr + " ")) continue; // try the next model name
+        break;
+      }
+      text = ((r.data.candidates && r.data.candidates[0] && r.data.candidates[0].content && r.data.candidates[0].content.parts) || []).map((p) => p.text || "").join("").trim();
+      if (!text) { lastErr = `${model}: the model returned nothing (it may have blocked the image)`; continue; }
+      goodModel = model;
+      break;
+    }
+    if (!text) { const e = new Error(`Image model error: ${lastErr || "unknown"}`); e.code = "vision_failed"; throw e; }
     if (mode === "screen" && width && height) {
       // model coordinates are on a 0-1000 grid: convert to real screenshot pixels
       text = text.replace(/@\s*\(?\s*(\d{1,4})\s*,\s*(\d{1,4})\)?/g, (m, x, y) => `@ (${Math.round((Number(x) / 1000) * width)},${Math.round((Number(y) / 1000) * height)})`);
@@ -217,8 +247,12 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
             if (action === "agent_see") {
               const b64 = String(body.image || "");
               if (!b64 || b64.length > 4000000) return res.status(413).json({ error: "Image missing or too large." });
-              const text = await vision({ b64, mime: /^image\/(png|jpeg|webp)$/.test(body.mime || "") ? body.mime : "image/jpeg", mode: "screen", instruction: body.look, width: Number(body.width) || 0, height: Number(body.height) || 0 });
-              return res.status(200).json({ text });
+              try {
+                const text = await vision({ b64, mime: /^image\/(png|jpeg|webp)$/.test(body.mime || "") ? body.mime : "image/jpeg", mode: "screen", instruction: body.look, width: Number(body.width) || 0, height: Number(body.height) || 0 });
+                return res.status(200).json({ text });
+              } catch (e) {
+                return res.status(e.code === "no_vision" ? 501 : 502).json({ error: e.message });
+              }
             }
             return res.status(400).json({ error: "Unknown agent action." });
           }
@@ -313,8 +347,7 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
               return res.status(200).json({ text });
             } catch (e) {
               if (e.code === "no_vision") return res.status(501).json({ error: e.message, code: "no_vision" });
-              logger.error("vision failed", e.response && e.response.status, e.message);
-              return res.status(502).json({ error: "The image model could not read that image." });
+              return res.status(502).json({ error: e.message });
             }
           }
 

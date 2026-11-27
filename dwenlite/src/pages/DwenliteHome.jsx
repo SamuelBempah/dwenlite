@@ -148,7 +148,7 @@ export default function DwenliteHome() {
     }
     const dev = picked.d;
     const jobType = JOB_TYPE[name] || name;
-    const jobArgs = { ...args }; delete jobArgs.device;
+    const jobArgs = { ...args }; delete jobArgs.device; delete jobArgs.summary;
     add({ id, type: 'action', tool: name, args, deviceName: dev.name, status: needsApproval(name) ? 'asking' : 'running', note: 'Starting...' });
 
     if (needsApproval(name)) {
@@ -286,10 +286,12 @@ export default function DwenliteHome() {
     setItems([]);
   }
 
+  const toggleAuto = () => chooseMode(mode === 'auto' ? 'ask' : 'auto');
   const chooseMode = (m) => {
-    if (m === 'auto' && !window.confirm('Autonomous mode lets the assistant run commands, write files, click and type on your devices WITHOUT asking each time.\n\nYou can press Stop at any moment. Turn it on?')) return;
+    let confirmed = false; try { confirmed = localStorage.getItem('dwenliteAutoOk') === '1'; } catch { /* ignore */ }
+    if (m === 'auto' && !confirmed && !window.confirm('Autonomous mode lets the assistant run commands, write files, click and type on your devices WITHOUT asking each time.\n\nYou can press Stop at any moment. Turn it on?')) return;
     setMode(m);
-    try { localStorage.setItem('dwenliteHomeMode', m); } catch { /* ignore */ }
+    try { if (m === 'auto') localStorage.setItem('dwenliteAutoOk', '1'); localStorage.setItem('dwenliteHomeMode', m); } catch { /* ignore */ }
   };
 
   // ---------------------------------------------------------------- screens
@@ -324,6 +326,10 @@ export default function DwenliteHome() {
             <p className="truncate text-[11px] text-slate-500">Your personal assistant</p>
           </div>
         </div>
+        <button onClick={toggleAuto} role="switch" aria-checked={mode === 'auto'} title="Let the assistant do everything by itself, without asking" className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold ${mode === 'auto' ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-200' : 'border-white/10 bg-slate-800/70 text-slate-300 hover:border-violet-500/50'}`}>
+          <span className={`relative inline-block h-4 w-7 rounded-full ${mode === 'auto' ? 'bg-emerald-500' : 'bg-slate-600'}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${mode === 'auto' ? 'left-3.5' : 'left-0.5'}`} /></span>
+          Auto
+        </button>
         <button onClick={() => setPanel('devices')} className="flex items-center gap-1.5 rounded-full border border-white/10 bg-slate-800/70 px-3 py-1.5 text-xs hover:border-violet-500/50">
           {onlineCount ? <Wifi size={13} className="text-emerald-400" /> : <WifiOff size={13} className="text-slate-500" />}
           <span className="hidden sm:inline">{devices.length ? `${onlineCount}/${devices.length} online` : 'Add a computer'}</span>
