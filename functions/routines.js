@@ -38,7 +38,7 @@ function computeNextRun(schedule, now = Date.now()) {
 
 // What a routine may do when nobody is there to approve. Reading and looking are always fine; changing things needs "allow actions".
 const SAFE = {
-  always: new Set(["web_search", "read_page", "remember", "update_plan", "read_file", "list_dir", "system_info", "list_windows", "network_scan", "screenshot"]),
+  always: new Set(["web_search", "read_page", "remember", "update_plan", "read_file", "list_dir", "system_info", "list_windows", "network_scan", "screenshot", "find_files", "pc_health"]),
   browser: new Set(["open", "read", "scroll", "back", "tabs", "screenshot", "close"]),
   git: new Set(["status", "diff", "log", "show", "branch"]),
   android: new Set(["devices", "info", "read", "screenshot", "apps"]),
@@ -46,6 +46,7 @@ const SAFE = {
 function allowedUnattended(name, args = {}, allowActions = false) {
   if (SAFE.always.has(name)) return true;
   if (name === "browser") return allowActions || SAFE.browser.has(args.action);
+  if (name === "github") return allowActions || !["create_issue", "comment"].includes(args.action);
   if (name === "git") return allowActions || SAFE.git.has(args.action);
   if (name === "android") return allowActions || SAFE.android.has(args.action);
   if (name === "document") return allowActions || args.action === "read";

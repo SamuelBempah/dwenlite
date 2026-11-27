@@ -12,6 +12,8 @@ const WORDS = {
   browser: ['Browsing the web', 'Browsed the web'], web_search: ['Searching the web', 'Searched the web'], read_page: ['Reading a web page', 'Read a web page'],
   android: ['Working on the phone', 'Used the phone'], network_scan: ['Looking for devices nearby', 'Looked for devices nearby'], lan_http: ['Talking to a device nearby', 'Talked to a device nearby'],
   git: ['Checking the project', 'Checked the project'], run_tests: ['Testing the project', 'Tested the project'], send_file: ['Getting a file', 'Got a file'],
+  find_files: ['Searching your files', 'Searched your files'], pc_health: ['Checking how your computer is doing', 'Checked how your computer is doing'], github: ['Checking GitHub', 'Checked GitHub'],
+  reminder: ['Setting a reminder', 'Set a reminder'], todo: ['Updating your list', 'Updated your list'], project_note: ['Noting that down', 'Noted that down'], suggest_memory: ['Making a note to remember', 'Made a note to remember'],
   document: ['Working on a document', 'Worked on a document'], app_ui: ['Working in a program', 'Worked in a program'], google_mail: ['Checking your email', 'Checked your email'], google_calendar: ['Checking your calendar', 'Checked your calendar'],
 };
 

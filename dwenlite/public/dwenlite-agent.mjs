@@ -22,7 +22,7 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import dns from 'node:dns/promises';
 
-export const VERSION = '2.0.0';
+export const VERSION = '2.1.0';
 export const DEFAULT_URL = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/homeApi';
 export const SITE = 'https://www.dwenlite.space';
 const MAX_OUT = 100000;      // characters of command output sent back
@@ -1042,6 +1042,121 @@ switch ($Action) {
 }
 `;
 
+// ----------------------------------------------------------------------------- finding files, checking the computer, GitHub
+// "~Documents" style shortcuts in the allowed folders list point at the user's usual folders.
+export function presetFolder(f) {
+  const m = /^~(Documents|Desktop|Downloads|Pictures|Music|Videos)$/i.exec(String(f || '').trim());
+  if (!m) return f;
+  const name = m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
+  const home = os.homedir();
+  for (const c of [path.join(home, name), path.join(home, 'OneDrive', name)]) { try { if (fs.statSync(c).isDirectory()) return c; } catch { /* try the next */ } }
+  return path.join(home, name);
+}
+const SKIP_DIRS = new Set(['node_modules', '.git', '$recycle.bin', 'system volume information', 'appdata', '.cache', '.npm', 'library', '__pycache__']);
+const TEXT_EXT = new Set(['.txt', '.md', '.csv', '.json', '.js', '.jsx', '.ts', '.tsx', '.py', '.html', '.css', '.xml', '.yml', '.yaml', '.log', '.ini', '.cfg', '.sql', '.tex', '.rtf']);
+export async function findFiles(roots, a, readers = {}) {
+  const query = String(a.query || '').trim().toLowerCase(); const text = String(a.text || '').trim().toLowerCase();
+  const minBytes = Math.max(0, Number(a.min_mb) || 0) * 1048576; const oldMs = Math.max(0, Number(a.older_than_days) || 0) * 86400000; const newMs = Math.max(0, Number(a.newer_than_days) || 0) * 86400000;
+  const ext = a.ext ? String(a.ext).toLowerCase().replace(/^\./, '').split(/[ ,]+/).filter(Boolean) : [];
+  const limit = Math.min(60, Math.max(1, Number(a.max) || 25)); const deadline = Date.now() + 25000; const now = Date.now();
+  const out = []; let visited = 0, scannedText = 0; let truncated = false;
+  const stack = roots.map((r) => [r, 0]);
+  while (stack.length && out.length < limit) {
+    if (Date.now() > deadline || visited > 60000) { truncated = true; break; }
+    const [dir, depth] = stack.pop(); let ents;
+    try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const e of ents) {
+      if (out.length >= limit) break;
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) { if (depth < 8 && !SKIP_DIRS.has(e.name.toLowerCase()) && !e.isSymbolicLink()) stack.push([full, depth + 1]); continue; }
+      if (!e.isFile()) continue;
+      visited++;
+      const lower = e.name.toLowerCase(); const x = path.extname(lower).slice(1);
+      if (ext.length && !ext.includes(x)) continue;
+      if (query && !query.split(/\s+/).every((w) => lower.includes(w))) continue;
+      let st; try { st = fs.statSync(full); } catch { continue; }
+      if (minBytes && st.size < minBytes) continue;
+      if (oldMs && now - st.mtimeMs < oldMs) continue;
+      if (newMs && now - st.mtimeMs > newMs) continue;
+      let snippet = '';
+      if (text) {
+        if (st.size > 8 * 1048576 || scannedText > 400) continue;
+        scannedText++;
+        let body = '';
+        try {
+          const buf = fs.readFileSync(full);
+          if (x === 'docx' && readers.docx) body = readers.docx(buf); else if (x === 'xlsx' && readers.xlsx) body = readers.xlsx(buf); else if (x === 'pdf' && readers.pdf) body = readers.pdf(buf);
+          else if (TEXT_EXT.has('.' + x) && !buf.includes(0)) body = buf.toString('utf8');
+        } catch { continue; }
+        const i = body.toLowerCase().indexOf(text); if (i < 0) continue;
+        snippet = body.slice(Math.max(0, i - 50), i + text.length + 70).replace(/\s+/g, ' ');
+      }
+      out.push(`${full}  (${st.size >= 1048576 ? (st.size / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(st.size / 1024)) + ' KB'}, ${st.mtime.toISOString().slice(0, 10)})${snippet ? `\n    ...${snippet}...` : ''}`);
+    }
+  }
+  if (!out.length) return `Nothing found${truncated ? ' (the search ran out of time, so try a smaller folder)' : ''}.`;
+  return `${out.length} file(s)${out.length >= limit ? ' (showing the first ones; narrow the search to see others)' : ''}${truncated ? ', search stopped early' : ''}:\n` + out.join('\n');
+}
+function dirSize(dir, deadline) { // bytes in a folder, stopping early on huge ones
+  let total = 0; const stack = [dir];
+  while (stack.length) {
+    if (Date.now() > deadline || total > 200 * 1073741824) break;
+    const d = stack.pop(); let ents; try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { continue; }
+    for (const e of ents) { const f = path.join(d, e.name); try { if (e.isDirectory() && !e.isSymbolicLink()) stack.push(f); else if (e.isFile()) total += fs.statSync(f).size; } catch { /* skip */ } }
+  }
+  return total;
+}
+const gb = (n) => (n / 1073741824).toFixed(1) + ' GB';
+export async function pcHealth(runCmd, kind) {
+  const lines = []; const deadline = Date.now() + 20000;
+  const home = os.homedir();
+  lines.push(`Memory: ${gb(os.freemem())} free of ${gb(os.totalmem())}. Up for ${(os.uptime() / 3600).toFixed(1)} hours (a restart now and then keeps things quick).`);
+  try {
+    if (IS_WIN) {
+      const d = (await runCmd('powershell', ['-NoProfile', '-Command', "Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' | ForEach-Object { $_.DeviceID + ' ' + $_.FreeSpace + ' ' + $_.Size }"], { timeout: 15000 })).stdout;
+      for (const l of d.split(/\r?\n/).map((x) => x.trim()).filter(Boolean)) { const [id, free, size] = l.split(' '); if (+size) lines.push(`Drive ${id} ${gb(+free)} free of ${gb(+size)} (${Math.round((+free / +size) * 100)}% free)${+free / +size < 0.1 ? ' - running low' : ''}`); }
+      const sa = (await runCmd('powershell', ['-NoProfile', '-Command', "(Get-CimInstance Win32_StartupCommand | Measure-Object).Count; (Get-Process | Sort-Object WorkingSet64 -Descending | Select-Object -First 5 | ForEach-Object { $_.ProcessName + ' ' + [math]::Round($_.WorkingSet64/1MB) + 'MB' }) -join ', '; try { (Get-MpComputerStatus).AntivirusEnabled } catch { 'unknown' }; if (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired') { 'reboot' } else { 'ok' }"], { timeout: 20000 })).stdout.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+      if (sa[0]) lines.push(`Programs that start with Windows: ${sa[0]}${+sa[0] > 12 ? ' (that is a lot, it can slow the start-up)' : ''}`);
+      if (sa[1]) lines.push(`Using the most memory right now: ${sa[1]}`);
+      if (sa[2]) lines.push(`Virus protection: ${/true/i.test(sa[2]) ? 'on' : /false/i.test(sa[2]) ? 'OFF - worth turning on' : 'could not be checked'}`);
+      if (sa[3] === 'reboot') lines.push('Windows is waiting for a restart to finish an update.');
+    } else {
+      const df = (await runCmd('df', ['-h', home], { timeout: 8000 })).stdout.trim().split('\n').slice(-1)[0]; lines.push(`Disk: ${df.replace(/\s+/g, ' ')}`);
+    }
+  } catch (e) { lines.push('Some checks could not run: ' + String(e.message).slice(0, 120)); }
+  if (kind !== 'quick') {
+    const spots = [['Temporary files', os.tmpdir()], ['Downloads', path.join(home, 'Downloads')], ['Recycle Bin / Trash', IS_WIN ? 'C:\\$Recycle.Bin' : path.join(home, '.Trash')]];
+    for (const [label, dir] of spots) { try { if (fs.existsSync(dir)) lines.push(`${label}: about ${gb(dirSize(dir, deadline))} in ${dir}`); } catch { /* not readable */ } }
+    try { const dl = path.join(home, 'Downloads'); const old = (await findFiles([dl], { older_than_days: 90, min_mb: 20, max: 8 })); if (!/^Nothing/.test(old)) lines.push('Large old downloads (over 90 days, over 20 MB):\n' + old.split('\n').slice(1).join('\n')); } catch { /* optional */ }
+  }
+  return lines.join('\n') + '\n\nNothing was changed. Tell me what you would like cleaned up and I will ask before deleting anything.';
+}
+export async function githubCall(token, a) {
+  const repo = String(a.repo || '').trim();
+  if (a.action !== 'my_repos' && (!/^[\w.-]{1,100}\/[\w.-]{1,100}$/.test(repo) || /(^|\/)\.+(\/|$)/.test(repo))) throw new Error('Give the repository as owner/name.');
+  const num = (n) => { const v = Number(n); if (!Number.isInteger(v) || v < 1 || v > 1e7) throw new Error('Give an issue or pull request number.'); return v; };
+  let method = 'GET', url = '', body;
+  switch (a.action) {
+    case 'my_repos': url = '/user/repos?sort=pushed&per_page=15'; break;
+    case 'repo': url = `/repos/${repo}`; break;
+    case 'issues': url = `/repos/${repo}/issues?state=${a.state === 'closed' ? 'closed' : 'open'}&per_page=15`; break;
+    case 'pulls': url = `/repos/${repo}/pulls?state=${a.state === 'closed' ? 'closed' : 'open'}&per_page=15`; break;
+    case 'issue': url = `/repos/${repo}/issues/${num(a.number)}`; break;
+    case 'commits': url = `/repos/${repo}/commits?per_page=10`; break;
+    case 'create_issue': method = 'POST'; url = `/repos/${repo}/issues`; body = { title: String(a.title || '').slice(0, 250), body: String(a.body || '').slice(0, 20000) }; if (!body.title) throw new Error('Give the issue a title.'); break;
+    case 'comment': method = 'POST'; url = `/repos/${repo}/issues/${num(a.number)}/comments`; body = { body: String(a.body || '').slice(0, 20000) }; if (!body.body) throw new Error('Write the comment.'); break;
+    default: throw new Error('Actions: my_repos, repo, issues, pulls, issue, commits, create_issue, comment.');
+  }
+  const r = await fetch('https://api.github.com' + url, { method, headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'dwenlite', ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(15000) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(r.status === 401 ? 'GitHub did not accept the saved token. Save a new one on the computer with: node dwenlite-agent.mjs vault add' : r.status === 404 ? 'GitHub could not find that (check the name, and that the token can see it).' : `GitHub said: ${String(j.message || r.status).slice(0, 200)}`);
+  const one = (x) => (x.full_name ? `${x.full_name}${x.private ? ' (private)' : ''} - ${x.description || 'no description'} [pushed ${String(x.pushed_at || '').slice(0, 10)}]` : x.sha ? `${x.sha.slice(0, 7)} ${String((x.commit || {}).message || '').split('\n')[0]} (${((x.commit || {}).author || {}).name || ''})` : `#${x.number} ${x.title} [${x.state}${x.draft ? ', draft' : ''}] by ${(x.user || {}).login || '?'}`);
+  if (method === 'POST') return `Done: ${j.html_url || 'saved'}`;
+  if (Array.isArray(j)) return j.length ? j.map(one).join('\n') : 'Nothing found.';
+  if (a.action === 'issue') return `${one(j)}\n${String(j.body || '').slice(0, 3000)}`;
+  return `${one(j)}${j.open_issues_count != null ? `\nOpen issues: ${j.open_issues_count}. Default branch: ${j.default_branch}.` : ''}`;
+}
+
 // ----------------------------------------------------------------------------- the agent
 export function createAgent(opts) {
   const root = opts.root;
@@ -1250,7 +1365,13 @@ export function createAgent(opts) {
       const priv = (ip) => /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|::1$|f[cd][0-9a-f]{2}:)/i.test(ip);
       if (!addrs.length || !addrs.every((x) => priv(x.address)) || addrs.some((x) => /^169\.254\./.test(x.address))) throw new Error('This tool only talks to devices on your own network (private addresses), not the internet. Use read_page or the browser for websites.');
       const method = String(a.method || 'GET').toUpperCase() === 'POST' ? 'POST' : 'GET';
-      const r = await fetch(u, { method, body: method === 'POST' ? String(a.body || '').slice(0, 20000) : undefined, headers: a.body ? { 'Content-Type': a.content_type || 'application/json' } : {}, signal: AbortSignal.timeout(8000), redirect: 'manual' });
+      const hdrs = a.body ? { 'Content-Type': a.content_type || 'application/json' } : {};
+      if (a.login) { // a saved login for this device: sent as a basic sign-in, never shown to the AI
+        const cred = await vaultGet(root, String(a.login));
+        if (hostOf(cred.host) !== hostOf(u.hostname)) throw new Error(`That saved login is for ${cred.host}, not ${u.hostname}.`);
+        hdrs.Authorization = 'Basic ' + Buffer.from(`${cred.user}:${cred.pass}`).toString('base64');
+      }
+      const r = await fetch(u, { method, body: method === 'POST' ? String(a.body || '').slice(0, 20000) : undefined, headers: hdrs, signal: AbortSignal.timeout(8000), redirect: 'manual' });
       const text = await r.text();
       return `HTTP ${r.status} ${r.headers.get('content-type') || ''}\n\n${clip(text, 8000)}`;
     },
@@ -1375,6 +1496,16 @@ export function createAgent(opts) {
         return `${d.isDirectory() ? 'dir ' : 'file'}  ${String(size).padStart(10)}  ${mtime}  ${d.name}`;
       });
       return `${dir}\n${items.join('\n') || '(empty)'}`;
+    },
+    async find_files(a) {
+      const roots = a.folder ? [safePath(root, presetFolder(a.folder), extra())] : [fs.realpathSync(root), ...extra()];
+      if (!a.query && !a.text && !a.ext && !a.min_mb && !a.older_than_days && !a.newer_than_days) throw new Error('Say what to look for: part of a name, some text inside, a file type, a size or an age.');
+      return await findFiles(roots, a, { docx: readDocx, xlsx: readXlsx, pdf: readPdf });
+    },
+    async pc_health(a) { needShell(); return await pcHealth(run, a.kind === 'quick' ? 'quick' : 'full'); },
+    async github(a) {
+      const cred = await vaultGet(root, 'github'); // the token is saved on this computer as a login called "github"
+      return await githubCall(cred.pass, a);
     },
     async read_file(a) {
       const f = safePath(root, a.path, extra());
@@ -1565,7 +1696,7 @@ Start-Process $u`;
       try {
         const { job, config } = await api('agent_poll', { platform: process.platform, hostname: os.hostname(), version: VERSION, caps: { shell: opts.shell, gui: opts.gui }, state: { locked: state.locked } });
         fails = 0; state.lastOk = Date.now();
-        if (config && Array.isArray(config.folders)) extraRoots = config.folders.filter((f) => typeof f === 'string' && path.isAbsolute(f) && fs.existsSync(f)).map((f) => fs.realpathSync(f));
+        if (config && Array.isArray(config.folders)) extraRoots = config.folders.map(presetFolder).filter((f) => typeof f === 'string' && path.isAbsolute(f) && fs.existsSync(f)).map((f) => fs.realpathSync(f));
         if (job) {
           log(`job ${job.id}: ${job.type} ${job.type === 'shell' ? clip(job.args.command, 200) : JSON.stringify(job.args).slice(0, 200)}`);
           let ok = true; let output = ''; let image = '';

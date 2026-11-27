@@ -79,6 +79,7 @@ export default function DevicePanel({ devices, reload, onClose }) {
               <div className="-mt-1 rounded-xl border border-white/10 bg-slate-900/50 p-3 text-xs">
                 <p className="mb-1.5 font-semibold text-slate-200">Folders it may read and change</p>
                 <p className="mb-2 text-slate-400">It always has its own work folder. Add full paths here (one per line) to let it use other folders too, for example C:\Users\you\Documents\Projects. File actions are limited to these. Commands run through the shell cannot be fully fenced, but dangerous ones (wiping disks, shutting down, running downloaded code) are always blocked.</p>
+                <div className="mb-2 flex flex-wrap gap-1.5">{['Documents', 'Desktop', 'Downloads', 'Pictures'].map((n) => <button key={n} type="button" onClick={() => setFolderText((t) => (t.split('\n').includes('~' + n) ? t : (t.trim() ? t.trim() + '\n' : '') + '~' + n))} className="rounded-full border border-white/10 bg-slate-800 px-2.5 py-1 text-slate-200 hover:border-violet-500/50">+ {n}</button>)}</div>
                 <textarea value={folderText} onChange={(e) => setFolderText(e.target.value)} rows={3} placeholder="C:\\Users\\you\\Documents\\Projects" className="w-full resize-none rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-2 font-mono outline-none focus:border-violet-500" />
                 <button onClick={() => saveFolders(d)} className="mt-2 rounded-lg bg-violet-600 px-3 py-1.5 font-semibold hover:bg-violet-500">Save</button>
               </div>
