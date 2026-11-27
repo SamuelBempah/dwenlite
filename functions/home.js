@@ -1185,7 +1185,7 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
             const q = await db.collection("homeDevices").where("ownerUid", "==", uid).get();
             const now = Date.now();
             return res.status(200).json({
-              devices: q.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, platform: x.platform || "", hostname: x.hostname || "", lastSeen: x.lastSeen || 0, caps: x.caps || {}, folders: x.folders || [], locked: !!x.locked && now - (x.lastSeen || 0) < ONLINE_MS, online: now - (x.lastSeen || 0) < ONLINE_MS }; }),
+              devices: q.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, platform: x.platform || "", hostname: x.hostname || "", lastSeen: x.lastSeen || 0, agentVersion: x.agentVersion || "", caps: x.caps || {}, folders: x.folders || [], locked: !!x.locked && now - (x.lastSeen || 0) < ONLINE_MS, online: now - (x.lastSeen || 0) < ONLINE_MS }; }),
             });
           }
           if (action === "device_delete") {
@@ -1503,6 +1503,18 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
             const d = await db.collection("homeGoogleTokens").doc(uid).get();
             if (d.exists) { try { await axios.post("https://oauth2.googleapis.com/revoke", new URLSearchParams({ token: gOpen(d.data().enc) }).toString(), { headers: { "Content-Type": "application/x-www-form-urlencoded" }, timeout: 10000 }); } catch (e) { /* it may already be revoked */ } await db.collection("homeGoogleTokens").doc(uid).delete(); }
             gAccess.delete(uid); return res.status(200).json({ ok: true });
+          }
+          if (action === "device_update_helper") { // pushes the newest helper to a computer that is behind (it restarts itself a few seconds later)
+            const dref = db.collection("homeDevices").doc(String(body.id || "x")); const d = await dref.get();
+            if (!d.exists || d.data().ownerUid !== uid) return res.status(404).json({ error: "No such computer." });
+            if (!(d.data().caps && d.data().caps.shell)) return res.status(400).json({ error: "This computer does not allow commands, so it cannot be updated from here. Restart Dwenlite on it and it will update itself." });
+            const site = "https://www.dwenlite.space/dwenlite-agent.mjs"; const plat = String(d.data().platform || "");
+            const command = plat === "win32"
+              ? `$d = Join-Path $env:LOCALAPPDATA 'Dwenlite'; Invoke-WebRequest '${site}' -OutFile "$d\\agent\\new.mjs" -UseBasicParsing; if ((Get-Item "$d\\agent\\new.mjs").Length -lt 50000) { throw 'The download did not look right.' }; Move-Item "$d\\agent\\new.mjs" "$d\\agent\\dwenlite-agent.mjs" -Force; Stop-Process -Id (Get-CimInstance Win32_Process -Filter "ProcessId=$PID").ParentProcessId -Force`
+              : `D="$HOME/.dwenlite"; curl -fsSL '${site}' -o "$D/agent/new.mjs" && [ "$(wc -c < "$D/agent/new.mjs")" -gt 50000 ] && mv "$D/agent/new.mjs" "$D/agent/dwenlite-agent.mjs" && kill $PPID`;
+            const jref = db.collection("homeJobs").doc();
+            await jref.set({ ownerUid: uid, deviceId: dref.id, type: "shell", args: { command, cwd: "", timeout_s: 60 }, summary: "Updating Dwenlite", status: "pending", createdAt: Date.now() });
+            return res.status(200).json({ ok: true, id: jref.id });
           }
           if (action === "live_start") {
             const kind = LIVE_KINDS.includes(body.kind) ? body.kind : ""; const dev = await liveOwner(uid, body.deviceId);

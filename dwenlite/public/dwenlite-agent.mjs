@@ -1249,6 +1249,7 @@ export function createAgent(opts) {
   const streams = new Map(); // kind -> { stop }
   function startStream(kind) {
     if (streams.has(kind) || !opts.gui) return; // viewing the screen or the browser needs the screen permission
+    log(`live view started: ${kind}`);
     const st = { stopped: false, latest: null, seq: 0, sent: 0, inflight: 0, hold: 0, cleanup: null, proc: null };
     streams.set(kind, st);
     (async () => {

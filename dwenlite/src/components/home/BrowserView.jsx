@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X, ArrowLeft, ArrowRight, RotateCw, Lock, Globe, Check } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { watchLive } from '../../lib/homeLive';
+import { homeCall } from '../../lib/homeClient';
 import { Spinner, Tap } from './motion';
 
 const SENT = '​​'; // the hidden typing box always holds two invisible marks, so a Backspace on any keyboard is noticed
@@ -16,6 +18,8 @@ export default function BrowserView({ device, kind = 'browser', reason, onClose,
   const [slow, setSlow] = useState(false);
   const [addr, setAddr] = useState('');
   const [editing, setEditing] = useState(false);
+  const [dev, setDev] = useState(null); // what the computer reports, to explain a stall
+  const [updating, setUpdating] = useState(false);
   const editingRef = useRef(false); const live = useRef(null); const imgRef = useRef(null); const metaRef = useRef(null); const typeRef = useRef(null);
   const drag = useRef(null); const composing = useRef(false);
 
@@ -30,6 +34,17 @@ export default function BrowserView({ device, kind = 'browser', reason, onClose,
     return () => w.stop();
   }, [device.id, kind]);
 
+  // if no picture arrives, find out why (an old helper is by far the most common reason)
+  const NEEDS = '2.8.0';
+  const older = (a, b) => { const x = String(a || '0').split('.').map(Number), y = String(b).split('.').map(Number); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0); } return false; };
+  const loadDev = () => homeCall('device_list').then((r) => setDev((r.devices || []).find((d) => d.id === device.id) || null)).catch(() => {});
+  useEffect(() => { if (slow && !frame) loadDev(); }, [slow]); // eslint-disable-line react-hooks/exhaustive-deps
+  const updateNow = async () => {
+    setUpdating(true);
+    try { await homeCall('device_update_helper', { id: device.id }); toast.success('Updating. This takes about half a minute.'); } catch (e) { toast.error(e.message); setUpdating(false); return; }
+    for (let i = 0; i < 40; i++) { await new Promise((r) => setTimeout(r, 3000)); await loadDev(); }
+    setUpdating(false);
+  };
   // the on-screen keyboard only stays up while the page has a box to type in
   useEffect(() => { if (frame && frame.open && frame.editable === false && typeRef.current && document.activeElement === typeRef.current) typeRef.current.blur(); }, [frame]);
 
@@ -94,7 +109,14 @@ export default function BrowserView({ device, kind = 'browser', reason, onClose,
       )}
       {reason && <p className="border-b border-amber-400/20 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-100">{reason}</p>}
       <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black text-white">
-        {!frame && !err && <div className="flex flex-col items-center gap-2 px-6 text-center text-sm text-slate-300"><span className="flex items-center gap-2"><Spinner size={18} /> {isScreen ? 'Connecting to the screen...' : 'Opening the browser...'}</span>{slow && <span className="text-xs text-slate-500">Taking longer than usual. Is the computer on and connected? If this stays, restart Dwenlite on that computer so it can update.</span>}</div>}
+        {!frame && !err && <div className="flex flex-col items-center gap-2 px-6 text-center text-sm text-slate-300"><span className="flex items-center gap-2"><Spinner size={18} /> {isScreen ? 'Connecting to the screen...' : 'Opening the browser...'}</span>{slow && (
+          <div className="mt-1 max-w-xs space-y-2 text-xs text-slate-400">
+            {!dev && <p>Taking longer than usual. Checking the computer...</p>}
+            {dev && !dev.online && <p>{dev.name} looks switched off or disconnected. Turn it on, make sure Dwenlite is running, then open this again.</p>}
+            {dev && dev.online && older(dev.agentVersion, NEEDS) && (<><p>Dwenlite on {dev.name} is out of date{dev.agentVersion ? ` (version ${dev.agentVersion})` : ''}. The live view needs version {NEEDS} or newer.</p>{dev.caps && dev.caps.shell ? <Tap onClick={updateNow} disabled={updating} className="rounded-lg bg-violet-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-50">{updating ? 'Updating...' : 'Update it now'}</Tap> : <p>Restart Dwenlite on that computer and it will update itself within a minute.</p>}</>)}
+            {dev && dev.online && !older(dev.agentVersion, NEEDS) && !(dev.caps && dev.caps.gui) && <p>This computer is not allowed to share its screen and browser. Turn on screen and keyboard control for it in Your computers, then open this again.</p>}
+            {dev && dev.online && !older(dev.agentVersion, NEEDS) && dev.caps && dev.caps.gui && <p>The computer is up to date and online, but no pictures are coming. Close this and open it again in a moment.</p>}
+          </div>)}</div>}
         {err && <p className="max-w-xs p-6 text-center text-sm text-slate-300">{err}</p>}
         {frame && !frame.open && !err && <p className="max-w-xs p-6 text-center text-sm text-slate-300">{isScreen ? (frame.error ? 'The screen could not be shown.' : 'The screen is not available right now.') : 'Nothing is open in the browser right now. Type a web address above, or wait for the assistant to open a page.'}</p>}
         {showing && <img ref={imgRef} src={`data:image/jpeg;base64,${frame.image}`} alt={isScreen ? 'The screen' : 'The browser'} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={() => { drag.current = null; }} onWheel={wheel} className="h-full w-full select-none object-contain" style={{ touchAction: 'none', cursor: isScreen ? 'default' : 'pointer' }} draggable={false} />}
