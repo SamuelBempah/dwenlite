@@ -87,8 +87,8 @@ export default function DevicePanel({ devices, reload, onClose }) {
             <button onClick={create} disabled={busy} className="flex items-center gap-1.5 rounded-xl bg-violet-600 px-4 text-sm font-semibold hover:bg-violet-500 disabled:opacity-50"><Plus size={16} /> Add</button>
           </div>
           <div className="mt-3 space-y-2 text-sm text-slate-300">
-            <label className="flex items-start gap-2"><input type="checkbox" checked={shell} onChange={(e) => setShell(e.target.checked)} className="mt-1 accent-violet-500" /><span>Allow running commands <span className="text-slate-500">(you still approve each one)</span></span></label>
-            <label className="flex items-start gap-2"><input type="checkbox" checked={gui} onChange={(e) => setGui(e.target.checked)} className="mt-1 accent-violet-500" /><span>Allow screenshots, mouse and keyboard <span className="text-slate-500">(screenshots are read by the image model)</span></span></label>
+            <label className="flex items-start gap-2"><input type="checkbox" checked={shell} onChange={(e) => setShell(e.target.checked)} className="mt-1 accent-violet-500" /><span>Allow it to run tasks on this computer</span></label>
+            <label className="flex items-start gap-2"><input type="checkbox" checked={gui} onChange={(e) => setGui(e.target.checked)} className="mt-1 accent-violet-500" /><span>Allow it to see and use the screen</span></label>
           </div>
         </div>
 

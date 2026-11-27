@@ -133,5 +133,5 @@ img, video, canvas, svg { max-width: 100%; }
 .md-code-bar button { margin-left: .4rem; padding: .15rem .55rem; border-radius: .4rem; background: rgba(255, 255, 255, .1); color: #e2e8f0; font-size: .72rem; }
 .md-code-bar button:hover { background: rgba(139, 92, 246, .5); }
 .md-code-bar [data-run] { display: none; }
-.home-root .md-code-bar [data-run] { display: inline-block; }
+/* code blocks in Dwenlite Home only offer Copy */
 .md-code pre { margin: 0; border-radius: 0; background: transparent; padding: .8em 1em; overflow-x: auto; }

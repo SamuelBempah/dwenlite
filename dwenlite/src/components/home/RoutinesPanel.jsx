@@ -37,7 +37,7 @@ function Editor({ draft, devices, onCancel, onSaved }) {
       </select>
       <label className="flex items-start gap-2 rounded-xl border border-white/10 bg-slate-900/60 p-3">
         <input type="checkbox" checked={f.allowActions} onChange={(e) => setF({ ...f, allowActions: e.target.checked })} className="mt-1 accent-violet-500" />
-        <span><b>Allow it to change things</b><span className="block text-xs text-slate-400">Off by default: when you are not there it can only read, look and search. Turn this on to let it run commands, save files and click, with no one to approve. Dangerous commands stay blocked.</span></span>
+        <span><b>Allow it to change things</b><span className="block text-xs text-slate-400">Off by default: when you are not there it can only read, look and search. Turn this on to let it make changes on your computer by itself. Dangerous things stay blocked.</span></span>
       </label>
       <label className="flex items-start gap-2 rounded-xl border border-white/10 bg-slate-900/60 p-3">
         <input type="checkbox" checked={f.watch} onChange={(e) => setF({ ...f, watch: e.target.checked })} className="mt-1 accent-violet-500" />

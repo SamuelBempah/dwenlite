@@ -9,6 +9,8 @@ import PlanCard from '../components/home/PlanCard';
 import ActivityPanel from '../components/home/ActivityPanel';
 import RoutinesPanel from '../components/home/RoutinesPanel';
 import ChatsPanel from '../components/home/ChatsPanel';
+import DwenLogo from '../components/home/DwenLogo';
+import { plainText } from '../lib/homePlain';
 import { packChat, unpackChat } from '../lib/homeChats';
 import { googleStatus, connectGoogle, disconnectGoogle, runGoogleTool } from '../lib/homeGoogle';
 import { pushSupported, pushState, enablePush, disablePush, pingMe } from '../lib/push';
@@ -41,16 +43,10 @@ const JOB_TYPE = { run_shell: 'shell' };
 const uid = () => Math.random().toString(36).slice(2, 10);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const MODES = [
-  { id: 'ask', title: 'Ask me every time', text: 'Safest. Every command, file change, screenshot, click and keystroke waits for your Approve.' },
-  { id: 'screen', title: 'Computer-use mode', text: 'Reading files, looking at the screen, clicking, typing and scrolling run on their own. Commands, file writes and opening links still ask.' },
-  { id: 'auto', title: 'Autonomous', text: 'Everything runs without asking. Use only when you are watching, and press Stop at any time.' },
-];
-
 const QUICK = [
   'Take a screenshot and tell me what is on my screen',
   'My computer feels slow. Find out why and suggest fixes',
-  'Write a Python script that renames all photos in a folder by date',
+  'Sort my photos into folders by date',
   'Check how much free disk space I have',
 ];
 
@@ -64,7 +60,7 @@ export default function DwenliteHome() {
   const [images, setImages] = useState([]);
   const [imageMode, setImageMode] = useState('describe');
   const [busy, setBusy] = useState(false);
-  const [mode, setMode] = useState(() => { try { return localStorage.getItem('dwenliteHomeMode') || 'ask'; } catch { return 'ask'; } });
+  const [mode] = useState('auto'); // Dwenlite Home always works on its own: there is no other mode
   const [maxSteps, setMaxSteps] = useState(15);
   const [panel, setPanel] = useState(null); // devices | memory | settings | activity | routines
   const [routineDraft, setRoutineDraft] = useState(null);
@@ -171,25 +167,8 @@ export default function DwenliteHome() {
     return { error: online.length ? `Several devices are online (${online.map((x) => x.name).join(', ')}). Ask the owner which one to use.` : `No device is online. Known: ${list.map((x) => x.name).join(', ')}.` };
   };
 
-  const ANDROID_FREE = new Set(['devices', 'info', 'read', 'tap', 'scroll', 'swipe', 'text', 'key', 'open_app', 'apps', 'screenshot']);
-  const effectiveMode = () => {
-    if (modeRef.current === 'auto' && autoUntilRef.current && Date.now() > autoUntilRef.current) { setMode('ask'); setAutoUntil(0); try { localStorage.setItem('dwenliteHomeMode', 'ask'); localStorage.setItem('dwenliteAutoUntil', '0'); } catch { /* ignore */ } toast('Auto mode timed out. It will ask again.', { icon: '⏱' }); modeRef.current = 'ask'; }
-    return modeRef.current;
-  };
-  const needsApproval = (name, args = {}) => {
-    const m = effectiveMode();
-    if (m === 'auto') return false;
-    const rule = rulesRef.current[categoryOf(name, args)];
-    if (rule === 'allow') return false;
-    if (rule === 'ask') return true;
-    if (name === 'google_mail') return m === 'screen' ? false : true;
-    if (name === 'google_calendar') return args.action === 'create';
-    if (name === 'android') return m === 'screen' ? !ANDROID_FREE.has(args.action) : true;
-    if (name === 'git') return m === 'screen' ? !GIT_FREE.has(args.action) : true;
-    if (name === 'document') return m === 'screen' ? args.action !== 'read' : true;
-    if (m === 'screen') return !(READ_ONLY.has(name) || SCREEN.has(name));
-    return true;
-  };
+  const effectiveMode = () => 'auto';
+  const needsApproval = () => false; // everything runs on its own; Stop is always there
 
   const pendingNotes = useRef([]);
   const awayFrom = useRef(null);
@@ -358,12 +337,12 @@ export default function DwenliteHome() {
       const { text, tools } = await homeChatStream({
         messages: convo.current,
         devices: devicesRef.current.map((d) => ({ id: d.id, name: d.name, online: d.online, platform: d.platform, caps: d.caps })),
-        onText: (t) => tw.set(t),
+        onText: (t) => tw.set(plainText(t)),
         signal: abortRef.current.signal,
       });
-      tw.set(text);
+      tw.set(plainText(text));
       await tw.finish();
-      if (!text.trim()) setItems((p) => p.filter((i) => i.id !== aiId)); else patch(aiId, { content: text, typing: false });
+      if (!text.trim()) setItems((p) => p.filter((i) => i.id !== aiId)); else patch(aiId, { content: plainText(text), typing: false });
       return { text, tools };
     } catch (e) {
       tw.cancel();
@@ -483,7 +462,7 @@ export default function DwenliteHome() {
     const pick = pickDevice(''); const noteId = uid();
     add({ id: noteId, type: 'info', text: 'Working on it in the background. You can leave this page: you will get a notification when it is done.' });
     try {
-      const r = await homeCall('task_start', { prompt, deviceId: pick.d ? pick.d.id : '', allowActions: effectiveMode() === 'auto' });
+      const r = await homeCall('task_start', { prompt, deviceId: pick.d ? pick.d.id : '', allowActions: true });
       setBusy(false);
       if (r.mode === 'inline') { finishBg(r.status, r.text); return; }
       pollBg(r.runId);
@@ -551,17 +530,6 @@ export default function DwenliteHome() {
     setItems([]);
   }
 
-  const toggleAuto = () => chooseMode(mode === 'auto' ? 'ask' : 'auto');
-  const chooseMode = (m) => {
-    let confirmed = false; try { confirmed = localStorage.getItem('dwenliteAutoOk') === '1'; } catch { /* ignore */ }
-    if (m === 'auto' && !confirmed && !window.confirm('Autonomous mode lets the assistant run commands, write files, click and type on your devices WITHOUT asking each time.\n\nYou can press Stop at any moment. Turn it on?')) return;
-    setMode(m); modeRef.current = m;
-    const until = m === 'auto' && autoTimer ? Date.now() + autoTimer * 60000 : 0;
-    setAutoUntil(until); autoUntilRef.current = until;
-    try { if (m === 'auto') localStorage.setItem('dwenliteAutoOk', '1'); localStorage.setItem('dwenliteHomeMode', m); localStorage.setItem('dwenliteAutoUntil', String(until)); } catch { /* ignore */ }
-  };
-  const setRule = (cat, v) => { const next = { ...rules }; if (v === 'default') delete next[cat]; else next[cat] = v; setRules(next); try { localStorage.setItem('dwenliteHomeRules', JSON.stringify(next)); } catch { /* ignore */ } };
-  const setTimer = (n) => { setAutoTimer(n); try { localStorage.setItem('dwenliteAutoTimer', String(n)); } catch { /* ignore */ } };
   const toggleBg = () => { const v = !bg; setBg(v); try { localStorage.setItem('dwenliteHomeBg', JSON.stringify(v)); } catch { /* ignore */ } };
   const doConnectGoogle = async () => { try { await connectGoogle(); setGoogleOn(true); toast.success('Google connected for about an hour.'); } catch (e) { toast.error(e.message || 'Could not connect Google.'); } };
 
@@ -585,7 +553,7 @@ export default function DwenliteHome() {
   }
 
   const onlineCount = devices.filter((d) => d.online).length;
-  const modeBanner = mode === 'screen' ? 'Computer-use mode: screen actions run on their own' : mode === 'auto' ? `AUTONOMOUS: everything runs without asking${autoUntil ? ' until ' + new Date(autoUntil).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}` : '';
+  const modeBanner = '';
 
   return (
     <Motion>
@@ -593,16 +561,12 @@ export default function DwenliteHome() {
       {/* top bar */}
       <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2.5 md:px-6">
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
-          <motion.span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600" initial={{ scale: 0.6, rotate: -20, opacity: 0 }} animate={{ scale: 1, rotate: 0, opacity: 1 }} whileHover={{ scale: 1.08, rotate: -6 }} whileTap={{ scale: 0.92 }} transition={spring}><Home size={18} /></motion.span>
+          <motion.span initial={{ scale: 0.6, rotate: -20, opacity: 0 }} animate={{ scale: 1, rotate: 0, opacity: 1 }} whileHover={{ scale: 1.08, rotate: -6 }} whileTap={{ scale: 0.92 }} transition={spring} className="inline-flex"><DwenLogo size={36} /></motion.span>
           <div className="hidden min-w-0 sm:block">
             <p className="truncate font-bold leading-tight">Dwenlite Home</p>
             <p className="truncate text-[11px] text-slate-500">Your personal assistant</p>
           </div>
         </div>
-        <motion.button onClick={toggleAuto} role="switch" aria-checked={mode === 'auto'} title="Let the assistant do everything by itself, without asking" whileTap={{ scale: 0.92 }} transition={spring} className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors duration-300 ${mode === 'auto' ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-200' : 'border-white/10 bg-slate-800/70 text-slate-300 hover:border-violet-500/50'}`}>
-          <span className={`relative inline-block h-4 w-7 rounded-full transition-colors duration-300 ${mode === 'auto' ? 'bg-emerald-500' : 'bg-slate-600'}`}><motion.span className="absolute left-0.5 top-0.5 h-3 w-3 rounded-full bg-white" animate={{ x: mode === 'auto' ? 12 : 0 }} transition={spring} /></span>
-          Auto
-        </motion.button>
         <motion.button onClick={() => setPanel('devices')} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.93 }} transition={spring} className="flex items-center gap-1.5 rounded-full border border-white/10 bg-slate-800/70 px-3 py-1.5 text-xs hover:border-violet-500/50">
           {onlineCount ? <motion.span style={{ display: 'inline-flex' }} animate={{ opacity: [1, 0.4, 1] }} transition={{ repeat: Infinity, duration: 2.2, ease: 'easeInOut' }}><Wifi size={13} className="text-emerald-400" /></motion.span> : <WifiOff size={13} className="text-slate-500" />}
           <span className="hidden sm:inline">{devices.length ? `${onlineCount}/${devices.length} online` : 'Add a computer'}</span>
@@ -638,9 +602,9 @@ export default function DwenliteHome() {
       <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-3 py-4 md:px-6">
         {items.length === 0 && (
           <div className="mx-auto mt-6 max-w-xl text-center">
-            <motion.span className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1, y: [0, -6, 0] }} transition={{ scale: spring, opacity: { duration: 0.2 }, y: { repeat: Infinity, duration: 3.2, ease: 'easeInOut' } }}><motion.span style={{ display: 'inline-flex' }} animate={{ rotate: [0, 12, -8, 0], scale: [1, 1.15, 1] }} transition={{ repeat: Infinity, duration: 4, ease: 'easeInOut' }}><Sparkles size={26} /></motion.span></motion.span>
+            <motion.div className="mx-auto mb-3 inline-flex" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1, y: [0, -6, 0] }} transition={{ scale: spring, opacity: { duration: 0.2 }, y: { repeat: Infinity, duration: 3.2, ease: 'easeInOut' } }}><DwenLogo size={64} className="rounded-2xl" /></motion.div>
             <h1 className="text-xl font-bold">What can I do for you?</h1>
-            <p className="mt-1 text-sm text-slate-400">Code, look at pictures, and operate your computers on your behalf, with your approval.</p>
+            <p className="mt-1 text-sm text-slate-400">Ask for anything. It works on your computers for you, and tells you what it is doing.</p>
             {!devices.length && <button onClick={() => setPanel('devices')} className="mt-4 rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold hover:bg-violet-500">Connect your first computer</button>}
             <div className="mt-5 flex flex-wrap justify-center gap-2">
               {QUICK.map((q, i) => <motion.button key={q} initial={{ opacity: 0, y: 14, scale: 0.94 }} animate={{ opacity: 1, y: 0, scale: 1 }} whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.95 }} transition={{ ...spring, delay: 0.12 + i * 0.05 }} onClick={() => send(q)} className="rounded-full border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-left text-xs text-violet-100 hover:bg-violet-500/20">{q}</motion.button>)}
@@ -662,12 +626,12 @@ export default function DwenliteHome() {
           );
           if (m.type === 'ai') return (
             <Appear key={m.id} y={8} className="max-w-[96%] rounded-2xl rounded-bl-md bg-slate-800 p-3 text-sm text-slate-200 sm:max-w-[85%]">
-              <ChatAnswer content={m.content} typing={m.typing} live={m.live} />
+              <ChatAnswer content={plainText(m.content)} typing={m.typing} live={m.live} />
             </Appear>
           );
           if (m.type === 'plan') return <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><PlanCard steps={m.steps} /></div>;
-          if (m.type === 'action') return <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><ActionCard item={m} onDecide={decide} onUndo={undoAction} onDownload={downloadFile} /></div>;
-          return <p key={m.id} className="text-center text-xs italic text-slate-500">{m.text}</p>;
+          if (m.type === 'action') return <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><ActionCard item={m} onUndo={undoAction} onDownload={downloadFile} /></div>;
+          return <p key={m.id} className="text-center text-xs italic text-slate-500">{plainText(m.text)}</p>;
         })}
       </div>
 
@@ -709,7 +673,7 @@ export default function DwenliteHome() {
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && window.innerWidth >= 768) { e.preventDefault(); send(); } }}
             onPaste={(e) => { const f = Array.from(e.clipboardData?.files || []); if (f.length) { e.preventDefault(); addImages(f); } }}
             rows={1}
-            placeholder="Ask, code, or tell me what to do on your computer..."
+            placeholder="Ask me anything, or tell me what to do on your computer..."
             className="max-h-40 min-h-[2.75rem] flex-1 resize-none rounded-2xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm outline-none focus:border-violet-500"
           />
           {busy
@@ -747,15 +711,8 @@ export default function DwenliteHome() {
       {panel === 'settings' && (
         <Sheet key="settings" onClose={() => setPanel(null)} className="max-h-[88dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-white/10 bg-[#121217] p-5 sm:rounded-3xl">
           <div>
-            <div className="mb-3 flex items-center justify-between"><h2 className="text-lg font-bold">How much may it do alone?</h2><button onClick={() => setPanel(null)} aria-label="Close"><X size={22} className="text-slate-400" /></button></div>
-            <div className="space-y-2">
-              {MODES.map((m) => (
-                <motion.button key={m.id} whileTap={{ scale: 0.98 }} onClick={() => chooseMode(m.id)} className={`block w-full rounded-2xl border p-3 text-left transition-colors duration-300 ${mode === m.id ? (m.id === 'auto' ? 'border-red-500/60 bg-red-500/10' : 'border-violet-500/60 bg-violet-500/10') : 'border-white/10 bg-slate-900/60'}`}>
-                  <p className="font-semibold">{m.title}</p><p className="mt-0.5 text-xs text-slate-400">{m.text}</p>
-                </motion.button>
-              ))}
-            </div>
-            <p className={`mt-3 rounded-xl px-3 py-2 text-xs ${unlimited ? 'bg-emerald-500/10 text-emerald-200' : 'bg-slate-800/70 text-slate-400'}`}>{unlimited ? 'Admin account: no usage limits on Dwenlite Home or the Teacher.' : 'Standard account: daily allowances apply. (Admins have no limits. If you are an admin, your sign-in email is not in the server\'s admin list.)'}</p>
+            <div className="mb-3 flex items-center justify-between"><h2 className="text-lg font-bold">Settings</h2><button onClick={() => setPanel(null)} aria-label="Close"><X size={22} className="text-slate-400" /></button></div>
+            <p className={`mt-3 rounded-xl px-3 py-2 text-xs ${unlimited ? 'bg-emerald-500/10 text-emerald-200' : 'bg-slate-800/70 text-slate-400'}`}>{unlimited ? 'Admin account: no usage limits on Dwenlite Home or the Teacher.' : 'Standard account: daily allowances apply.'}</p>
             <div className="mt-4 space-y-2 rounded-2xl border border-white/10 bg-slate-900/60 p-3 text-sm">
               <button onClick={togglePush} disabled={pushOn === 'unsupported' || pushOn === 'blocked'} className="flex w-full items-center justify-between gap-3 text-left disabled:opacity-50">
                 <span className="flex items-center gap-2"><Bell size={16} className="text-violet-300" /><span><b>Notifications</b><span className="block text-xs text-slate-400">{pushOn === 'unsupported' ? 'Not available in this browser. On iPhone, install the app first.' : pushOn === 'blocked' ? 'Blocked. Allow notifications for this site in your settings.' : 'Get a ping when a task finishes, needs your OK, or a routine runs.'}</span></span></span>
@@ -766,24 +723,6 @@ export default function DwenliteHome() {
                 <span className={`relative h-5 w-9 shrink-0 rounded-full transition-colors ${speakOn ? 'bg-emerald-500' : 'bg-slate-600'}`}><motion.span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white" animate={{ x: speakOn ? 16 : 0 }} transition={spring} /></span>
               </button>
             </div>
-            <div className="mt-4 rounded-2xl border border-white/10 bg-slate-900/60 p-3 text-sm">
-              <p className="font-semibold">Fine-tune what it may do alone</p>
-              <p className="mb-2 mt-0.5 text-xs text-slate-400">Override the mode above for one kind of action. Auto mode still wins.</p>
-              <div className="space-y-1.5">
-                {CATS.map(([id, label]) => (
-                  <label key={id} className="flex items-center justify-between gap-3 text-xs text-slate-300"><span>{label}</span>
-                    <select value={rules[id] || 'default'} onChange={(e) => setRule(id, e.target.value)} className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1">
-                      <option value="default">Use the mode</option><option value="ask">Always ask</option><option value="allow">Allow</option>
-                    </select>
-                  </label>
-                ))}
-              </div>
-              <label className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-300"><span>When Auto is on</span>
-                <select value={autoTimer} onChange={(e) => setTimer(Number(e.target.value))} className="rounded-lg border border-slate-700 bg-slate-950 px-2 py-1">
-                  <option value={0}>Stay on until I turn it off</option><option value={30}>Turn off after 30 minutes</option><option value={60}>Turn off after 1 hour</option><option value={240}>Turn off after 4 hours</option>
-                </select>
-              </label>
-            </div>
             <div className="mt-3 rounded-2xl border border-white/10 bg-slate-900/60 p-3 text-sm">
               <button onClick={googleOn ? () => { disconnectGoogle(); setGoogleOn(false); } : doConnectGoogle} className="flex w-full items-center justify-between gap-3 text-left">
                 <span className="flex items-center gap-2"><Mail size={16} className="text-violet-300" /><span><b>Gmail and Calendar</b><span className="block text-xs text-slate-400">{googleOn ? 'Connected for about an hour. It can read mail, save drafts (never send) and manage calendar events. Tap to disconnect.' : 'Let it read your mail, write drafts and manage your calendar. You allow it with Google, and it lasts about an hour.'}</span></span></span>
@@ -793,7 +732,7 @@ export default function DwenliteHome() {
             <label className="mt-4 flex items-center justify-between text-sm text-slate-300">Steps before it pauses
               <select value={maxSteps} onChange={(e) => setMaxSteps(Number(e.target.value))} className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5">{[8, 15, 25, 40].map((n) => <option key={n} value={n}>{n}</option>)}</select>
             </label>
-            <p className="mt-4 text-xs text-slate-500">The Stop button works in every mode. Each computer's agent also has its own switches (commands and screen control) that you set when you start it.</p>
+            <p className="mt-4 text-xs text-slate-500">The Stop button stops a task at any moment.</p>
           </div>
         </Sheet>
       )}
