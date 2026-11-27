@@ -39,7 +39,7 @@ export function createRecognizer({ lang, onInterim, onFinal, onError, onState })
       let interim = '';
       for (let i = e.resultIndex; i < e.results.length; i++) {
         const r = e.results[i];
-        if (r.isFinal) { const t = (r[0].transcript || '').trim(); if (t) onFinal(t); } else interim += r[0].transcript;
+        if (r.isFinal) { const t = (r[0].transcript || '').trim(); if (t) onFinal({ text: t, speaker: null }); } else interim += r[0].transcript;
       }
       onInterim(interim.trim());
     };
@@ -101,3 +101,81 @@ export async function extractFileText(file) {
 }
 
 export const fmtClock = (ms) => { const s = Math.floor(ms / 1000); const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const x = s % 60; return `${h ? h + ':' : ''}${String(m).padStart(h ? 2 : 1, '0')}:${String(x).padStart(2, '0')}`; };
+
+// ---- high-accuracy mode: Deepgram over a WebSocket, with noise suppression and speaker labels ----
+export const hqSupported = () => typeof window !== 'undefined' && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder && window.MediaRecorder.isTypeSupported && window.MediaRecorder.isTypeSupported('audio/webm;codecs=opus') && window.WebSocket);
+
+// names and unusual words from the user's notes and files, so the recogniser spells them right
+export function extractTerms(...texts) {
+  const text = texts.filter(Boolean).join('\n').slice(0, 60000);
+  const counts = new Map();
+  for (const m of text.matchAll(/\b[A-Z][A-Za-z0-9&'-]{2,24}(?:\s+[A-Z][A-Za-z0-9&'-]{2,24}){0,2}\b/g)) counts.set(m[0], (counts.get(m[0]) || 0) + 1);
+  const stop = new Set(['The', 'This', 'That', 'These', 'Those', 'And', 'But', 'For', 'With', 'From', 'Our', 'You', 'Your', 'They', 'Then', 'When', 'What', 'Who', 'How', 'Why', 'Here', 'There', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']);
+  return [...counts.entries()].filter(([w]) => !stop.has(w)).sort((a, b) => b[1] - a[1]).slice(0, 30).map(([w]) => w);
+}
+
+const dgLang = (code) => ({ 'zh-CN': 'zh', 'ja-JP': 'ja' }[code] || code.split('-')[0]);
+
+// groups Deepgram words into one entry per consecutive speaker
+export function groupWords(words) {
+  const out = [];
+  for (const w of words || []) {
+    const sp = typeof w.speaker === 'number' ? w.speaker : null;
+    const word = w.punctuated_word || w.word || '';
+    const last = out[out.length - 1];
+    if (last && last.speaker === sp) last.text += ' ' + word; else out.push({ speaker: sp, text: word });
+  }
+  return out;
+}
+
+export function createHqRecognizer({ getToken, heartbeat, lang, terms = [], onInterim, onFinal, onError, onState }) {
+  let ws = null; let rec = null; let stream = null; let want = false; let hb = null; let keep = null; let tries = 0;
+  const cleanup = () => {
+    clearInterval(hb); clearInterval(keep);
+    try { rec && rec.state !== 'inactive' && rec.stop(); } catch { /* ignore */ }
+    try { ws && ws.readyState <= 1 && ws.close(); } catch { /* ignore */ }
+    try { stream && stream.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
+    ws = null; rec = null; stream = null;
+  };
+  const fail = (msg, fatal) => { cleanup(); want = false; onError && onError(msg, fatal); onState && onState('idle'); };
+
+  async function open() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    } catch { return fail('Microphone access was blocked. Allow the microphone for this site and try again.', false); }
+    let token;
+    try { token = await getToken(); } catch (e) { return fail(e.message, true); }
+    const q = new URLSearchParams({ model: 'nova-3', language: dgLang(lang), punctuate: 'true', smart_format: 'true', diarize: 'true', interim_results: 'true', endpointing: '400', utterance_end_ms: '1500', vad_events: 'false' });
+    terms.slice(0, 30).forEach((t) => q.append('keyterm', t));
+    ws = new WebSocket(`wss://api.deepgram.com/v1/listen?${q}`, ['bearer', token]);
+    ws.onopen = () => {
+      tries = 0;
+      rec = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 32000 });
+      rec.ondataavailable = (e) => { if (e.data && e.data.size && ws && ws.readyState === 1) ws.send(e.data); };
+      rec.start(250);
+      keep = setInterval(() => { try { ws.readyState === 1 && ws.send(JSON.stringify({ type: 'KeepAlive' })); } catch { /* ignore */ } }, 8000);
+      hb = setInterval(async () => { try { await heartbeat(); } catch (e) { fail(e.message, true); } }, 270000);
+      onState && onState('listening');
+    };
+    ws.onmessage = (m) => {
+      let j; try { j = JSON.parse(m.data); } catch { return; }
+      if (j.type !== 'Results') return;
+      const alt = j.channel && j.channel.alternatives && j.channel.alternatives[0];
+      if (!alt || !alt.transcript) { if (j.is_final) onInterim(''); return; }
+      if (j.is_final) { onInterim(''); groupWords(alt.words).forEach((g) => { if (g.text.trim()) onFinal({ text: g.text.trim(), speaker: g.speaker }); }); } else onInterim(alt.transcript);
+    };
+    ws.onerror = () => { /* onclose follows */ };
+    ws.onclose = (e) => {
+      if (!want) return;
+      cleanup();
+      if (e.code === 1008 || e.code === 4001 || e.code === 4003 || ++tries > 3) return fail('High-accuracy transcription disconnected.', true);
+      onError && onError('Connection dropped. Reconnecting...');
+      setTimeout(() => { if (want) open(); }, 800 * tries);
+    };
+  }
+  return {
+    start() { want = true; onState && onState('starting'); open(); },
+    stop() { want = false; cleanup(); onInterim(''); onState && onState('idle'); },
+    setLang(l) { lang = l; },
+  };
+}

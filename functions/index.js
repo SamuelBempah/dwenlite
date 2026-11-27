@@ -703,4 +703,6 @@ exports.generateNotesProxy = onRequest(
 exports.homeApi = require("./home").create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPSEEK_API_KEY, ADMIN_EMAILS }).homeApi;
 
 // Live Meeting: real-time meeting helper (suggested questions, web research, summaries).
-exports.meetingApi = require("./meeting").create({ admin, logger, axios, cors, onRequest, DEEPSEEK_API_KEY, checkAndCountUsage, callDeepSeek }).meetingApi;
+const DEEPGRAM_API_KEY = defineString("DEEPGRAM_API_KEY", { default: "" }); // optional: enables high-accuracy meeting transcription with speaker names
+const HQ_MINUTES = defineString("MEETING_HQ_MINUTES", { default: "90" }); // per user per day
+exports.meetingApi = require("./meeting").create({ admin, db, logger, axios, cors, onRequest, DEEPSEEK_API_KEY, DEEPGRAM_API_KEY, HQ_MINUTES, checkAndCountUsage, callDeepSeek }).meetingApi;

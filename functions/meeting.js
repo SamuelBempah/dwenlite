@@ -1,7 +1,7 @@
 // Live Meeting: helps a signed-in user during a meeting. Suggests questions, researches on the web, summarises, answers.
 // The browser does the live speech-to-text; this file only does the thinking.
 
-function create({ admin, logger, axios, cors, onRequest, DEEPSEEK_API_KEY, checkAndCountUsage, callDeepSeek }) {
+function create({ admin, db, logger, axios, cors, onRequest, DEEPSEEK_API_KEY, DEEPGRAM_API_KEY, HQ_MINUTES, checkAndCountUsage, callDeepSeek }) {
   const clip = (s, n) => String(s == null ? "" : s).slice(0, n);
   const tail = (s, n) => { s = String(s == null ? "" : s); return s.length > n ? s.slice(s.length - n) : s; };
 
@@ -80,6 +80,52 @@ function create({ admin, logger, axios, cors, onRequest, DEEPSEEK_API_KEY, check
         const lang = clip(b.language || "English", 30);
         const base = { title: b.title, goal: b.goal, files: b.files, transcript: b.transcript };
         try {
+          // ---- high-accuracy speech (Deepgram): the browser connects straight to it with a short-lived token ----
+          if (action === "config") {
+            return res.status(200).json({ hq: !!DEEPGRAM_API_KEY.value(), minutes: Number(HQ_MINUTES.value()) || 90 });
+          }
+          if (action === "token") {
+            const key = DEEPGRAM_API_KEY.value();
+            if (!key) return res.status(501).json({ error: "High-accuracy transcription is not set up." });
+            const cap = (Number(HQ_MINUTES.value()) || 90) * 60;
+            const day = new Date().toISOString().slice(0, 10);
+            const ref = db.collection("meetingUsage").doc(uid);
+            // every token request or heartbeat reserves 5 minutes; the browser asks again every ~4.5 minutes while recording
+            const ok = await db.runTransaction(async (tx) => {
+              const s = await tx.get(ref); const d = s.exists ? s.data() : {};
+              const used = d.day === day ? d.seconds || 0 : 0;
+              if (used >= cap) return false;
+              tx.set(ref, { day, seconds: used + 300 });
+              return true;
+            });
+            if (!ok) return res.status(429).json({ error: "You have used today's high-accuracy meeting time. Standard transcription still works." });
+            if (b.heartbeat) return res.status(200).json({ ok: true });
+            const r = await axios.post("https://api.deepgram.com/v1/auth/grant", { ttl_seconds: 120 }, { headers: { Authorization: `Token ${key}`, "Content-Type": "application/json" }, timeout: 10000 });
+            const token = r.data && (r.data.access_token || r.data.key);
+            if (!token) return res.status(502).json({ error: "Could not start high-accuracy transcription." });
+            return res.status(200).json({ token });
+          }
+
+          // ---- tidy up words the microphone probably misheard ----
+          if (action === "clean") {
+            const lines = (Array.isArray(b.lines) ? b.lines : []).slice(0, 40).map((x) => ({ i: Number(x.i), s: clip(x.s, 40), t: clip(x.t, 400) })).filter((x) => Number.isInteger(x.i) && x.t);
+            if (!lines.length) return res.status(200).json({ fixes: [], doubts: [] });
+            const usage = await checkAndCountUsage(uid, 0.25, {});
+            if (!usage.ok) return res.status(200).json({ fixes: [], doubts: [] });
+            const ctx = clip(b.context, 1500);
+            const prompt = `${b.title ? `MEETING: ${clip(b.title, 200)}\n` : ""}${b.goal ? `NOTES: ${clip(b.goal, 1200)}\n` : ""}${b.terms ? `KNOWN NAMES AND TERMS: ${clip(b.terms, 800)}\n` : ""}${b.files ? `DOCUMENT EXCERPT: ${clip(b.files, 4000)}\n` : ""}` +
+              `${ctx ? `EARLIER LINES FOR CONTEXT (do not edit):\n${ctx}\n` : ""}\nLINES TO CHECK (speech-to-text, may contain mistakes):\n${lines.map((x) => `${x.i}${x.s ? ` [${x.s}]` : ""}: ${x.t}`).join("\n")}\n\n` +
+              `TASK: Fix only CLEAR speech-recognition mistakes so each line fits its sentence and the topic: wrong homophones, broken or merged words, misspelt names/terms (use the known names and terms), missing punctuation. Keep the speaker's meaning and wording otherwise, in ${lang}. ` +
+              `Do NOT rephrase, summarise or add anything. If a word is unclear and you cannot be confident, do not change it; instead give up to 3 alternative versions of the WHOLE line in "doubts" (each a complete corrected line). ` +
+              `Reply with ONLY JSON: {"fixes":[{"i":<line number>,"text":"corrected line"}],"doubts":[{"i":<line number>,"options":["...","..."]}]}. Use empty arrays when nothing needs fixing.`;
+            const out = parseJson(textOf(await callDeepSeek(SYSTEM, prompt, 1200, 0.1))) || {};
+            const valid = new Set(lines.map((x) => x.i));
+            const orig = new Map(lines.map((x) => [x.i, x.t]));
+            const fixes = (Array.isArray(out.fixes) ? out.fixes : []).filter((x) => x && valid.has(Number(x.i)) && typeof x.text === "string" && x.text.trim() && x.text.trim() !== orig.get(Number(x.i)) && x.text.length < orig.get(Number(x.i)).length * 2 + 40).map((x) => ({ i: Number(x.i), text: clip(x.text.trim(), 600) }));
+            const doubts = (Array.isArray(out.doubts) ? out.doubts : []).filter((x) => x && valid.has(Number(x.i)) && Array.isArray(x.options)).map((x) => ({ i: Number(x.i), options: x.options.filter((o) => typeof o === "string" && o.trim()).slice(0, 3).map((o) => clip(o, 120)) })).filter((x) => x.options.length);
+            return res.status(200).json({ fixes, doubts });
+          }
+
           if (!["questions", "summary", "ask", "research"].includes(action)) return res.status(400).json({ error: "Unknown action." });
           const usage = await checkAndCountUsage(uid, action === "research" ? 2 : 1, {});
           if (!usage.ok) return res.status(429).json({ error: usage.reason === "daily" ? "You have used today's AI allowance. Try again tomorrow." : "You are going a bit fast. Wait a few minutes and try again." });
