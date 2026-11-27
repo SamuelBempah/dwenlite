@@ -398,6 +398,55 @@ switch ($Action) {
 const psFile = (name, content) => { const f = path.join(os.tmpdir(), `dwenlite-${name}.ps1`); fs.writeFileSync(f, content); return f; };
 const ps = (file, args) => run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file, ...args], { timeout: 30000 });
 
+// ----------------------------------------------------------------------------- web search from this computer (a home connection is not blocked the way a cloud server is)
+const decodeHtml = (s) => String(s).replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#x27;|&#39;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+const plain = (s) => decodeHtml(String(s).replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
+export function parseBing(html) {
+  const out = [];
+  for (const b of String(html).split(/<li class="b_algo"/i).slice(1)) {
+    const a = /<h2[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i.exec(b);
+    if (!a) continue;
+    let url = '';
+    try {
+      const u = new URL(decodeHtml(a[1]), 'https://www.bing.com');
+      const enc = u.searchParams.get('u');
+      if (enc && /^a1/.test(enc)) url = Buffer.from(enc.slice(2).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+      else if (!/(^|\.)bing\.com$/i.test(u.hostname)) url = u.toString();
+    } catch { /* skip */ }
+    if (!/^https?:\/\//i.test(url)) continue;
+    const sn = /<p[^>]*>([\s\S]*?)<\/p>/i.exec(b);
+    out.push({ title: plain(a[2]), url, snippet: plain(sn ? sn[1] : '') });
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+export function parseDuck(html) {
+  const out = [];
+  const re = /<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?(?:<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>)?/g;
+  let m;
+  while ((m = re.exec(String(html))) && out.length < 8) {
+    let url = decodeHtml(m[1]);
+    const u = /[?&]uddg=([^&]+)/.exec(url);
+    if (u) { try { url = decodeURIComponent(u[1]); } catch { /* keep */ } }
+    if (/^\/\//.test(url)) url = 'https:' + url;
+    if (!/^https?:\/\//i.test(url)) continue;
+    out.push({ title: plain(m[2]), url, snippet: plain(m[3] || '') });
+  }
+  return out;
+}
+const SEARCH_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
+export async function webSearch(q, fetchFn = fetch) {
+  const get = async (url) => { const r = await fetchFn(url, { headers: { 'User-Agent': SEARCH_UA, 'Accept-Language': 'en-US,en;q=0.9' }, signal: AbortSignal.timeout(12000) }); return r.text(); };
+  const [d, b] = await Promise.allSettled([
+    get('https://html.duckduckgo.com/html/?q=' + encodeURIComponent(q)).then(parseDuck),
+    get('https://www.bing.com/search?setlang=en&cc=us&q=' + encodeURIComponent(q)).then(parseBing),
+  ]);
+  const seen = new Set();
+  const all = [...(b.status === 'fulfilled' ? b.value : []), ...(d.status === 'fulfilled' ? d.value : [])].filter((x) => x.url && !seen.has(x.url) && seen.add(x.url)).slice(0, 8);
+  if (!all.length) throw new Error('No results came back from the search engines. Try different words, or use the browser tool.');
+  return all.map((s, i) => `[${i + 1}] ${s.title}\n${s.url}\n${s.snippet}`).join('\n\n');
+}
+
 // ----------------------------------------------------------------------------- the assistant's own browser (Chrome DevTools Protocol, no extra software)
 class Cdp {
   constructor(wsUrl) { this.url = wsUrl; this.id = 0; this.pending = new Map(); this.handlers = new Map(); }
@@ -482,7 +531,7 @@ export function createBrowser({ root, api, log }) {
     if (!exe) throw new Error('No Chrome, Edge or Brave was found on this computer. Install one of them (or set DWENLITE_BROWSER to its path).');
     fs.mkdirSync(profile, { recursive: true });
     try { fs.unlinkSync(path.join(profile, 'DevToolsActivePort')); } catch { /* none */ }
-    const args = ['--remote-debugging-port=0', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--disable-features=Translate,MediaRouter', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--window-size=1280,900', '--remote-allow-origins=*'];
+    const args = ['--remote-debugging-port=0', `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', '--disable-features=Translate,MediaRouter', '--disable-background-timer-throttling', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--window-size=1280,900', '--remote-allow-origins=*', '--disable-blink-features=AutomationControlled', '--lang=en-US'];
     if (!wantVisible) args.push('--headless=new', '--hide-scrollbars', '--mute-audio');
     if (!IS_WIN && !IS_MAC && process.getuid && process.getuid() === 0) args.push('--no-sandbox');
     args.push('about:blank');
@@ -511,6 +560,12 @@ export function createBrowser({ root, api, log }) {
     await page.send('Page.enable');
     await page.send('Runtime.enable');
     if (!wantVisible) await page.send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+    // look like an ordinary browser: many sites (Google, for one) refuse anything that calls itself HeadlessChrome or reports webdriver
+    try {
+      const ver = await page.send('Browser.getVersion');
+      await page.send('Emulation.setUserAgentOverride', { userAgent: String(ver.userAgent || '').replace('HeadlessChrome', 'Chrome'), acceptLanguage: 'en-US,en;q=0.9' });
+      await page.send('Page.addScriptToEvaluateOnNewDocument', { source: "Object.defineProperty(navigator,'webdriver',{get:()=>false});" });
+    } catch { /* optional */ }
     return page;
   }
 
@@ -530,7 +585,8 @@ export function createBrowser({ root, api, log }) {
   async function read(p) {
     const r = await evalJs(p, READ_SCRIPT);
     const pos = r.h > r.vh ? ` (scrolled ${r.y}px of ${r.h - r.vh}px)` : '';
-    return `PAGE: ${r.title || '(no title)'}\nURL: ${r.url}${pos}\n\nTEXT:\n${r.raw || '(no visible text)'}\n\nELEMENTS (use the number with click or type):\n${r.lines.join('\n') || '(none)'}`;
+    const blocked = /unusual traffic|are you a robot|verify you are human|captcha|before you continue to google|access denied|enable javascript and cookies/i.test((r.raw || '').slice(0, 1500)) ? '\nNOTE: this looks like a cookie notice or a bot check. Click the accept button if it is a cookie notice. If it is a bot check, do not fight it: use web_search, or a different site such as duckduckgo.com or bing.com.\n' : '';
+    return `PAGE: ${r.title || '(no title)'}\nURL: ${r.url}${pos}${blocked}\n\nTEXT:\n${r.raw || '(no visible text)'}\n\nELEMENTS (use the number with click or type):\n${r.lines.join('\n') || '(none)'}`;
   }
 
   async function press(p, combo) {
@@ -660,6 +716,7 @@ export function createAgent(opts) {
       needGui();
       return await browser.run(a);
     },
+    async web_search(a) { return await webSearch(String(a.query || '')); },
     async undo(a) {
       const list = loadUndo();
       const e = list.find((x) => x.id === a.id);

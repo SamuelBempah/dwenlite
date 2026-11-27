@@ -32,25 +32,61 @@ function safeLookup(hostname, options, cb) {
 const decode = (s) => String(s).replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#x27;|&#39;|&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#(\d+);/g, (m, n) => String.fromCharCode(Number(n)));
 const stripTags = (s) => decode(String(s).replace(/<[^>]+>/g, "")).replace(/\s+/g, " ").trim();
 
+// Bing wraps result links in a redirect: .../ck/a?...&u=a1<base64url of the real address>
+function bingUnwrap(href) {
+  try {
+    const u = new URL(decode(href), "https://www.bing.com");
+    const enc = u.searchParams.get("u");
+    if (enc && /^a1/.test(enc)) { const real = Buffer.from(enc.slice(2).replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"); if (/^https?:\/\//i.test(real)) return real; }
+    return /^https?:\/\//i.test(u.toString()) && !/(^|\.)bing\.com$/i.test(u.hostname) ? u.toString() : "";
+  } catch { return ""; }
+}
+function parseBing(html) {
+  const out = [];
+  const blocks = String(html).split(/<li class="b_algo"/i).slice(1);
+  for (const b of blocks) {
+    const a = /<h2[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i.exec(b);
+    if (!a) continue;
+    const url = bingUnwrap(a[1]);
+    if (!url) continue;
+    const sn = /<p[^>]*>([\s\S]*?)<\/p>/i.exec(b) || /class="b_caption"[\s\S]*?<p[^>]*>([\s\S]*?)<\/p>/i.exec(b);
+    out.push({ title: stripTags(a[2]), url, snippet: stripTags(sn ? sn[1] : "") });
+    if (out.length >= 8) break;
+  }
+  return out;
+}
+function parseDuck(html) {
+  const out = [];
+  const re = /<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?(?:<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>)?/g;
+  let m;
+  while ((m = re.exec(String(html))) && out.length < 8) {
+    let url = decode(m[1]);
+    const u = /[?&]uddg=([^&]+)/.exec(url);
+    if (u) { try { url = decodeURIComponent(u[1]); } catch { /* keep */ } }
+    if (/^\/\//.test(url)) url = "https:" + url;
+    if (!/^https?:\/\//i.test(url)) continue;
+    out.push({ title: stripTags(m[2]), url, snippet: stripTags(m[3] || "") });
+  }
+  return out;
+}
+function formatResults(list) {
+  const seen = new Set();
+  const all = list.filter((x) => x.url && !seen.has(x.url) && seen.add(x.url)).slice(0, 8);
+  return all.length ? all.map((s, i) => `[${i + 1}] ${s.title}\n${s.url}\n${s.snippet}`).join("\n\n") : "";
+}
+
 function create({ axios, logger }) {
   const httpAgent = new http.Agent({ lookup: safeLookup });
   const httpsAgent = new https.Agent({ lookup: safeLookup });
 
+  const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
   async function searchDuck(q) {
-    const r = await axios.get("https://html.duckduckgo.com/html/", { params: { q }, timeout: 9000, headers: { "User-Agent": "Mozilla/5.0 (compatible; DwenliteBot/1.0)", "Accept-Language": "en" } });
-    const html = String(r.data || "");
-    const out = [];
-    const re = /<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?(?:<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>)?/g;
-    let m;
-    while ((m = re.exec(html)) && out.length < 8) {
-      let url = m[1];
-      const u = /[?&]uddg=([^&]+)/.exec(url);
-      if (u) { try { url = decodeURIComponent(u[1]); } catch { /* keep */ } }
-      if (/^\/\//.test(url)) url = "https:" + url;
-      if (!/^https?:\/\//i.test(url)) continue;
-      out.push({ title: stripTags(m[2]), url, snippet: stripTags(m[3] || "") });
-    }
-    return out;
+    const r = await axios.get("https://html.duckduckgo.com/html/", { params: { q }, timeout: 9000, headers: { "User-Agent": UA, "Accept-Language": "en-US,en;q=0.9" } });
+    return parseDuck(r.data);
+  }
+  async function searchBing(q) {
+    const r = await axios.get("https://www.bing.com/search", { params: { q, setlang: "en", cc: "us" }, timeout: 9000, headers: { "User-Agent": UA, "Accept-Language": "en-US,en;q=0.9" } });
+    return parseBing(r.data);
   }
   async function searchWiki(q) {
     const r = await axios.get("https://en.wikipedia.org/w/api.php", { params: { action: "query", generator: "search", gsrsearch: q, gsrlimit: 3, prop: "extracts|info", exintro: 1, explaintext: 1, exchars: 600, inprop: "url", format: "json", origin: "*" }, timeout: 9000, headers: { "User-Agent": "DwenliteBot/1.0" } });
@@ -58,12 +94,14 @@ function create({ axios, logger }) {
     return Object.values(pages).sort((a, b) => (a.index || 0) - (b.index || 0)).map((p) => ({ title: p.title, url: p.fullurl, snippet: String(p.extract || "").slice(0, 600) }));
   }
   async function search(q) {
-    const [d, w] = await Promise.allSettled([searchDuck(q), searchWiki(q)]);
+    const [d, b, w] = await Promise.allSettled([searchDuck(q), searchBing(q), searchWiki(q)]);
     if (d.status === "rejected") logger.warn("ddg failed", d.reason && d.reason.message);
-    const seen = new Set();
-    const all = [...(d.status === "fulfilled" ? d.value : []), ...(w.status === "fulfilled" ? w.value : [])].filter((x) => x.url && !seen.has(x.url) && seen.add(x.url)).slice(0, 8);
-    if (!all.length) return "No results came back. The search service may be busy; try different words or try again.";
-    return all.map((s, i) => `[${i + 1}] ${s.title}\n${s.url}\n${s.snippet}`).join("\n\n");
+    if (b.status === "rejected") logger.warn("bing failed", b.reason && b.reason.message);
+    const web = [...(d.status === "fulfilled" ? d.value : []), ...(b.status === "fulfilled" ? b.value : [])];
+    // web results first, then Wikipedia as a bonus (it used to be the only thing that worked from a cloud server)
+    const text = formatResults([...web, ...(w.status === "fulfilled" ? w.value : [])]);
+    if (!text) return "No results came back. The search services may be busy; try different words, or use the browser tool.";
+    return text;
   }
 
   async function readPage(rawUrl, maxChars = 12000) {
@@ -99,4 +137,4 @@ function create({ axios, logger }) {
   return { search, readPage, isPrivateIp, safeLookup };
 }
 
-module.exports = { create, isPrivateIp };
+module.exports = { create, isPrivateIp, parseBing, parseDuck, formatResults, bingUnwrap };

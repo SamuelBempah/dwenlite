@@ -6,7 +6,7 @@
 // by an admin-authenticated request, which the web app sends only after the owner approves each action.
 const crypto = require("crypto");
 
-const JOB_TYPES = new Set(["shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows", "show_home", "browser", "undo"]);
+const JOB_TYPES = new Set(["shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows", "show_home", "browser", "undo", "web_search"]);
 const ONLINE_MS = 25000;
 const MAX_OUTPUT = 150000; // characters stored per job result (a Firestore document must stay under 1 MB)
 
@@ -33,7 +33,7 @@ const HOME_SYSTEM =
   "MEMORY\n" +
   "- When the owner shares a lasting preference or fact about themselves, their setup or projects, call remember.\n\n" +
   "WEB AND BROWSER\n" +
-  "- For facts, news or documentation use web_search then read_page. To DO things on a website (log in, fill forms, click) use the browser tool: open, read, then click/type by element number, and read again. Prefer the browser tool over screenshots and mouse clicks.\n" +
+  "- For facts, news or documentation use web_search then read_page. Never open google.com in the browser to search (it blocks automated browsers): web_search already covers it. If a page shows a bot check, switch to another site instead of retrying. To DO things on a website (log in, fill forms, click) use the browser tool: open, read, then click/type by element number, and read again. Prefer the browser tool over screenshots and mouse clicks.\n" +
   "- Never enter passwords or payment details unless the owner gave them in this chat for this exact purpose. Stop and ask before anything that spends money, sends messages or deletes things.\n" +
   "- For jobs with 3+ steps call update_plan first and keep it current.\n\n" +
   "TALKING TO THE OWNER\n" +
@@ -293,6 +293,7 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
       case "system_info": return {};
       case "list_windows": return {};
       case "show_home": return {};
+      case "web_search": return typeof a.query === "string" && a.query.trim() && a.query.length <= 300 ? { query: a.query.trim() } : null;
       case "undo": return typeof a.id === "string" && /^[\w-]{3,40}$/.test(a.id) ? { id: a.id } : null;
       case "browser": {
         const act = String(a.action || "");

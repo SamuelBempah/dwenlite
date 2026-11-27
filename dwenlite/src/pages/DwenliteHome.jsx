@@ -167,7 +167,31 @@ export default function DwenliteHome() {
       return 'Plan updated.';
     }
     const id = uid();
-    if (name === 'web_search' || name === 'read_page') {
+    // searching from the owner's own computer works much better than from a cloud server (search engines block those)
+    if (name === 'web_search') {
+      const pick = pickDevice(args.device);
+      if (!pick.error && pick.d.online) {
+        add({ id, type: 'action', tool: name, args, status: 'running', note: 'Searching...' });
+        try {
+          const { id: jobId } = await homeCall('job_create', { deviceId: pick.d.id, type: 'web_search', args: { query: args.query }, summary: args.summary });
+          for (let i = 0; i < 40; i++) {
+            if (stopRef.current) { homeCall('job_cancel', { id: jobId }).catch(() => {}); patch(id, { status: 'error', output: 'Stopped.' }); return 'Cancelled by the owner.'; }
+            await sleep(1000);
+            const j = await homeCall('job_get', { id: jobId });
+            if (j.status === 'done') { patch(id, { status: 'done', output: j.result }); return String(j.result || '').slice(0, 12000); }
+            if (j.status === 'error' || j.status === 'cancelled') break; // fall back to the server
+          }
+        } catch { /* fall back to the server */ }
+        patch(id, { note: 'Trying another way...' });
+      } else add({ id, type: 'action', tool: name, args, status: 'running', note: 'Searching...' });
+      try {
+        const r = await homeCall('web', { kind: 'search', query: args.query });
+        const bad = /^Error:|^No results/.test(r.text || '');
+        patch(id, { status: bad ? 'error' : 'done', output: r.text });
+        return String(r.text || '(nothing)').slice(0, 12000);
+      } catch (e) { patch(id, { status: 'error', output: e.message }); return `Error: ${e.message}`; }
+    }
+    if (name === 'read_page') {
       add({ id, type: 'action', tool: name, args, status: 'running', note: name === 'web_search' ? 'Searching...' : 'Reading...' });
       try {
         const r = await homeCall('web', name === 'web_search' ? { kind: 'search', query: args.query } : { kind: 'read', url: args.url });
