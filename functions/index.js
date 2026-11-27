@@ -704,5 +704,6 @@ exports.homeApi = require("./home").create({ admin, db, logger, axios, cors, onR
 
 // Live Meeting: real-time meeting helper (suggested questions, web research, summaries).
 const DEEPGRAM_API_KEY = defineString("DEEPGRAM_API_KEY", { default: "" }); // optional: enables high-accuracy meeting transcription with speaker names
+const ASSEMBLYAI_API_KEY = defineString("ASSEMBLYAI_API_KEY", { default: "" }); // optional: preferred high-accuracy provider (far-field voice focus + speaker labels)
 const HQ_MINUTES = defineString("MEETING_HQ_MINUTES", { default: "90" }); // per user per day
-exports.meetingApi = require("./meeting").create({ admin, db, logger, axios, cors, onRequest, DEEPSEEK_API_KEY, DEEPGRAM_API_KEY, HQ_MINUTES, checkAndCountUsage, callDeepSeek }).meetingApi;
+exports.meetingApi = require("./meeting").create({ admin, db, logger, axios, cors, onRequest, DEEPSEEK_API_KEY, DEEPGRAM_API_KEY, ASSEMBLYAI_API_KEY, HQ_MINUTES, checkAndCountUsage, callDeepSeek }).meetingApi;

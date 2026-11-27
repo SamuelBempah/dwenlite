@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Mic, Pause, Play, Square, MessageCircleQuestion, Globe, ListChecks, Send, Paperclip, X, Copy, Download, Loader2, ChevronDown, Trash2, FileText, Sparkles, ArrowLeft, RotateCcw } from 'lucide-react';
 import Markdown from '../components/Markdown';
-import { LANGS, langName, meetingCall, speechSupported, createRecognizer, createHqRecognizer, hqSupported, extractTerms, extractFileText, looksLikeQuestionCue, fmtClock } from '../lib/meeting';
+import { LANGS, langName, meetingCall, speechSupported, createRecognizer, createHqRecognizer, createAaiRecognizer, hqSupported, extractTerms, extractFileText, looksLikeQuestionCue, fmtClock } from '../lib/meeting';
 
 const KEY = 'dwenliteMeeting';
 const TABS = [['questions', 'Questions', MessageCircleQuestion], ['research', 'Research', Globe], ['summary', 'Summary', ListChecks], ['ask', 'Ask', Sparkles]];
@@ -36,6 +36,7 @@ export default function LiveMeeting() {
   const [flash, setFlash] = useState(false);
   const [err, setErr] = useState('');
   const [hqAvail, setHqAvail] = useState(false);
+  const [provider, setProvider] = useState('');
   const [mode, setMode] = useState(saved.mode || 'hq'); // hq = noise filtering + speaker names, std = browser speech
   const [speakers, setSpeakers] = useState(saved.speakers || {}); // id -> { name, bg, me }
   const [openSpk, setOpenSpk] = useState(null);
@@ -57,7 +58,7 @@ export default function LiveMeeting() {
   const spkRef = useRef(speakers);
   spkRef.current = speakers;
 
-  useEffect(() => { meetingCall('config').then((c) => { setHqAvail(!!c.hq && hqSupported()); if (!c.hq || !hqSupported()) setMode('std'); }).catch(() => { setMode('std'); }); }, []);
+  useEffect(() => { meetingCall('config').then((c) => { setProvider(c.provider || ''); setHqAvail(!!c.hq && hqSupported()); if (!c.hq || !hqSupported()) setMode('std'); }).catch(() => { setMode('std'); }); }, []);
   const spkName = (id) => (id == null ? '' : (spkRef.current[id] && spkRef.current[id].name) || `Speaker ${id + 1}`);
 
   linesRef.current = lines;
@@ -119,10 +120,11 @@ export default function LiveMeeting() {
   const makeRecognizer = (useHq) => {
     const common = { lang, onInterim: setInterim, onFinal, onState: (st) => setState((cur) => (cur === 'paused' ? cur : st)) };
     if (useHq) {
-      return createHqRecognizer({
+      const make = provider === 'assemblyai' ? createAaiRecognizer : createHqRecognizer;
+      return make({
         ...common,
         terms: extractTerms(title, goal, filesText()),
-        getToken: async () => (await meetingCall('token')).token,
+        getToken: async (retry) => (await meetingCall('token', retry ? { retry: true } : {})).token,
         heartbeat: () => meetingCall('token', { heartbeat: true }),
         onError: (msg, fatal) => {
           setErr(msg);

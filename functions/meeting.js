@@ -1,7 +1,7 @@
 // Live Meeting: helps a signed-in user during a meeting. Suggests questions, researches on the web, summarises, answers.
 // The browser does the live speech-to-text; this file only does the thinking.
 
-function create({ admin, db, logger, axios, cors, onRequest, DEEPSEEK_API_KEY, DEEPGRAM_API_KEY, HQ_MINUTES, checkAndCountUsage, callDeepSeek }) {
+function create({ admin, db, logger, axios, cors, onRequest, DEEPSEEK_API_KEY, DEEPGRAM_API_KEY, ASSEMBLYAI_API_KEY, HQ_MINUTES, checkAndCountUsage, callDeepSeek }) {
   const clip = (s, n) => String(s == null ? "" : s).slice(0, n);
   const tail = (s, n) => { s = String(s == null ? "" : s); return s.length > n ? s.slice(s.length - n) : s; };
 
@@ -82,16 +82,18 @@ function create({ admin, db, logger, axios, cors, onRequest, DEEPSEEK_API_KEY, D
         try {
           // ---- high-accuracy speech (Deepgram): the browser connects straight to it with a short-lived token ----
           if (action === "config") {
-            return res.status(200).json({ hq: !!DEEPGRAM_API_KEY.value(), minutes: Number(HQ_MINUTES.value()) || 90 });
+            const provider = ASSEMBLYAI_API_KEY.value() ? "assemblyai" : DEEPGRAM_API_KEY.value() ? "deepgram" : null;
+            return res.status(200).json({ hq: !!provider, provider, minutes: Number(HQ_MINUTES.value()) || 90 });
           }
           if (action === "token") {
-            const key = DEEPGRAM_API_KEY.value();
+            const aaiKey = ASSEMBLYAI_API_KEY.value();
+            const key = aaiKey || DEEPGRAM_API_KEY.value();
             if (!key) return res.status(501).json({ error: "High-accuracy transcription is not set up." });
             const cap = (Number(HQ_MINUTES.value()) || 90) * 60;
             const day = new Date().toISOString().slice(0, 10);
             const ref = db.collection("meetingUsage").doc(uid);
             // every token request or heartbeat reserves 5 minutes; the browser asks again every ~4.5 minutes while recording
-            const ok = await db.runTransaction(async (tx) => {
+            const ok = b.retry ? true : await db.runTransaction(async (tx) => { // a retry after a failed connection is free
               const s = await tx.get(ref); const d = s.exists ? s.data() : {};
               const used = d.day === day ? d.seconds || 0 : 0;
               if (used >= cap) return false;
@@ -100,6 +102,18 @@ function create({ admin, db, logger, axios, cors, onRequest, DEEPSEEK_API_KEY, D
             });
             if (!ok) return res.status(429).json({ error: "You have used today's high-accuracy meeting time. Standard transcription still works." });
             if (b.heartbeat) return res.status(200).json({ ok: true });
+            if (aaiKey) {
+              try {
+                const t = await axios.post("https://token.assemblyai.com/v1/token", { product: "streaming", expires_in_seconds: 60, access: { tts: { enabled: false }, speech_to_speech: { enabled: false }, llm_gateway: { enabled: false } } }, { headers: { Authorization: aaiKey, "Content-Type": "application/json" }, timeout: 10000 });
+                if (!t.data || !t.data.token) return res.status(502).json({ error: "Could not start high-accuracy transcription." });
+                return res.status(200).json({ provider: "assemblyai", token: t.data.token });
+              } catch (e) {
+                const st = e.response && e.response.status;
+                const msg = clip((e.response && e.response.data && (e.response.data.error || e.response.data.message || JSON.stringify(e.response.data))) || e.message, 200);
+                logger.error("assemblyai token failed", st, msg);
+                return res.status(502).json({ error: `AssemblyAI refused the key (${st || "no response"}): ${msg}. Check the key in functions/.env and that your account has credit.` });
+              }
+            }
             let r;
             try {
               r = await axios.post("https://api.deepgram.com/v1/auth/grant", { ttl_seconds: 120 }, { headers: { Authorization: `Token ${key}`, "Content-Type": "application/json" }, timeout: 10000 });
@@ -111,7 +125,7 @@ function create({ admin, db, logger, axios, cors, onRequest, DEEPSEEK_API_KEY, D
             }
             const token = r.data && (r.data.access_token || r.data.key);
             if (!token) return res.status(502).json({ error: "Could not start high-accuracy transcription." });
-            return res.status(200).json({ token });
+            return res.status(200).json({ provider: "deepgram", token });
           }
 
           // ---- tidy up words the microphone probably misheard ----

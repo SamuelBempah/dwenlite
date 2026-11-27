@@ -103,7 +103,7 @@ export async function extractFileText(file) {
 export const fmtClock = (ms) => { const s = Math.floor(ms / 1000); const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); const x = s % 60; return `${h ? h + ':' : ''}${String(m).padStart(h ? 2 : 1, '0')}:${String(x).padStart(2, '0')}`; };
 
 // ---- high-accuracy mode: Deepgram over a WebSocket, with noise suppression and speaker labels ----
-export const hqSupported = () => typeof window !== 'undefined' && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder && window.MediaRecorder.isTypeSupported && window.MediaRecorder.isTypeSupported('audio/webm;codecs=opus') && window.WebSocket);
+export const hqSupported = () => typeof window !== 'undefined' && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.WebSocket && (window.AudioContext || window.webkitAudioContext));
 
 // names and unusual words from the user's notes and files, so the recogniser spells them right
 export function extractTerms(...texts) {
@@ -198,5 +198,138 @@ export function createHqRecognizer({ getToken, heartbeat, lang, terms = [], onIn
     start() { want = true; onState && onState('starting'); open(); },
     stop() { want = false; cleanup(); onInterim(''); onState && onState('idle'); },
     setLang(l) { lang = l; },
+  };
+}
+
+// ---- AssemblyAI streaming (preferred): far-field Voice Focus, live speaker labels, raw PCM over a WebSocket ----
+// Tried in this order if the service refuses a setting: [model, voice focus, speaker labels]
+const AAI_STEPS = [
+  { model: 'assemblyai-stt-3-7-realtime-agent', focus: true, labels: true },
+  { model: 'assemblyai-stt-3-7-realtime', focus: false, labels: true },
+  { model: 'assemblyai-stt-3-7-realtime', focus: false, labels: false },
+];
+const labelToId = (l) => (/^[A-J]$/.test(l || '') ? l.charCodeAt(0) - 65 : null); // UNKNOWN / PENDING => no speaker
+
+// turns a final Turn message into lines, one per consecutive speaker
+export function turnToLines(j) {
+  const words = Array.isArray(j.words) ? j.words : [];
+  const turnSp = labelToId(j.speaker_label);
+  const out = [];
+  for (const w of words) {
+    const t = w.text || w.word || '';
+    if (!t) continue;
+    let sp = labelToId(w.speaker);
+    if (sp == null) sp = out.length ? out[out.length - 1].speaker : turnSp;
+    const last = out[out.length - 1];
+    if (last && last.speaker === sp) last.text += ' ' + t; else out.push({ speaker: sp, text: t });
+  }
+  if (!out.length && (j.transcript || '').trim()) out.push({ speaker: turnSp, text: j.transcript.trim() });
+  return out;
+}
+
+// linear-interpolation resampler to 16 kHz, emitting 50 ms (800 sample) PCM16 frames
+function makePcmSender(inRate, send) {
+  const ratio = inRate / 16000; let buf = new Float32Array(0); let pos = 0; let out = new Int16Array(800); let n = 0;
+  return (chunk) => {
+    const merged = new Float32Array(buf.length + chunk.length); merged.set(buf); merged.set(chunk, buf.length); buf = merged;
+    while (pos + 1 < buf.length) {
+      const i = Math.floor(pos); const f = pos - i;
+      const v = buf[i] * (1 - f) + buf[i + 1] * f;
+      out[n++] = Math.max(-1, Math.min(1, v)) * 32767;
+      if (n === 800) { send(out.buffer.slice(0)); n = 0; }
+      pos += ratio;
+    }
+    const drop = Math.floor(pos); if (drop > 0) { buf = buf.slice(drop); pos -= drop; }
+  };
+}
+
+export function createAaiRecognizer({ getToken, heartbeat, terms = [], onInterim, onFinal, onError, onState }) {
+  let ws = null; let ctx = null; let stream = null; let node = null; let want = false; let hb = null; let step = 0; let gotTurn = false; let tries = 0; let begun = false;
+  const cleanup = () => {
+    clearInterval(hb);
+    try { if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'Terminate' })); } catch { /* ignore */ }
+    const w = ws; setTimeout(() => { try { w && w.readyState <= 1 && w.close(); } catch { /* ignore */ } }, 400);
+    try { node && node.disconnect(); } catch { /* ignore */ }
+    try { ctx && ctx.close(); } catch { /* ignore */ }
+    try { stream && stream.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
+    ws = null; ctx = null; stream = null; node = null;
+  };
+  const fail = (msg, fatal) => { cleanup(); want = false; onError && onError(msg, fatal); onState && onState('idle'); };
+  // a setting the service does not accept: drop to the next, simpler configuration
+  const nextStep = (why) => {
+    if (step >= AAI_STEPS.length - 1) return false;
+    step += 1; cleanup(); onError && onError(`${why} Trying a simpler setup...`);
+    setTimeout(() => { if (want) open(true); }, 300); return true;
+  };
+
+  async function startAudio(sendFrame) {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = ctx.createMediaStreamSource(stream);
+    const push = makePcmSender(ctx.sampleRate, sendFrame);
+    const quiet = ctx.createGain(); quiet.gain.value = 0; quiet.connect(ctx.destination);
+    try {
+      const code = 'class P extends AudioWorkletProcessor{process(i){const c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true}}registerProcessor("dwen-pcm",P)';
+      const url = URL.createObjectURL(new Blob([code], { type: 'application/javascript' }));
+      await ctx.audioWorklet.addModule(url); URL.revokeObjectURL(url);
+      node = new AudioWorkletNode(ctx, 'dwen-pcm');
+      node.port.onmessage = (e) => push(e.data);
+    } catch {
+      node = ctx.createScriptProcessor(4096, 1, 1); // older browsers
+      node.onaudioprocess = (e) => push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    }
+    src.connect(node); node.connect(quiet);
+    if (ctx.state === 'suspended') { try { await ctx.resume(); } catch { /* ignore */ } }
+  }
+
+  async function open(retry) {
+    if (!stream) {
+      try {
+        // nothing plays back in a room, so echo cancelling stays off; the service's Voice Focus does the heavy noise isolation
+        stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false, noiseSuppression: true, autoGainControl: true } });
+      } catch { return fail('Microphone access was blocked. Allow the microphone for this site and try again.', false); }
+    }
+    let token;
+    try { token = await getToken(!!retry); } catch (e) { return fail(e.message, true); }
+    const cfg = AAI_STEPS[step];
+    const q = new URLSearchParams({ token, sample_rate: '16000', encoding: 'pcm_s16le', speech_model: cfg.model });
+    if (cfg.labels) q.set('speaker_labels', 'true');
+    if (cfg.focus) q.set('voice_focus', 'far-field');
+    if (terms.length) q.set('keyterms_prompt', JSON.stringify(terms.slice(0, 40)));
+    gotTurn = false; begun = false;
+    ws = new WebSocket(`wss://streaming.assemblyai.com/v3/ws?${q}`);
+    ws.binaryType = 'arraybuffer';
+    const mine = ws;
+    ws.onopen = async () => {
+      tries = 0;
+      try { await startAudio((frame) => { if (ws === mine && mine.readyState === 1) mine.send(frame); }); } catch (e) { return fail('Could not start the microphone: ' + e.message, false); }
+      hb = setInterval(async () => { try { await heartbeat(); } catch (e) { fail(e.message, true); } }, 270000);
+      onState && onState('listening');
+    };
+    ws.onmessage = (m) => {
+      if (typeof m.data !== 'string') return;
+      let j; try { j = JSON.parse(m.data); } catch { return; }
+      if (j.type === 'Begin') { begun = true; return; }
+      if (j.type === 'Error') { const why = `Speech service error ${j.error_code || ''}: ${j.error || 'unknown'}.`; if (!gotTurn && nextStep(why)) return; return fail(why, true); }
+      if (j.type !== 'Turn') return;
+      gotTurn = true;
+      if (!j.end_of_turn) { const t = (Array.isArray(j.words) && j.words.length ? j.words.map((w) => w.text).join(' ') : j.transcript) || ''; onInterim(t); return; }
+      onInterim('');
+      turnToLines(j).forEach((l) => { if (l.text.trim()) onFinal({ text: l.text.trim(), speaker: l.speaker }); });
+    };
+    ws.onerror = () => { /* onclose follows */ };
+    ws.onclose = (e) => {
+      if (!want || ws !== mine) return;
+      const wasOpen = begun;
+      cleanup();
+      if (!wasOpen && !gotTurn) { if (nextStep(`Could not connect (code ${e.code}${e.reason ? ', ' + e.reason : ''}).`)) return; return fail(`High accuracy could not connect (code ${e.code}${e.reason ? ', ' + e.reason : ''}).`, true); }
+      if (++tries > 3) return fail(`High-accuracy transcription disconnected (code ${e.code}${e.reason ? ', ' + e.reason : ''}).`, true);
+      onError && onError('Connection dropped. Reconnecting...');
+      setTimeout(() => { if (want) open(true); }, 800 * tries);
+    };
+  }
+  return {
+    start() { want = true; onState && onState('starting'); open(false); },
+    stop() { want = false; cleanup(); onInterim(''); onState && onState('idle'); },
+    setLang() { /* the model detects the language itself */ },
   };
 }
