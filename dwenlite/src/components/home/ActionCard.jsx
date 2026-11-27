@@ -42,7 +42,7 @@ export default function ActionCard({ item, onDecide }) {
   const said = item.args && typeof item.args.summary === 'string' ? item.args.summary.trim() : '';
   const finished = item.status === 'done' || item.status === 'error' || item.status === 'denied';
   const label = said || (finished ? meta.done : meta.doing);
-  const showDetails = open || asking;
+  const showDetails = open;
   const hasMore = !!(d || item.output || item.image);
   const color = item.status === 'error' || item.status === 'denied' ? 'border-red-500/30' : item.status === 'done' ? 'border-emerald-500/20' : asking ? 'border-amber-400/50' : 'border-white/10';
 
@@ -52,14 +52,14 @@ export default function ActionCard({ item, onDecide }) {
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-500/15 text-violet-300"><Icon size={14} /></span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-slate-100">{asking ? `Wants to: ${label.charAt(0).toLowerCase()}${label.slice(1)}` : label}</p>
-          {item.status === 'running' && <p className="truncate text-xs text-slate-500">{item.note || 'Working on it...'}</p>}
+          {item.status === 'running' && <p className="truncate text-xs text-slate-500">{String(item.note || '').startsWith('Waiting') ? 'Your computer is slow to respond. Is it on and connected?' : 'Working on it...'}</p>}
           {item.status === 'denied' && <p className="text-xs text-red-300">You said no to this.</p>}
           {item.status === 'error' && <p className="text-xs text-red-300">That did not work.</p>}
         </div>
         {item.status === 'running' && <Loader2 size={15} className="animate-spin text-violet-300" />}
         {item.status === 'done' && <Check size={15} className="text-emerald-400" />}
         {(item.status === 'error' || item.status === 'denied') && <X size={15} className="text-red-400" />}
-        {hasMore && !asking && (
+        {hasMore && (
           <button onClick={() => setOpen(!open)} aria-expanded={open} className="flex items-center gap-0.5 rounded-md px-1.5 py-1 text-xs text-slate-400 hover:text-slate-200">
             Details <ChevronDown size={12} className={`transition-transform ${open ? 'rotate-180' : ''}`} />
           </button>
