@@ -47,6 +47,7 @@ export default function DwenliteHome() {
   const convo = useRef([]);
   const stopRef = useRef(false);
   const approvals = useRef({});
+  useEffect(() => { const old = document.title; document.title = 'Dwenlite Home'; return () => { document.title = old; }; }, []);
   const abortRef = useRef(null);
   const activeJob = useRef(null);
   const devicesRef = useRef([]);
@@ -122,6 +123,13 @@ export default function DwenliteHome() {
     return true;
   };
 
+  const awayFrom = useRef(null);
+  function returnHome() {
+    const id = awayFrom.current;
+    if (!id) return;
+    awayFrom.current = null;
+    homeCall('job_create', { deviceId: id, type: 'show_home', args: {} }).catch(() => {});
+  }
   const decide = (id, ok) => { const r = approvals.current[id]; if (r) { delete approvals.current[id]; r(ok); } };
 
   async function handleTool(call) {
@@ -149,15 +157,19 @@ export default function DwenliteHome() {
     const dev = picked.d;
     const jobType = JOB_TYPE[name] || name;
     const jobArgs = { ...args }; delete jobArgs.device; delete jobArgs.summary;
+    // real mouse/keyboard, a new window or a launched program pulls focus away from this page: remember to come back
+    const steals = name === 'open_url' || (SCREEN.has(name) && name !== 'screenshot' && (args.foreground || !args.app)) || (name === 'run_shell' && /\b(start|start-process|explorer|invoke-item|ii)\b/i.test(String(args.command || '')));
     add({ id, type: 'action', tool: name, args, deviceName: dev.name, status: needsApproval(name) ? 'asking' : 'running', note: 'Starting...' });
 
     if (needsApproval(name)) {
+      returnHome(); // bring this page back so the question is seen
       const ok = await new Promise((resolve) => { approvals.current[id] = resolve; });
       if (!ok) { patch(id, { status: 'denied' }); return 'The owner denied this action. Do not try it again. Ask what they would like instead.'; }
       patch(id, { status: 'running' });
     }
     if (stopRef.current) { patch(id, { status: 'denied', output: 'Stopped.' }); return 'Cancelled by the owner.'; }
 
+    if (steals) awayFrom.current = dev.id;
     let jobId;
     try { jobId = (await homeCall('job_create', { deviceId: dev.id, type: jobType, args: jobArgs })).id; } catch (e) { patch(id, { status: 'error', output: e.message }); return `Error: ${e.message}`; }
     activeJob.current = jobId;
@@ -234,6 +246,7 @@ export default function DwenliteHome() {
     } catch (e) {
       if (e.name !== 'AbortError') toast.error(e.message || 'Something went wrong.');
     } finally {
+      returnHome(); // finished: show the owner this page again
       setBusy(false);
       stopRef.current = false;
     }

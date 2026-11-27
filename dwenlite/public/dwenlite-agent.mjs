@@ -16,7 +16,7 @@ import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-export const VERSION = '1.4.0';
+export const VERSION = '1.5.0';
 const MAX_OUT = 100000;      // characters of command output sent back
 const MAX_READ = 200000;     // bytes read from a file
 const IS_WIN = process.platform === 'win32';
@@ -202,6 +202,18 @@ if ([DwenNative]::IsIconic($h)) { [DwenNative]::ShowWindow($h,9) | Out-Null }
 [DwenNative]::keybd_event(0x12,0,0,[UIntPtr]::Zero); [DwenNative]::keybd_event(0x12,0,2,[UIntPtr]::Zero)
 [DwenNative]::SetForegroundWindow($h) | Out-Null
 Start-Sleep -Milliseconds 400
+`;
+const PS_HOME = `${PS_DPI}
+${PS_FIND}
+$mine=Get-Wins | Where-Object { Is-Mine $_ }
+$hit=$mine | Where-Object { $_.Title -match 'Dwenlite Home' } | Select-Object -First 1
+if (-not $hit) { $hit=$mine | Select-Object -First 1 }
+if (-not $hit) { Write-Error 'The Dwenlite Home window was not found.'; exit 3 }
+$h=$hit.H
+if ([DwenNative]::IsIconic($h)) { [DwenNative]::ShowWindow($h,9) | Out-Null }
+[DwenNative]::keybd_event(0x12,0,0,[UIntPtr]::Zero); [DwenNative]::keybd_event(0x12,0,2,[UIntPtr]::Zero)
+[DwenNative]::SetForegroundWindow($h) | Out-Null
+Write-Output $hit.Title
 `;
 const PS_SHOT = `param([string]$Out,[int]$MaxW,[string]$App)
 Add-Type -AssemblyName System.Windows.Forms,System.Drawing
@@ -434,6 +446,12 @@ export function createAgent(opts) {
         child.on('error', (e) => { clearTimeout(killer); resolve(`Could not start the command: ${e.message}`); });
         child.on('close', (code) => { clearTimeout(killer); resolve(`${clip(out, MAX_OUT).trimEnd()}\n[exit code ${code}${timedOut ? `, stopped after ${timeout / 1000}s timeout` : ''}]`); });
       });
+    },
+    // bring the Dwenlite Home page (browser tab or installed app) back in front so the owner sees what happened
+    async show_home() {
+      if (IS_WIN) { const r = await ps(psFile('home', PS_HOME), []); return `Showed ${r.stdout.trim() || 'Dwenlite Home'}`; }
+      if (!IS_MAC && (await have('xdotool'))) { await run('xdotool', ['search', '--name', 'Dwenlite Home', 'windowactivate', '--sync']); return 'Showed Dwenlite Home'; }
+      return 'Returning to Dwenlite Home is not supported on this system.';
     },
     async list_windows() {
       needGui();

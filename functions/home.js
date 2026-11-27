@@ -6,7 +6,7 @@
 // by an admin-authenticated request, which the web app sends only after the owner approves each action.
 const crypto = require("crypto");
 
-const JOB_TYPES = new Set(["shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows"]);
+const JOB_TYPES = new Set(["shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows", "show_home"]);
 const ONLINE_MS = 25000;
 const MAX_OUTPUT = 150000; // characters stored per job result (a Firestore document must stay under 1 MB)
 
@@ -198,6 +198,7 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
       case "list_dir": return { path: clip(a.path || ".", 1000) };
       case "system_info": return {};
       case "list_windows": return {};
+      case "show_home": return {};
       case "screenshot": return { look: clip(a.look || "Describe what is on the screen.", 1000), app: clip(a.app, 80), foreground: !!a.foreground };
       case "click": return num(a.x, 0, 20000) && num(a.y, 0, 20000) ? { x: a.x, y: a.y, button: a.button === "right" ? "right" : "left", double: !!a.double, app: clip(a.app, 80), foreground: !!a.foreground } : null;
       case "type_text": return typeof a.text === "string" && a.text.length > 0 && a.text.length <= 4000 ? { text: a.text, app: clip(a.app, 80), foreground: !!a.foreground } : null;
