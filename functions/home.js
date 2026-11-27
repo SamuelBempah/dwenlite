@@ -72,13 +72,20 @@ const VISION_PROMPTS = {
     "For EVERY control you mention that could be clicked or typed into, give its centre on a 0-1000 grid in exactly this form: label @ x,y (x across, y down, 0-1000). Do not guess controls that are not visible.",
 };
 
+// lowercase, no spaces; for Gmail the dots and +tags do not change the mailbox, so they are ignored too
+const normEmail = (e) => {
+  const x = String(e || "").toLowerCase().replace(/\s+/g, "");
+  const m = /^([^@]+)@(gmail\.com|googlemail\.com)$/.exec(x);
+  return m ? `${m[1].split("+")[0].replace(/\./g, "")}@gmail.com` : x;
+};
+
 function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPSEEK_API_KEY, ADMIN_EMAILS }) {
   const GEMINI_API_KEY = defineString("GEMINI_API_KEY", { default: "" });
   const GEMINI_MODEL = defineString("GEMINI_MODEL", { default: "gemini-3.5-flash" });
 
   const isAdmin = (decoded) => {
-    const allowed = ADMIN_EMAILS.value().split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
-    return !!(decoded && decoded.email && decoded.email_verified && allowed.includes(decoded.email.toLowerCase()));
+    const allowed = ADMIN_EMAILS.value().split(/[,;]+/).map(normEmail).filter(Boolean);
+    return !!(decoded && decoded.email && decoded.email_verified && allowed.includes(normEmail(decoded.email)));
   };
   const hash = (t) => crypto.createHash("sha256").update(String(t)).digest("hex");
   const clip = (t, n) => String(t == null ? "" : t).slice(0, n);

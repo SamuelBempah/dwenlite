@@ -527,8 +527,9 @@ exports.generateNotesProxy = onRequest(
 
       // Admin only: daily token usage, for the usage dashboard.
       if (task === "admin_stats") {
-        const allowed = ADMIN_EMAILS.value().split(",").map((x) => x.trim().toLowerCase()).filter(Boolean);
-        if (!decoded.email || !decoded.email_verified || !allowed.includes(decoded.email.toLowerCase())) {
+        const normEmail = (e) => { const x = String(e || "").toLowerCase().replace(/\s+/g, ""); const m = /^([^@]+)@(gmail\.com|googlemail\.com)$/.exec(x); return m ? `${m[1].split("+")[0].replace(/\./g, "")}@gmail.com` : x; };
+        const allowed = ADMIN_EMAILS.value().split(/[,;]+/).map(normEmail).filter(Boolean);
+        if (!decoded.email || !decoded.email_verified || !allowed.includes(normEmail(decoded.email))) {
           return res.status(403).json({ error: "Not allowed." });
         }
         try {
