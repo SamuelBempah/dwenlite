@@ -109,6 +109,14 @@ export default function DevicePanel({ devices, reload, onClose }) {
 
         <details className="mt-3 rounded-2xl border border-white/10 bg-slate-900/40 p-4 text-sm">
           <summary className="cursor-pointer font-semibold text-slate-300">Mac, Linux, or set it up by hand</summary>
+          {pair && (
+            <div className="mt-3 rounded-xl border border-white/10 bg-slate-950/60 p-3">
+              <p className="mb-1.5 text-xs text-slate-300"><b>Mac or Linux:</b> open the Terminal on that computer and paste this one line. It installs for you only, starts when you log in, and keeps itself up to date. It needs Node.js 22 or newer.</p>
+              <p className="select-all break-all rounded-lg bg-black/50 p-2.5 font-mono text-[11px] text-slate-200" data-testid="mac-linux-command">{`curl -fsSL ${window.location.origin}/install.sh | sh -s -- ${pair.code.slice(0, 4)}-${pair.code.slice(4)}`}</p>
+              <Tap onClick={async () => { try { await navigator.clipboard.writeText(`curl -fsSL ${window.location.origin}/install.sh | sh -s -- ${pair.code.slice(0, 4)}-${pair.code.slice(4)}`); toast.success('Copied'); } catch { toast.error('Press and hold the line to copy it.'); } }} className="mt-2 rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-semibold hover:bg-slate-700">Copy the line</Tap>
+            </div>
+          )}
+          {!pair && <p className="mt-3 text-xs text-slate-400">For Mac or Linux: tap "Add a computer" above to get a code, then come back here for a one-line install.</p>}
         <div className="mt-3">
           <p className="mb-2 text-sm font-semibold">Add a computer</p>
           <div className="flex gap-2">

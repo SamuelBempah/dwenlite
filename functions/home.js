@@ -7,7 +7,7 @@
 const crypto = require("crypto");
 const routines = require("./routines");
 
-const JOB_TYPES = new Set(["shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows", "show_home", "browser", "undo", "web_search", "android", "network_scan", "lan_http", "git", "run_tests", "preview_write", "send_file", "fetch_file", "document", "app_ui", "find_files", "pc_health", "github", "clipboard", "pc_control"]);
+const JOB_TYPES = new Set(["shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows", "show_home", "browser", "undo", "web_search", "android", "network_scan", "lan_http", "git", "run_tests", "preview_write", "send_file", "fetch_file", "document", "app_ui", "find_files", "pc_health", "github", "clipboard", "pc_control", "reveal_file"]);
 const ONLINE_MS = 25000;
 const MAX_OUTPUT = 150000; // characters stored per job result (a Firestore document must stay under 1 MB)
 
@@ -810,6 +810,7 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
       case "lan_http": return typeof a.url === "string" && /^https?:\/\/[^\s]+$/i.test(a.url) && a.url.length <= 1000 ? { url: a.url, method: a.method === "POST" ? "POST" : "GET", body: clip(a.body, 20000), ...(typeof a.login === "string" && /^[\w .-]{1,60}$/.test(a.login) ? { login: a.login } : {}) } : null;
       case "find_files": return { query: clip(a.query, 200), text: clip(a.text, 200), ext: clip(a.ext, 60), folder: clip(a.folder, 500), min_mb: num(a.min_mb, 0, 100000) ? a.min_mb : 0, older_than_days: num(a.older_than_days, 0, 36500) ? a.older_than_days : 0, newer_than_days: num(a.newer_than_days, 0, 36500) ? a.newer_than_days : 0, max: num(a.max, 1, 60) ? a.max : 25 };
       case "clipboard": { if (a.action === "read") return { action: "read" }; return a.action === "write" && typeof a.text === "string" && a.text && a.text.length <= 100000 ? { action: "write", text: a.text } : null; }
+      case "reveal_file": return typeof a.path === "string" && a.path ? { path: clip(a.path, 1000), mode: a.mode === "open" ? "open" : "show" } : null;
       case "pc_control": return ["lock", "sleep", "volume_up", "volume_down", "mute", "play_pause", "next", "previous"].includes(a.action) ? { action: a.action, times: num(a.times, 1, 10) ? a.times : 0 } : null;
       case "pc_health": return { kind: a.kind === "quick" ? "quick" : "full" };
       case "github": {

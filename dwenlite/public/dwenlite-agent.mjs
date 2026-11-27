@@ -22,7 +22,7 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import dns from 'node:dns/promises';
 
-export const VERSION = '2.3.0';
+export const VERSION = '2.4.0';
 export const DEFAULT_URL = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/homeApi';
 export const SITE = 'https://www.dwenlite.space';
 const MAX_OUT = 100000;      // characters of command output sent back
@@ -1525,6 +1525,17 @@ export function createAgent(opts) {
       if (!a.query && !a.text && !a.ext && !a.min_mb && !a.older_than_days && !a.newer_than_days) throw new Error('Say what to look for: part of a name, some text inside, a file type, a size or an age.');
       return await findFiles(roots, a, { docx: readDocx, xlsx: readXlsx, pdf: readPdf });
     },
+    async reveal_file(a) { // show a file in the folder window on this computer, or open it with its normal program
+      const f = safePath(root, presetFolder(a.path), extra());
+      if (!fs.existsSync(f)) throw new Error('That file is not there any more.');
+      const open = a.mode === 'open';
+      if (open && /\.(exe|bat|cmd|com|msi|ps1|psm1|vbs|vbe|js|jse|wsf|wsh|scr|pif|lnk|hta|jar|reg|sh|command|app|appimage|desktop|dll|cpl)$/i.test(f)) throw new Error('For safety, programs and scripts are not opened from here. It was not opened.');
+      const go = (cmd, args) => new Promise((resolve, reject) => { try { const p = spawn(cmd, args, { detached: true, stdio: 'ignore', windowsHide: false }); p.on('error', reject); p.unref(); setTimeout(resolve, 400); } catch (e) { reject(e); } });
+      if (IS_WIN) await go('explorer.exe', open ? [f] : ['/select,' + f]);
+      else if (IS_MAC) await go('open', open ? [f] : ['-R', f]);
+      else await go('xdg-open', [open ? f : path.dirname(f)]);
+      return open ? `Opened ${path.basename(f)} on the computer.` : `Showing ${path.basename(f)} in its folder on the computer.`;
+    },
     async clipboard(a) {
       needShell();
       const pick = async (list) => { for (const c of list) if (await have(c[0])) return c; return null; };
@@ -1748,6 +1759,8 @@ Start-Process $u`;
       try {
         if (IS_WIN) awake = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', "Add-Type -MemberDefinition '[DllImport(\"kernel32.dll\")] public static extern uint SetThreadExecutionState(uint f);' -Name P -Namespace DW; while ($true) { [DW.P]::SetThreadExecutionState(0x80000001) | Out-Null; Start-Sleep 20 }"], { windowsHide: true, stdio: 'ignore' });
         else if (IS_MAC) awake = spawn('caffeinate', ['-i'], { stdio: 'ignore' });
+        else awake = spawn('systemd-inhibit', ['--what=idle:sleep', '--who=Dwenlite', '--why=A task is running', 'sleep', '86400'], { stdio: 'ignore' });
+        if (awake) awake.on('error', () => { awake = null; });
         if (awake) awake.on('exit', () => { awake = null; });
       } catch { awake = null; }
     } else if (awake && !awakeTimer) {
@@ -1755,10 +1768,12 @@ Start-Process $u`;
     }
   }
   let lockTimer = null;
-  const refreshLock = () => { if (!IS_WIN) return; execFile('tasklist', ['/FI', 'IMAGENAME eq LogonUI.exe', '/NH'], { windowsHide: true, timeout: 5000 }, (err, out) => { if (!err) state.locked = /LogonUI\.exe/i.test(String(out)); }); };
+  const refreshLock = () => {
+    if (IS_MAC) { execFile('ioreg', ['-n', 'Root', '-d1', '-a'], { timeout: 5000, maxBuffer: 2 * 1024 * 1024 }, (err, out) => { if (!err) state.locked = /<key>CGSSessionScreenIsLocked<\/key>\s*<true\/>/.test(String(out)); }); return; }
+    if (!IS_WIN) { execFile('loginctl', ['show-session', process.env.XDG_SESSION_ID || 'self', '-p', 'LockedHint'], { timeout: 5000 }, (err, out) => { if (!err) state.locked = /LockedHint=yes/.test(String(out)); }); return; } execFile('tasklist', ['/FI', 'IMAGENAME eq LogonUI.exe', '/NH'], { windowsHide: true, timeout: 5000 }, (err, out) => { if (!err) state.locked = /LogonUI\.exe/i.test(String(out)); }); };
 
   async function loop(stop = { stopped: false }) {
-    if (IS_WIN && !lockTimer) { refreshLock(); lockTimer = setInterval(refreshLock, 8000); lockTimer.unref && lockTimer.unref(); }
+    if (!lockTimer) { refreshLock(); lockTimer = setInterval(refreshLock, 8000); lockTimer.unref && lockTimer.unref(); }
     log(`Dwenlite agent ${VERSION} started. Work folder: ${root}. Shell: ${opts.shell ? 'ON' : 'off'}. Screen/mouse/keyboard: ${opts.gui ? 'ON' : 'off'}.`);
     let fails = 0;
     while (!stop.stopped) {
