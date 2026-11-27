@@ -722,5 +722,6 @@ const homeParts = require("./home").create({ admin, db, logger, axios, cors, onR
   enqueueTask: async (data) => { const { getFunctions } = require("firebase-admin/functions"); await getFunctions().taskQueue("runTaskWorker").enqueue(data, { dispatchDeadlineSeconds: 540 }); },
   defineString, DEEPSEEK_API_KEY, ADMIN_EMAILS, admins });
 exports.homeApi = homeParts.homeApi;
+exports.homeReminderTick = homeParts.homeReminderTick; // sends reminders every minute
 exports.homeScheduler = homeParts.homeScheduler; // runs saved routines every 5 minutes
 exports.runTaskWorker = homeParts.runTaskWorker; // runs background tasks started from the chat

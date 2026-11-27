@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Home, Monitor, Brain, SlidersHorizontal, RotateCcw, History, Repeat, Mic, Volume2, VolumeX, Bell, BookmarkPlus, FileUp, MessagesSquare, Radio, Mail, Paperclip, Camera, Send, Square, X, Wifi, WifiOff, ShieldAlert, Trash2, Sparkles } from 'lucide-react';
+import { Home, Monitor, Brain, SlidersHorizontal, RotateCcw, History, Repeat, Mic, Volume2, VolumeX, Bell, BookmarkPlus, FileUp, MessagesSquare, Radio, Mail, Paperclip, Camera, Send, Square, X, Wifi, WifiOff, ShieldAlert, Trash2, Sparkles, CalendarCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { auth } from '../firebase';
 import ChatAnswer from '../components/ChatAnswer';
@@ -9,6 +9,7 @@ import PlanCard from '../components/home/PlanCard';
 import ActivityPanel from '../components/home/ActivityPanel';
 import RoutinesPanel from '../components/home/RoutinesPanel';
 import ChatsPanel from '../components/home/ChatsPanel';
+import TodayPanel, { myZone } from '../components/home/TodayPanel';
 import DwenLogo from '../components/home/DwenLogo';
 import { plainText } from '../lib/homePlain';
 import { packChat, unpackChat } from '../lib/homeChats';
@@ -63,6 +64,9 @@ export default function DwenliteHome() {
   const [busy, setBusy] = useState(false);
   const [mode] = useState('auto'); // Dwenlite Home always works on its own: there is no other mode
   const [maxSteps, setMaxSteps] = useState(15);
+  const [maxMinutes, setMaxMinutes] = useState(() => Number(readJson('dwenliteMaxMinutes', 0)) || 0); // 0 = no time limit
+  const [project, setProject] = useState(() => readJson('dwenliteProject', null));
+  const [pending, setPending] = useState([]);
   const [panel, setPanel] = useState(null); // devices | memory | settings | activity | routines
   const [routineDraft, setRoutineDraft] = useState(null);
   const [rules, setRules] = useState(() => readJson('dwenliteHomeRules', {})); // category -> 'ask' | 'allow'
@@ -133,7 +137,7 @@ export default function DwenliteHome() {
   }, []);
 
   const loadDevices = useCallback(async () => { try { setDevices((await homeCall('device_list')).devices || []); } catch { /* keep the last list */ } }, []);
-  const loadMemory = useCallback(async () => { try { setMemory((await homeCall('memory_get')).facts || []); } catch { /* optional */ } }, []);
+  const loadMemory = useCallback(async () => { try { { const m = await homeCall('memory_get'); setMemory(m.facts || []); setPending(m.pending || []); } } catch { /* optional */ } }, []);
   useEffect(() => {
     if (gate !== 'ok') return undefined;
     loadDevices(); loadMemory();
@@ -204,6 +208,9 @@ export default function DwenliteHome() {
 
     if (name === 'remember') {
       try { await homeCall('memory_add', { fact: args.fact }); loadMemory(); return 'Saved to memory.'; } catch (e) { return `Error: ${e.message}`; }
+    }
+    if (['reminder', 'todo', 'project_note', 'suggest_memory'].includes(name)) {
+      try { const r = await homeCall('tool_run', { name, args, tz: myZone(), projectId: project ? project.id : undefined }); if (name === 'suggest_memory') loadMemory(); return r.output; } catch (e) { return `Error: ${e.message}`; }
     }
     if (name === 'update_plan') {
       const steps = (Array.isArray(args.steps) ? args.steps : []).map((s) => ({ text: String((s && s.text) || '').slice(0, 200), status: ['pending', 'doing', 'done'].includes(s && s.status) ? s.status : 'pending' })).filter((s) => s.text).slice(0, 12);
@@ -472,7 +479,7 @@ export default function DwenliteHome() {
   async function startCloud() {
     try {
       await saveNow(); // so the conversation is kept even if the page closes now
-      const r = await homeCall('chat_send', { messages: convo.current, chatId: chatIdRef.current, maxSteps, googleToken: googleToken() || undefined });
+      const r = await homeCall('chat_send', { messages: convo.current, chatId: chatIdRef.current, maxSteps, tz: myZone(), projectId: project ? project.id : undefined, maxMinutes: maxMinutes || undefined, googleToken: googleToken() || undefined });
       if (r.fallback || !r.runId) { cloudDown.current = true; add({ id: uid(), type: 'info', text: 'Working from this page (the cloud helper is not available right now).' }); return false; }
       watchRun(r.runId, 0);
       return true;
@@ -624,8 +631,10 @@ export default function DwenliteHome() {
           <span className="hidden sm:inline">{devices.length ? `${onlineCount}/${devices.length} online` : 'Add a computer'}</span>
           <Monitor size={13} className="sm:hidden" />
         </motion.button>
+        {project && <motion.button initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} onClick={() => setPanel('today')} className="max-w-[9rem] truncate rounded-full border border-violet-400/40 bg-violet-500/15 px-3 py-1.5 text-xs text-violet-100" title="Current project">{project.name}</motion.button>}
         <IconBtn icon={Radio} anim="pulse" onClick={() => setPanel('remote')} aria-label="Remote" title="See and control what is running" className={`rounded-full border p-2 transition-colors ${live ? 'border-violet-400/60 bg-violet-500/20 text-violet-200' : 'border-white/10 bg-slate-800/70 hover:border-violet-500/50'}`} />
         <IconBtn icon={MessagesSquare} anim="pop" onClick={() => setPanel('chats')} aria-label="Earlier chats" title="Your earlier conversations" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
+        <IconBtn icon={CalendarCheck} anim="pop" onClick={() => setPanel('today')} aria-label="Today" title="Reminders, to-dos, briefing and projects" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
         <IconBtn icon={Repeat} anim="spin" onClick={() => { setRoutineDraft(null); setPanel('routines'); }} aria-label="Routines" title="Saved and scheduled tasks" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
         <IconBtn icon={History} anim="clock" onClick={() => setPanel('activity')} aria-label="Activity" title="What it did recently" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
         <IconBtn icon={Brain} anim="pulse" onClick={() => setPanel('memory')} aria-label="Memory" title="What it remembers" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
@@ -746,6 +755,7 @@ export default function DwenliteHome() {
       {/* panels */}
       <AnimatePresence>
       {panel === 'remote' && <RemotePanel key="remote" devices={devices} onClose={() => setPanel(null)} onStopAll={() => { if (runRef.current) runRef.current.stopping = true; }} />}
+      {panel === 'today' && <TodayPanel key="today" project={project} onPickProject={(p) => { setProject(p); try { localStorage.setItem('dwenliteProject', JSON.stringify(p)); } catch { /* optional */ } }} onClose={() => setPanel(null)} />}
       {panel === 'chats' && <ChatsPanel key="chats" currentId={chatId} onOpen={openChat} onClose={() => setPanel(null)} />}
       {panel === 'routines' && <RoutinesPanel key="routines" devices={devices} draft={routineDraft} onClose={() => setPanel(null)} onRunHere={(p) => { setPanel(null); send(p); }} />}
       {panel === 'activity' && <ActivityPanel key="activity" devices={devices} onClose={() => setPanel(null)} />}
@@ -755,6 +765,16 @@ export default function DwenliteHome() {
         <Sheet key="memory" onClose={() => setPanel(null)} className="max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-white/10 bg-[#121217] p-5 sm:rounded-3xl">
           <div>
             <div className="mb-3 flex items-center justify-between"><h2 className="text-lg font-bold">What I remember</h2><button onClick={() => setPanel(null)} aria-label="Close"><X size={22} className="text-slate-400" /></button></div>
+            {pending.length > 0 && (
+              <div className="mb-3 rounded-2xl border border-violet-500/30 bg-violet-500/10 p-3 text-sm">
+                <p className="mb-2 text-xs font-semibold text-violet-200">I noticed these about you. Should I remember them?</p>
+                {pending.map((f) => (
+                  <div key={f.at} className="mb-1.5 flex items-center gap-2"><span className="flex-1">{f.text}</span>
+                    <Tap onClick={async () => { try { const r = await homeCall('memory_accept', { at: f.at }); setMemory(r.facts); setPending(r.pending); } catch (e) { toast.error(e.message); } }} className="rounded-lg bg-violet-600 px-2.5 py-1 text-xs font-semibold">Yes</Tap>
+                    <Tap onClick={async () => { try { const r = await homeCall('memory_reject', { at: f.at }); setPending(r.pending); } catch (e) { toast.error(e.message); } }} className="rounded-lg px-2 py-1 text-xs text-slate-400 hover:text-slate-200">No</Tap></div>
+                ))}
+              </div>
+            )}
             <div className="space-y-2">
               {memory.length === 0 && <p className="text-sm text-slate-400">Nothing yet. Tell me things worth remembering, like your setup, projects and preferences.</p>}
               {memory.map((f) => (
@@ -793,6 +813,9 @@ export default function DwenliteHome() {
             </div>
             <label className="mt-4 flex items-center justify-between text-sm text-slate-300">Steps before it pauses
               <select value={maxSteps} onChange={(e) => setMaxSteps(Number(e.target.value))} className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5">{[8, 15, 25, 40].map((n) => <option key={n} value={n}>{n}</option>)}</select>
+            </label>
+            <label className="mt-3 flex items-center justify-between text-sm text-slate-300">Time limit for a task
+              <select value={maxMinutes} onChange={(e) => { const v = Number(e.target.value); setMaxMinutes(v); try { localStorage.setItem('dwenliteMaxMinutes', JSON.stringify(v)); } catch { /* optional */ } }} className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5"><option value={0}>No limit</option>{[5, 15, 30, 60].map((n) => <option key={n} value={n}>{n} minutes</option>)}</select>
             </label>
             <p className="mt-4 text-xs text-slate-500">The Stop button stops a task at any moment.</p>
           </div>

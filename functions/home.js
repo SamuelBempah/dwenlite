@@ -77,6 +77,10 @@ const TOOLS = [
   { name: "android", description: "Control an Android phone or tablet connected to the device's computer by USB debugging or Wi-Fi debugging. Actions: devices (list), setup (download the Android tools if adb is missing), pair (host=ip:port, code=6 digits) and connect (host=ip or ip:port) for Wi-Fi debugging, info, read (list everything on the phone screen as numbered elements, no picture needed: use this first), tap (element number, or x,y), scroll (direction), swipe (x,y,x2,y2), text (type into the focused field, submit=true to press Enter), key (home, back, recents, enter, power, volume_up, volume_down), open_app (package or url), apps (installed apps; text filters), screenshot (look; only when read is not enough), shell (a command on the phone), install (local=.apk path), push/pull (local, remote). After any tap, text, key or scroll the new screen is returned. Messages and purchases still need the owner's go-ahead.", properties: { device: dev, action: { type: "string", enum: ["devices", "setup", "pair", "connect", "disconnect", "info", "read", "tap", "scroll", "swipe", "text", "key", "open_app", "apps", "screenshot", "shell", "install", "push", "pull"] }, serial: { type: "string", description: "Phone serial from devices. Optional when only one phone is connected." }, host: { type: "string" }, code: { type: "string" }, element: { type: "number" }, x: { type: "number" }, y: { type: "number" }, x2: { type: "number" }, y2: { type: "number" }, direction: { type: "string", enum: ["up", "down"] }, duration: { type: "number" }, text: { type: "string" }, submit: { type: "boolean" }, key: { type: "string" }, package: { type: "string" }, url: { type: "string" }, command: { type: "string" }, local: { type: "string" }, remote: { type: "string" }, look: { type: "string" } }, required: ["action"] },
   { name: "network_scan", description: "List the devices on the same Wi-Fi/local network as the device's computer (phones, TVs, printers, cameras, routers): address, name, and which common services answer (such as android debug on 5555).", properties: { device: dev, ports: { type: "array", items: { type: "number" } } }, required: [] },
   { name: "lan_http", description: "Send an HTTP request from the device's computer to another device on its own network (router page, printer, smart device, local server). Private addresses only.", properties: { device: dev, url: { type: "string" }, method: { type: "string", enum: ["GET", "POST"] }, body: { type: "string" } }, required: ["url"] },
+  { name: "reminder", description: "Set, list or delete reminders for the owner; each one sends a notification to their phone at the time. action add: text and EITHER at (the owner's LOCAL date and time, like 2026-12-01T09:00) OR in_minutes; optional repeat (none, daily, weekdays, weekly). action list: shows the pending reminders with ids. action delete: id. Use the owner's time zone and local time given in your instructions.", properties: { action: { type: "string", enum: ["add", "list", "delete"] }, text: { type: "string" }, at: { type: "string" }, in_minutes: { type: "number" }, repeat: { type: "string", enum: ["none", "daily", "weekdays", "weekly"] }, id: { type: "string" } }, required: ["action"] },
+  { name: "todo", description: "The owner's to-do list. action add (text), list, done (id), delete (id).", properties: { action: { type: "string", enum: ["add", "list", "done", "delete"] }, text: { type: "string" }, id: { type: "string" } }, required: ["action"] },
+  { name: "project_note", description: "Add a short note to the notes of the project the owner is working in (see CURRENT PROJECT in your instructions). Use it for decisions, names, links and progress worth remembering for this project.", properties: { text: { type: "string" } }, required: ["text"] },
+  { name: "suggest_memory", description: "Suggest a lasting habit or preference for the owner's memory, for them to approve. Use it when you notice something stable: they corrected you the same way twice, or always choose the same option. Do not use it for one-off facts (use remember when they ask you to remember something).", properties: { fact: { type: "string" } }, required: ["fact"] },
   { name: "google_mail", description: "Read and draft email in the owner's Gmail (runs in their browser once they connected Google in Settings). Actions: search (query in Gmail search syntax, max), read (id from a search), draft (to, subject, body: saves a draft, NEVER sends). Never claim an email was sent.", properties: { action: { type: "string", enum: ["search", "read", "draft"] }, query: { type: "string" }, max: { type: "number" }, id: { type: "string" }, to: { type: "string" }, subject: { type: "string" }, body: { type: "string" } }, required: ["action"] },
   { name: "google_calendar", description: "Look at or add to the owner's Google Calendar (runs in their browser once they connected Google in Settings). Actions: list (days ahead, default 7; optional from), create (title, start, end, description, attendees: ISO date-times like 2026-12-01T14:00:00 in the owner's time zone).", properties: { action: { type: "string", enum: ["list", "create"] }, days: { type: "number" }, from: { type: "string" }, title: { type: "string" }, start: { type: "string" }, end: { type: "string" }, description: { type: "string" }, attendees: { type: "array", items: { type: "string" } } }, required: ["action"] },
   { name: "document", description: "Create or read Word (.docx), Excel (.xlsx), PDF and CSV files on a device, directly, without opening Office. action read: returns the text of a .docx/.xlsx/.pdf/.csv/.txt file. action create (default): kind docx or pdf with `blocks` (each {type: heading with level 0-3 | paragraph | bullets | numbered | table, text, items, rows, header}); kind xlsx with `sheets` [{name, rows}] (rows are arrays of cells; a string starting with = is a formula); kind csv with `rows`. Overwritten files can be undone.", properties: { device: dev, action: { type: "string", enum: ["create", "read"] }, kind: { type: "string", enum: ["docx", "xlsx", "pdf", "csv"] }, path: { type: "string" }, blocks: { type: "array", items: { type: "object" } }, sheets: { type: "array", items: { type: "object" } }, rows: { type: "array", items: { type: "array", items: {} } }, text: { type: "string" } }, required: ["path"] },
@@ -116,7 +120,8 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
   const GEMINI_MODEL = defineString("GEMINI_MODEL", { default: "gemini-3.5-flash" });
 
   // Anyone signed in may use Home (no admin list). To protect the AI budget each person gets a daily allowance.
-  const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30, bgtask: 25, chatsave: 400 };
+  const SERVER_TOOLS = new Set(["reminder", "todo", "project_note", "suggest_memory"]);
+const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30, bgtask: 25, chatsave: 400 };
   // Admins (ADMIN_EMAILS) have no limits anywhere in Home.
   const isAdminDecoded = (decoded) => adminsApi.isAdmin(decoded);
   const adminCache = new Map(); // uid -> { yes, at }
@@ -290,13 +295,14 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
   const DEVICE_TOOLS = new Set(["document", "app_ui", "run_shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows", "browser", "android", "network_scan", "lan_http", "git", "run_tests"]);
   const MIXED = new Set(["browser", "git", "android", "lan_http", "document", "app_ui"]);
   async function runTask({ uid, prompt, deviceId, allowActions, watch = false, previous = "", maxSteps = 10, deadline = Date.now() + 360000 }) {
-    const tools = TOOLS.filter((t) => { const n = t.function.name; return n !== "run_js" && n !== "send_file" && !n.startsWith("google_") && (MIXED.has(n) || routines.allowedUnattended(n, {}, allowActions)); });
+    const tools = TOOLS.filter((t) => { const n = t.function.name; return n !== "run_js" && n !== "send_file" && n !== "project_note" && !n.startsWith("google_") && (SERVER_TOOLS.has(n) || MIXED.has(n) || routines.allowedUnattended(n, {}, allowActions)); });
     const dq = await db.collection("homeDevices").where("ownerUid", "==", uid).get();
     const now = Date.now();
     const devs = dq.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, online: now - (x.lastSeen || 0) < ONLINE_MS, platform: x.platform || "" }; });
     let memory = "";
     try { const m = await db.collection("homeMemory").doc(uid).get(); const f = (m.exists && m.data().facts) || []; if (f.length) memory = "\n\nWHAT YOU REMEMBER ABOUT THE OWNER:\n" + f.map((x) => `- ${clip(x.text, 400)}`).join("\n"); } catch (e) { /* optional */ }
-    const system = `${HOME_SYSTEM}\n\nTODAY: ${new Date().toISOString().slice(0, 10)}\nDEVICES:\n${devs.map((d) => `- ${d.name} (id ${d.id}, ${d.online ? "ONLINE" : "offline"})`).join("\n") || "- none"}${memory}\n\n` +
+    const tzs = validZone((await getSettings(uid)).tz);
+    const system = `${HOME_SYSTEM}\n\nTODAY: ${new Date().toISOString().slice(0, 10)}\nOWNER'S TIME ZONE: ${tzs}. THEIR LOCAL TIME NOW: ${localString(Date.now(), tzs)}.\nDEVICES:\n${devs.map((d) => `- ${d.name} (id ${d.id}, ${d.online ? "ONLINE" : "offline"})`).join("\n") || "- none"}${memory}\n\n` +
       `YOU ARE RUNNING UNATTENDED as a saved routine. Nobody can answer questions or approve anything. ${allowActions ? "The owner allowed you to change things on their devices; be careful and keep changes minimal." : "You may only read, look and search: do not try to change anything."} ` +
       `Do the task, then finish with a short plain-English report of what you found or did (no jargon). If something could not be done, say so honestly.` +
       (watch ? `\n\nWATCH MODE: you are checking for changes. ${previous ? `Your previous report was:\n"""\n${clip(previous, 1500)}\n"""\n` : ""}If nothing important is new or different since then, reply with exactly NOTHING_NEW and nothing else. Otherwise report only what is new or changed.` : "");
@@ -311,14 +317,15 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
       for (const c of calls) {
         let args = {}; try { args = JSON.parse(c.function.arguments || "{}"); } catch (e) { /* bad json */ }
         let out;
-        try { out = await execUnattended({ uid, name: c.function.name, args, devs, deviceId, allowActions, deadline }); } catch (e) { out = `Error: ${clip(e.message, 300)}`; }
+        try { out = await execUnattended({ uid, name: c.function.name, args, devs, deviceId, allowActions, deadline, tz: (await getSettings(uid)).tz }); } catch (e) { out = `Error: ${clip(e.message, 300)}`; }
         messages.push({ role: "tool", tool_call_id: c.id, content: clip(out, 7000) });
       }
     }
     if (!text) { const last = [...messages].reverse().find((m) => m.role === "assistant" && m.content); text = last ? last.content : `Stopped after ${steps} steps without a final answer.`; }
     return { text: clip(text, 4000), steps };
   }
-  async function execUnattended({ uid, name, args, devs, deviceId, allowActions, deadline, googleToken, shouldStop }) {
+  async function execUnattended({ uid, name, args, devs, deviceId, allowActions, deadline, googleToken, shouldStop, tz, projectId }) {
+    if (SERVER_TOOLS.has(name)) return await serverTool(uid, name, args, { tz, projectId });
     if (name.startsWith("google_")) return await googleApi.run(name, args, googleToken);
     if (!routines.allowedUnattended(name, args, allowActions)) return "Not allowed in an unattended routine. The owner has not allowed changes for this routine.";
     if (name === "web_search") return await web.search(clip(args.query, 300));
@@ -376,15 +383,121 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
     return { status, text, steps, runId: runRef.id };
   }
 
+  // ---- reminders, to-dos, projects, habits: small things the assistant keeps for the owner ----
+  const settingsRef = (uid) => db.collection("homeSettings").doc(uid);
+  async function getSettings(uid) { try { const d = await settingsRef(uid).get(); return d.exists ? d.data() : {}; } catch (e) { return {}; } }
+  const validZone = (tz) => routines.validTz(tz) ? tz : "UTC";
+  function localString(ms, tz) {
+    try { return new Intl.DateTimeFormat("en-GB", { timeZone: validZone(tz), weekday: "short", day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(ms)); } catch (e) { return new Date(ms).toISOString(); }
+  }
+  function parseLocal(text, tz) { // "2026-12-01T09:00" in the owner's time zone -> milliseconds
+    const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{2})/.exec(String(text || "").trim());
+    if (!m) return 0;
+    return routines.zonedToUtc(Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4]), Number(m[5]), validZone(tz));
+  }
+  const REPEATS = ["none", "daily", "weekdays", "weekly"];
+  function nextRepeat(r, from) {
+    if (r.repeat === "daily" || r.repeat === "weekdays") return routines.computeNextRun({ kind: r.repeat, time: r.time || "09:00", tz: r.tz }, from);
+    if (r.repeat === "weekly") return r.at + 7 * 86400000;
+    return 0;
+  }
+  async function serverTool(uid, name, a, ctx = {}) {
+    const tz = validZone(ctx.tz);
+    if (name === "reminder") {
+      if (a.action === "list") {
+        const q = await db.collection("homeReminders").where("ownerUid", "==", uid).get();
+        const rows = q.docs.map((d) => ({ id: d.id, ...d.data() })).filter((r) => !r.done).sort((x, y) => x.at - y.at);
+        return rows.length ? rows.map((r) => `id ${r.id}: ${localString(r.at, tz)} - ${r.text}${r.repeat && r.repeat !== "none" ? ` (repeats ${r.repeat})` : ""}`).join("\n") : "No reminders are set.";
+      }
+      if (a.action === "delete") {
+        const ref = db.collection("homeReminders").doc(String(a.id || "x")); const d = await ref.get();
+        if (!d.exists || d.data().ownerUid !== uid) return "No reminder with that id.";
+        await ref.delete(); return "Reminder deleted.";
+      }
+      if (a.action === "add") {
+        const text = clip(a.text, 300).trim(); if (!text) return "Error: what should the reminder say?";
+        const now = Date.now();
+        const at = Number.isFinite(Number(a.in_minutes)) && Number(a.in_minutes) > 0 ? now + Math.min(525600, Number(a.in_minutes)) * 60000 : parseLocal(a.at, tz);
+        if (!at) return "Error: give at as the owner's local date and time like 2026-12-01T09:00, or in_minutes.";
+        if (at < now - 60000) return "Error: that time has already passed.";
+        if (at > now + 366 * 86400000) return "Error: that is more than a year away.";
+        const mine = await db.collection("homeReminders").where("ownerUid", "==", uid).get();
+        if (mine.docs.filter((d) => !d.data().done).length >= 100) return "Error: there are already 100 reminders. Delete some first.";
+        const repeat = REPEATS.includes(a.repeat) ? a.repeat : "none";
+        const lt = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(at));
+        const ref = db.collection("homeReminders").doc();
+        await ref.set({ ownerUid: uid, text, at, tz, repeat, time: lt, done: false, createdAt: now });
+        return `Reminder set for ${localString(at, tz)}${repeat !== "none" ? `, repeating ${repeat}` : ""}: ${text} (id ${ref.id}). The owner's phone will get a notification.`;
+      }
+      return "Error: reminder actions are add, list, delete.";
+    }
+    if (name === "todo") {
+      if (a.action === "list") {
+        const q = await db.collection("homeTodos").where("ownerUid", "==", uid).get();
+        const rows = q.docs.map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => (x.createdAt || 0) - (y.createdAt || 0));
+        return rows.length ? rows.map((r) => `id ${r.id}: [${r.done ? "x" : " "}] ${r.text}`).join("\n") : "The to-do list is empty.";
+      }
+      if (a.action === "add") {
+        const text = clip(a.text, 300).trim(); if (!text) return "Error: what should the to-do say?";
+        const mine = await db.collection("homeTodos").where("ownerUid", "==", uid).get();
+        if (mine.docs.length >= 300) return "Error: the to-do list is full (300). Delete some first.";
+        const ref = db.collection("homeTodos").doc(); await ref.set({ ownerUid: uid, text, done: false, createdAt: Date.now() });
+        return `Added to the to-do list: ${text} (id ${ref.id}).`;
+      }
+      const ref = db.collection("homeTodos").doc(String(a.id || "x")); const d = await ref.get();
+      if (!d.exists || d.data().ownerUid !== uid) return "No to-do with that id.";
+      if (a.action === "done") { await ref.update({ done: true }); return "Marked as done."; }
+      if (a.action === "delete") { await ref.delete(); return "Removed from the list."; }
+      return "Error: to-do actions are add, list, done, delete.";
+    }
+    if (name === "project_note") {
+      if (!ctx.projectId) return "There is no current project, so there is nowhere to put the note.";
+      const ref = db.collection("homeProjects").doc(ctx.projectId); const d = await ref.get();
+      if (!d.exists || d.data().ownerUid !== uid) return "That project no longer exists.";
+      const notes = `${d.data().notes || ""}${d.data().notes ? "\n" : ""}- ${clip(a.text, 400)}`;
+      await ref.update({ notes: notes.slice(-4000), updatedAt: Date.now() }); return "Added to the project notes.";
+    }
+    if (name === "suggest_memory") {
+      const fact = clip(a.fact, 300).trim(); if (!fact) return "Error: what is the habit or preference?";
+      const ref = db.collection("homeMemory").doc(uid); const m = await ref.get(); const cur = m.exists ? m.data() : {};
+      if ((cur.facts || []).some((f) => f.text.toLowerCase() === fact.toLowerCase()) || (cur.pending || []).some((f) => f.text.toLowerCase() === fact.toLowerCase())) return "Already known or already suggested.";
+      await ref.set({ pending: [...(cur.pending || []), { text: fact, at: Date.now() }].slice(-10) }, { merge: true });
+      return "Suggested to the owner. It is only remembered if they approve it.";
+    }
+    return `Unknown tool ${name}.`;
+  }
+  async function remindersTick() {
+    const now = Date.now();
+    const snap = await db.collection("homeReminders").where("at", "<=", now).limit(60).get();
+    let fired = 0;
+    for (const d of snap.docs) {
+      const r = await db.runTransaction(async (tx) => { // claim it before sending, so two overlapping runs never send twice
+        const cur = await tx.get(d.ref); const x = cur.exists ? cur.data() : null;
+        if (!x || x.done || x.at > now) return null;
+        const next = nextRepeat(x, now);
+        if (next) tx.update(d.ref, { at: next, lastFired: now }); else tx.update(d.ref, { done: true, firedAt: now });
+        return x;
+      });
+      if (!r) continue;
+      fired++;
+      try { await notify(r.ownerUid, { title: "Reminder", body: r.text }); } catch (e) { logger.warn("reminder push failed", e.message); }
+    }
+    try { const old = await db.collection("homeReminders").where("at", "<=", now - 7 * 86400000).limit(100).get(); await Promise.all(old.docs.filter((d) => d.data().done).map((d) => d.ref.delete())); } catch (e) { /* best effort */ }
+    return fired;
+  }
+
   // ---- the live chat: every message from the app runs here, in the cloud, and the phone is the remote control ----
-  async function buildSystemPrompt(uid) {
+  async function buildSystemPrompt(uid, opts = {}) {
     const dq = await db.collection("homeDevices").where("ownerUid", "==", uid).get();
     const now = Date.now();
     const devs = dq.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, online: now - (x.lastSeen || 0) < ONLINE_MS, platform: x.platform || "", caps: x.caps || {}, locked: !!x.locked }; });
     const list = devs.map((d) => `- ${clip(d.name, 60)} (id ${d.id}, ${d.online ? "ONLINE" : "offline"}${d.platform ? ", " + clip(d.platform, 20) : ""}, shell ${d.caps.shell ? "allowed" : "NOT allowed"}, screen/mouse/keyboard ${d.caps.gui ? "allowed" : "NOT allowed"}${d.locked ? ", the screen is LOCKED right now: programs cannot be seen or controlled, use only the browser tool, files and tasks, and tell the owner if the job needs the screen" : ""})`).join("\n") || "- none connected yet";
     let memory = "";
     try { const m = await db.collection("homeMemory").doc(uid).get(); const f = (m.exists && m.data().facts) || []; if (f.length) memory = "\n\nWHAT YOU REMEMBER ABOUT THE OWNER:\n" + f.map((x) => `- ${clip(x.text, 400)}`).join("\n"); } catch (e) { /* optional */ }
-    return { system: `${HOME_SYSTEM}\n\nTODAY: ${new Date().toISOString().slice(0, 10)}\nDEVICES:\n${list}${memory}\n\nYou are working in the cloud while the owner may be away from the screen. They can watch, stop you, or tell you something new while you work: if a message starting with [The owner says while you work] appears, follow it.`, devs };
+    const st = await getSettings(uid); const tz = validZone(opts.tz || st.tz);
+    let project = "";
+    if (opts.projectId) { try { const pd = await db.collection("homeProjects").doc(opts.projectId).get(); if (pd.exists && pd.data().ownerUid === uid) project = `\n\nCURRENT PROJECT: ${clip(pd.data().name, 80)}${pd.data().folder ? ` (folder on the computer: ${clip(pd.data().folder, 200)})` : ""}\nPROJECT NOTES:\n${clip(pd.data().notes, 3000) || "(none yet)"}\nStay inside this project's context. Add important decisions and progress to its notes with project_note.`; } catch (e) { /* optional */ } }
+    return { tz, system: `${HOME_SYSTEM}\n\nTODAY: ${new Date().toISOString().slice(0, 10)}\nOWNER'S TIME ZONE: ${tz}. THEIR LOCAL TIME NOW: ${localString(Date.now(), tz)}.\nDEVICES:\n${list}${memory}${project}\n\nSMALL THINGS YOU KEEP FOR THEM: use the reminder tool for "remind me..." (give at as their local time), the todo tool for their list, and suggest_memory when you notice a stable habit.\n\nYou are working in the cloud while the owner may be away from the screen. They can watch, stop you, or tell you something new while you work: if a message starting with [The owner says while you work] appears, follow it.`, devs };
   }
   const clipMsgs = (msgs) => msgs.map((m) => (m.role === "tool" ? { role: "tool", tool_call_id: m.tool_call_id, content: clip(m.content, 1500) } : m.role === "assistant" ? { role: "assistant", content: clip(m.content, 6000), ...(m.tool_calls ? { tool_calls: m.tool_calls.map((c) => ({ id: c.id, type: "function", function: { name: c.function.name, arguments: clip(c.function.arguments, 1500) } })) } : {}) } : { role: "user", content: clip(m.content, 4000) }));
   const compact = (msgs) => { let size = JSON.stringify(msgs).length; for (let i = 0; i < msgs.length && size > 800000; i++) if (msgs[i].role === "tool" && msgs[i].content.length > 300) { size -= msgs[i].content.length - 300; msgs[i].content = msgs[i].content.slice(0, 300); } return msgs; };
@@ -404,7 +517,7 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
       const cur = (await ref.get()).data();
       if (Date.now() - (cur.lastPoll || 0) > 20000) { try { await notify(uid, { title: status === "error" ? "Dwenlite Home hit a problem" : status === "stopped" ? "Stopped" : "Dwenlite Home finished", body: text || "Finished." }); } catch (e) { /* optional */ } }
     };
-    const dq = await buildSystemPrompt(uid); const devs = dq.devs;
+    const devs = (await buildSystemPrompt(uid, { tz: run.tz, projectId: run.projectId })).devs;
     const tools = TOOLS.filter((t) => t.function.name !== "run_js" && (!t.function.name.startsWith("google_") || ctx.googleToken));
     const shouldStop = async () => !!(await ref.get()).data().stop;
     try {
@@ -412,6 +525,7 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
         const cur = (await ref.get()).data();
         if (cur.stop) { await finish("stopped", "Stopped."); return; }
         if (cur.steer && cur.steer.length) { messages.push({ role: "user", content: `[The owner says while you work] ${cur.steer.join(" / ")}` }); await ref.update({ steer: [] }); }
+        if (run.maxMinutes && Date.now() - (run.startedAt || started) > run.maxMinutes * 60000) { await finish("done", `I reached the ${run.maxMinutes} minute limit you set, so I stopped here. Tell me to carry on if you want me to continue.`); return; }
         if (Date.now() - started > 400000) { // out of time for this turn: save progress and carry on in a fresh one
           await ref.update({ msgs: JSON.stringify(compact(messages)), step, status: "running" });
           try { await enqueueTask({ runId, googleToken: ctx.googleToken || "" }); return; } catch (e) { await finish("error", "The task took too long and could not be continued."); return; }
@@ -437,7 +551,7 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
           await emit({ type: "tool_start", id: c.id, name, args: shown, deviceId: dev ? dev.id : "", deviceName: dev ? dev.name : "" });
           await ref.update({ note: clip(args.summary || "", 120) });
           let out;
-          try { out = await execUnattended({ uid, name, args, devs, deviceId: dev ? dev.id : "", allowActions: true, deadline: started + 420000, googleToken: ctx.googleToken, shouldStop }); } catch (e) { out = `Error: ${clip(e.message, 300)}`; }
+          try { out = await execUnattended({ uid, name, args, devs, deviceId: dev ? dev.id : "", allowActions: true, deadline: started + 420000, googleToken: ctx.googleToken, shouldStop, tz: run.tz, projectId: run.projectId }); } catch (e) { out = `Error: ${clip(e.message, 300)}`; }
           const failed = /^(Error:|ERROR:)/.test(String(out)) || /^Stopped by the owner/.test(String(out));
           await emit({ type: "tool_end", id: c.id, status: failed ? "error" : "done", output: clip(out, 1500) });
           messages.push({ role: "tool", tool_call_id: c.id, content: clip(out, 7000) });
@@ -928,10 +1042,14 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
             if (!messages.length || messages[messages.length - 1].role !== "user") return res.status(400).json({ error: "Nothing to answer." });
             if (!(await capUsage(uid, "chat"))) return res.status(429).json({ error: "You have used today's Dwenlite Home allowance. It resets tomorrow." });
             if (!enqueueTask) return res.status(200).json({ fallback: true });
-            const { system } = await buildSystemPrompt(uid);
+            const tz = routines.validTz(body.tz) ? body.tz : "";
+            if (tz) settingsRef(uid).set({ tz }, { merge: true }).catch(() => {});
+            let projectId = ""; if (body.projectId) { const pd = await db.collection("homeProjects").doc(String(body.projectId)).get(); if (pd.exists && pd.data().ownerUid === uid) projectId = pd.id; }
+            const maxMinutes = Math.min(240, Math.max(0, Math.floor(Number(body.maxMinutes) || 0)));
+            const { system } = await buildSystemPrompt(uid, { tz, projectId });
             const msgs = [{ role: "system", content: system }, ...messages];
             const ref = db.collection("homeRuns").doc();
-            await ref.set({ ownerUid: uid, kind: "chat", name: clip(messages[messages.length - 1].content, 60), chatId: clip(body.chatId, 40), status: "queued", text: "", createdAt: Date.now(), finishedAt: 0, eventCount: 0, step: 0, maxSteps: Math.min(40, Math.max(3, Number(body.maxSteps) || 25)), baseLen: msgs.length, msgs: JSON.stringify(compact(msgs)), stop: false, steer: [], note: "", lastPoll: Date.now() });
+            await ref.set({ ownerUid: uid, kind: "chat", name: clip(messages[messages.length - 1].content, 60), chatId: clip(body.chatId, 40), status: "queued", text: "", createdAt: Date.now(), finishedAt: 0, eventCount: 0, step: 0, maxSteps: Math.min(40, Math.max(3, Number(body.maxSteps) || 25)), baseLen: msgs.length, msgs: JSON.stringify(compact(msgs)), stop: false, steer: [], note: "", lastPoll: Date.now(), tz, projectId, maxMinutes });
             try { await enqueueTask({ runId: ref.id, googleToken: clip(body.googleToken, 2500) }); }
             catch (e) { logger.warn("cloud queue unavailable", e.message); await ref.update({ status: "error", text: "queue unavailable" }); return res.status(200).json({ fallback: true }); }
             return res.status(200).json({ runId: ref.id });
@@ -1054,7 +1172,7 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
           // ---- memory ----
           if (action === "memory_get") {
             const s = await db.collection("homeMemory").doc(uid).get();
-            return res.status(200).json({ facts: (s.exists && s.data().facts) || [] });
+            return res.status(200).json({ facts: (s.exists && s.data().facts) || [], pending: (s.exists && s.data().pending) || [] });
           }
           if (action === "memory_add") {
             const fact = clip(body.fact, 400).trim();
@@ -1062,15 +1180,64 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
             const ref = db.collection("homeMemory").doc(uid);
             const s = await ref.get();
             const facts = ((s.exists && s.data().facts) || []).concat({ text: fact, at: Date.now() }).slice(-60);
-            await ref.set({ facts });
+            await ref.set({ facts }, { merge: true });
             return res.status(200).json({ ok: true, facts });
           }
           if (action === "memory_delete") {
             const ref = db.collection("homeMemory").doc(uid);
             const s = await ref.get();
             const facts = ((s.exists && s.data().facts) || []).filter((f) => f.at !== body.at);
-            await ref.set({ facts });
+            await ref.set({ facts }, { merge: true });
             return res.status(200).json({ ok: true, facts });
+          }
+          if (action === "memory_accept" || action === "memory_reject") {
+            const ref = db.collection("homeMemory").doc(uid); const s = await ref.get(); const cur = s.exists ? s.data() : {};
+            const item = (cur.pending || []).find((f) => f.at === body.at);
+            const pending = (cur.pending || []).filter((f) => f.at !== body.at);
+            const facts = action === "memory_accept" && item ? (cur.facts || []).concat({ text: item.text, at: Date.now() }).slice(-60) : (cur.facts || []);
+            await ref.set({ facts, pending }, { merge: true });
+            return res.status(200).json({ ok: true, facts, pending });
+          }
+
+          // ---- reminders, to-dos, projects, settings, briefing ----
+          if (action === "tool_run") {
+            if (!SERVER_TOOLS.has(body.name)) return res.status(400).json({ error: "Unknown tool." });
+            const tz = routines.validTz(body.tz) ? body.tz : (await getSettings(uid)).tz;
+            return res.status(200).json({ output: await serverTool(uid, body.name, body.args && typeof body.args === "object" ? body.args : {}, { tz, projectId: String(body.projectId || "") }) });
+          }
+          if (action === "today_get") {
+            const st = await getSettings(uid);
+            const [rq, tq, pq, bq] = await Promise.all(["homeReminders", "homeTodos", "homeProjects"].map((c) => db.collection(c).where("ownerUid", "==", uid).get()).concat([db.collection("homeRoutines").where("ownerUid", "==", uid).get()]));
+            return res.status(200).json({
+              tz: st.tz || "", briefing: bq.docs.filter((d) => d.data().briefing).map((d) => ({ id: d.id, time: (d.data().schedule || {}).time || "", enabled: d.data().enabled !== false }))[0] || null,
+              reminders: rq.docs.map((d) => ({ id: d.id, ...d.data(), ownerUid: undefined })).filter((r) => !r.done).sort((a, b) => a.at - b.at),
+              todos: tq.docs.map((d) => ({ id: d.id, text: d.data().text, done: !!d.data().done, createdAt: d.data().createdAt || 0 })).sort((a, b) => a.createdAt - b.createdAt),
+              projects: pq.docs.map((d) => ({ id: d.id, name: d.data().name, folder: d.data().folder || "", notes: d.data().notes || "", updatedAt: d.data().updatedAt || 0 })).sort((a, b) => b.updatedAt - a.updatedAt),
+            });
+          }
+          if (action === "todo_toggle") { const ref = db.collection("homeTodos").doc(String(body.id || "x")); const d = await ref.get(); if (!d.exists || d.data().ownerUid !== uid) return res.status(404).json({ error: "No such item." }); await ref.update({ done: !!body.done }); return res.status(200).json({ ok: true }); }
+          if (action === "todo_clear_done") { const q = await db.collection("homeTodos").where("ownerUid", "==", uid).get(); await Promise.all(q.docs.filter((d) => d.data().done).map((d) => d.ref.delete())); return res.status(200).json({ ok: true }); }
+          if (action === "project_save") {
+            const name = clip(body.name, 60).trim(); if (!name) return res.status(400).json({ error: "Give the project a name." });
+            const data = { name, folder: clip(body.folder, 300), notes: clip(body.notes, 4000), updatedAt: Date.now() };
+            if (body.id) { const ref = db.collection("homeProjects").doc(String(body.id)); const d = await ref.get(); if (!d.exists || d.data().ownerUid !== uid) return res.status(404).json({ error: "No such project." }); await ref.update(data); return res.status(200).json({ id: ref.id }); }
+            const mine = await db.collection("homeProjects").where("ownerUid", "==", uid).get();
+            if (mine.docs.length >= 30) return res.status(400).json({ error: "You can keep up to 30 projects." });
+            const ref = db.collection("homeProjects").doc(); await ref.set({ ownerUid: uid, ...data, createdAt: Date.now() }); return res.status(200).json({ id: ref.id });
+          }
+          if (action === "project_delete") { const ref = db.collection("homeProjects").doc(String(body.id || "x")); const d = await ref.get(); if (!d.exists || d.data().ownerUid !== uid) return res.status(404).json({ error: "No such project." }); await ref.delete(); return res.status(200).json({ ok: true }); }
+          if (action === "briefing_set") {
+            const tz = routines.validTz(body.tz) ? body.tz : "UTC";
+            const q = await db.collection("homeRoutines").where("ownerUid", "==", uid).get();
+            const cur = q.docs.find((d) => d.data().briefing);
+            if (body.enabled === false) { if (cur) await cur.ref.update({ enabled: false, nextRun: NEVER }); return res.status(200).json({ ok: true }); }
+            if (!/^\d{1,2}:\d{2}$/.test(body.time || "")) return res.status(400).json({ error: "Pick a time for your briefing." });
+            const schedule = { kind: "daily", time: body.time, tz };
+            if (!routines.computeNextRun(schedule)) return res.status(400).json({ error: "That time is not valid." });
+            const doc = { ownerUid: uid, name: "Morning briefing", briefing: true, prompt: "Give the owner a short, friendly morning briefing. Check their reminders and to-do list with the tools and mention what matters today. If you can, add the weather or one headline worth knowing from a quick web search. Keep it brief and warm, in plain words.", deviceId: "", schedule, allowActions: false, watch: false, enabled: true, nextRun: routines.computeNextRun(schedule) };
+            settingsRef(uid).set({ tz }, { merge: true }).catch(() => {});
+            if (cur) await cur.ref.update(doc); else await db.collection("homeRoutines").doc().set({ ...doc, createdAt: Date.now(), lastRun: 0, lastStatus: "", lastText: "", running: 0 });
+            return res.status(200).json({ ok: true });
           }
 
           // ---- image -> text (free image model) ----
@@ -1131,7 +1298,11 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
     ? onSchedule({ schedule: "every 5 minutes", timeoutSeconds: 540, memory: "512MiB", maxInstances: 1, secrets: [DEEPSEEK_API_KEY] }, async () => { await schedulerTick(); })
     : null;
 
-  return { homeApi, homeScheduler, runTaskWorker, _test: { runChat, runAdhoc, schedulerTick, runTask, notify, vapid, validateJob, cleanMessages, hash, TOOLS, JOB_TYPES } };
+  const homeReminderTick = onSchedule
+    ? onSchedule({ schedule: "every 1 minutes", timeoutSeconds: 60, memory: "256MiB", maxInstances: 1 }, async () => { await remindersTick(); })
+    : null;
+
+  return { homeApi, homeScheduler, homeReminderTick, runTaskWorker, _test: { remindersTick, serverTool, runChat, runAdhoc, schedulerTick, runTask, notify, vapid, validateJob, cleanMessages, hash, TOOLS, JOB_TYPES } };
 }
 
 module.exports = { create };
