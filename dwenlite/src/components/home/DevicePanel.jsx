@@ -2,6 +2,7 @@ import { Fragment, useState } from 'react';
 import { Monitor, Plus, Trash2, Copy, Download, X, Wifi, WifiOff, FolderOpen } from 'lucide-react';
 import { HOME_URL, homeCall } from '../../lib/homeClient';
 import toast from 'react-hot-toast';
+import { Sheet } from './motion';
 
 // Pair a computer: create it here, then run the small agent on that computer with the shown command.
 export default function DevicePanel({ devices, reload, onClose }) {
@@ -42,8 +43,8 @@ export default function DevicePanel({ devices, reload, onClose }) {
   const copy = async (t) => { try { await navigator.clipboard.writeText(t); toast.success('Copied'); } catch { toast.error('Copy failed'); } };
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/70 p-0 backdrop-blur-sm sm:items-center sm:p-4" onClick={onClose}>
-      <div className="max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-white/10 bg-[#121217] p-5 text-white shadow-2xl sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+    <Sheet onClose={onClose} className="max-h-[92dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-white/10 bg-[#121217] p-5 text-white shadow-2xl sm:rounded-3xl">
+      <div>
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-bold">Your devices</h2>
           <button onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-white"><X size={22} /></button>
@@ -111,6 +112,6 @@ export default function DevicePanel({ devices, reload, onClose }) {
           </div>
         )}
       </div>
-    </div>
+    </Sheet>
   );
 }

@@ -7,6 +7,7 @@ import ActionCard from '../components/home/ActionCard';
 import DevicePanel from '../components/home/DevicePanel';
 import PlanCard from '../components/home/PlanCard';
 import ActivityPanel from '../components/home/ActivityPanel';
+import { AnimatePresence, Appear, IconBtn, Motion, Sheet, Tap, motion, spring } from '../components/home/motion';
 import { createLiveStream } from '../lib/liveStream';
 import { createTypewriter } from '../lib/typewriter';
 import { homeCall, homeChatStream, imageToText, IMAGE_MODES, runJs, formatJsResult } from '../lib/homeClient';
@@ -391,62 +392,67 @@ export default function DwenliteHome() {
   const modeBanner = mode === 'screen' ? 'Computer-use mode: screen actions run on their own' : mode === 'auto' ? 'AUTONOMOUS: everything runs without asking' : '';
 
   return (
+    <Motion>
     <div className="home-root flex h-[calc(100dvh-4rem)] flex-col text-white">
       {/* top bar */}
       <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2.5 md:px-6">
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600"><Home size={18} /></span>
+          <motion.span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-indigo-600" initial={{ scale: 0.6, rotate: -20, opacity: 0 }} animate={{ scale: 1, rotate: 0, opacity: 1 }} whileHover={{ scale: 1.08, rotate: -6 }} whileTap={{ scale: 0.92 }} transition={spring}><Home size={18} /></motion.span>
           <div className="hidden min-w-0 sm:block">
             <p className="truncate font-bold leading-tight">Dwenlite Home</p>
             <p className="truncate text-[11px] text-slate-500">Your personal assistant</p>
           </div>
         </div>
-        <button onClick={toggleAuto} role="switch" aria-checked={mode === 'auto'} title="Let the assistant do everything by itself, without asking" className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold ${mode === 'auto' ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-200' : 'border-white/10 bg-slate-800/70 text-slate-300 hover:border-violet-500/50'}`}>
-          <span className={`relative inline-block h-4 w-7 rounded-full ${mode === 'auto' ? 'bg-emerald-500' : 'bg-slate-600'}`}><span className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${mode === 'auto' ? 'left-3.5' : 'left-0.5'}`} /></span>
+        <motion.button onClick={toggleAuto} role="switch" aria-checked={mode === 'auto'} title="Let the assistant do everything by itself, without asking" whileTap={{ scale: 0.92 }} transition={spring} className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors duration-300 ${mode === 'auto' ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-200' : 'border-white/10 bg-slate-800/70 text-slate-300 hover:border-violet-500/50'}`}>
+          <span className={`relative inline-block h-4 w-7 rounded-full transition-colors duration-300 ${mode === 'auto' ? 'bg-emerald-500' : 'bg-slate-600'}`}><motion.span className="absolute left-0.5 top-0.5 h-3 w-3 rounded-full bg-white" animate={{ x: mode === 'auto' ? 12 : 0 }} transition={spring} /></span>
           Auto
-        </button>
-        <button onClick={() => setPanel('devices')} className="flex items-center gap-1.5 rounded-full border border-white/10 bg-slate-800/70 px-3 py-1.5 text-xs hover:border-violet-500/50">
-          {onlineCount ? <Wifi size={13} className="text-emerald-400" /> : <WifiOff size={13} className="text-slate-500" />}
+        </motion.button>
+        <motion.button onClick={() => setPanel('devices')} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.93 }} transition={spring} className="flex items-center gap-1.5 rounded-full border border-white/10 bg-slate-800/70 px-3 py-1.5 text-xs hover:border-violet-500/50">
+          {onlineCount ? <motion.span style={{ display: 'inline-flex' }} animate={{ opacity: [1, 0.4, 1] }} transition={{ repeat: Infinity, duration: 2.2, ease: 'easeInOut' }}><Wifi size={13} className="text-emerald-400" /></motion.span> : <WifiOff size={13} className="text-slate-500" />}
           <span className="hidden sm:inline">{devices.length ? `${onlineCount}/${devices.length} online` : 'Add a computer'}</span>
           <Monitor size={13} className="sm:hidden" />
-        </button>
-        <button onClick={() => setPanel('activity')} aria-label="Activity" title="What it did recently" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50"><History size={16} /></button>
-        <button onClick={() => setPanel('memory')} aria-label="Memory" title="What it remembers" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50"><Brain size={16} /></button>
-        <button onClick={() => setPanel('settings')} aria-label="Settings" title="How much it may do on its own" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50"><SlidersHorizontal size={16} /></button>
-        <button onClick={newChat} aria-label="New chat" title="New chat" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50"><RotateCcw size={16} /></button>
+        </motion.button>
+        <IconBtn icon={History} anim="clock" onClick={() => setPanel('activity')} aria-label="Activity" title="What it did recently" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
+        <IconBtn icon={Brain} anim="pulse" onClick={() => setPanel('memory')} aria-label="Memory" title="What it remembers" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
+        <IconBtn icon={SlidersHorizontal} anim="tilt" onClick={() => setPanel('settings')} aria-label="Settings" title="How much it may do on its own" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
+        <IconBtn icon={RotateCcw} anim="spin" onClick={newChat} aria-label="New chat" title="New chat" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
       </div>
 
+      <AnimatePresence initial={false}>
       {devices.length > 0 && onlineCount === 0 && (
-        <div className="flex items-center justify-between gap-2 bg-slate-800/80 px-4 py-2 text-xs text-slate-200">
+        <motion.div key="offline" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={spring} style={{ overflow: 'hidden' }} className="flex items-center justify-between gap-2 bg-slate-800/80 px-4 py-2 text-xs text-slate-200">
           <span>Your computer is not connected. Start the Dwenlite agent on it again.</span>
-          <button onClick={() => setPanel('devices')} className="shrink-0 rounded-md bg-violet-600 px-2.5 py-1 font-semibold hover:bg-violet-500">How to reconnect</button>
-        </div>
+          <Tap onClick={() => setPanel('devices')} className="shrink-0 rounded-md bg-violet-600 px-2.5 py-1 font-semibold hover:bg-violet-500">How to reconnect</Tap>
+        </motion.div>
       )}
+      </AnimatePresence>
 
+      <AnimatePresence initial={false}>
       {modeBanner && (
-        <div className={`flex items-center justify-between px-4 py-1.5 text-xs font-semibold ${mode === 'auto' ? 'bg-red-500/20 text-red-200' : 'bg-amber-400/15 text-amber-200'}`}>
+        <motion.div key={mode} initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={spring} style={{ overflow: 'hidden' }} className={`flex items-center justify-between px-4 py-1.5 text-xs font-semibold ${mode === 'auto' ? 'bg-red-500/20 text-red-200' : 'bg-amber-400/15 text-amber-200'}`}>
           <span>{modeBanner}</span>
-          {busy && <button onClick={stopNow} className="rounded-md bg-black/30 px-2 py-0.5">Stop</button>}
-        </div>
+          {busy && <Tap onClick={stopNow} className="rounded-md bg-black/30 px-2 py-0.5">Stop</Tap>}
+        </motion.div>
       )}
+      </AnimatePresence>
 
       {/* conversation */}
       <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-3 py-4 md:px-6">
         {items.length === 0 && (
           <div className="mx-auto mt-6 max-w-xl text-center">
-            <span className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600"><Sparkles size={26} /></span>
+            <motion.span className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600" initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1, y: [0, -6, 0] }} transition={{ scale: spring, opacity: { duration: 0.2 }, y: { repeat: Infinity, duration: 3.2, ease: 'easeInOut' } }}><motion.span style={{ display: 'inline-flex' }} animate={{ rotate: [0, 12, -8, 0], scale: [1, 1.15, 1] }} transition={{ repeat: Infinity, duration: 4, ease: 'easeInOut' }}><Sparkles size={26} /></motion.span></motion.span>
             <h1 className="text-xl font-bold">What can I do for you?</h1>
             <p className="mt-1 text-sm text-slate-400">Code, look at pictures, and operate your computers on your behalf, with your approval.</p>
             {!devices.length && <button onClick={() => setPanel('devices')} className="mt-4 rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold hover:bg-violet-500">Connect your first computer</button>}
             <div className="mt-5 flex flex-wrap justify-center gap-2">
-              {QUICK.map((q) => <button key={q} onClick={() => send(q)} className="rounded-full border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-left text-xs text-violet-100 hover:bg-violet-500/20">{q}</button>)}
+              {QUICK.map((q, i) => <motion.button key={q} initial={{ opacity: 0, y: 14, scale: 0.94 }} animate={{ opacity: 1, y: 0, scale: 1 }} whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.95 }} transition={{ ...spring, delay: 0.12 + i * 0.05 }} onClick={() => send(q)} className="rounded-full border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-left text-xs text-violet-100 hover:bg-violet-500/20">{q}</motion.button>)}
             </div>
           </div>
         )}
 
         {items.map((m) => {
           if (m.type === 'user') return (
-            <div key={m.id} className="ml-auto max-w-[92%] sm:max-w-[80%]">
+            <Appear key={m.id} className="ml-auto max-w-[92%] sm:max-w-[80%]">
               <div className="rounded-2xl rounded-br-md bg-violet-600 p-3 text-sm">
                 {m.thumbs && m.thumbs.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{m.thumbs.map((u) => <img key={u} src={u} alt="" className="h-20 rounded-lg object-cover" />)}</div>}
                 {m.text && <p className="whitespace-pre-wrap break-words">{m.text}</p>}
@@ -454,12 +460,12 @@ export default function DwenliteHome() {
               {m.analysis && m.analysis.length > 0 && (
                 <details className="mt-1 text-xs text-slate-500"><summary className="cursor-pointer">What the image model read</summary><pre className="mt-1 whitespace-pre-wrap rounded-lg bg-black/30 p-2 text-slate-400">{m.analysis.join('\n---\n')}</pre></details>
               )}
-            </div>
+            </Appear>
           );
           if (m.type === 'ai') return (
-            <div key={m.id} className="max-w-[96%] rounded-2xl rounded-bl-md bg-slate-800 p-3 text-sm text-slate-200 sm:max-w-[85%]">
+            <Appear key={m.id} y={8} className="max-w-[96%] rounded-2xl rounded-bl-md bg-slate-800 p-3 text-sm text-slate-200 sm:max-w-[85%]">
               <ChatAnswer content={m.content} typing={m.typing} live={m.live} />
-            </div>
+            </Appear>
           );
           if (m.type === 'plan') return <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><PlanCard steps={m.steps} /></div>;
           if (m.type === 'action') return <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><ActionCard item={m} onDecide={decide} onUndo={undoAction} /></div>;
@@ -486,8 +492,8 @@ export default function DwenliteHome() {
         <div className="flex items-end gap-2">
           <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => { addImages(e.target.files); e.target.value = ''; }} />
           <input ref={camRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { addImages(e.target.files); e.target.value = ''; }} />
-          <button onClick={() => fileRef.current?.click()} aria-label="Attach image" className="rounded-xl p-2.5 text-slate-400 hover:bg-white/10 hover:text-white"><Paperclip size={20} /></button>
-          <button onClick={() => camRef.current?.click()} aria-label="Take a photo" className="rounded-xl p-2.5 text-slate-400 hover:bg-white/10 hover:text-white"><Camera size={20} /></button>
+          <IconBtn icon={Paperclip} size={20} anim="tilt" onClick={() => fileRef.current?.click()} aria-label="Attach image" className="rounded-xl p-2.5 text-slate-400 hover:bg-white/10 hover:text-white" />
+          <IconBtn icon={Camera} size={20} anim="pop" onClick={() => camRef.current?.click()} aria-label="Take a photo" className="rounded-xl p-2.5 text-slate-400 hover:bg-white/10 hover:text-white" />
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -498,18 +504,19 @@ export default function DwenliteHome() {
             className="max-h-40 min-h-[2.75rem] flex-1 resize-none rounded-2xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm outline-none focus:border-violet-500"
           />
           {busy
-            ? <button onClick={stopNow} aria-label="Stop" className="rounded-xl bg-red-600 p-3 hover:bg-red-500"><Square size={18} fill="currentColor" /></button>
-            : <button onClick={() => send()} disabled={!input.trim() && !images.length} aria-label="Send" className="rounded-xl bg-violet-600 p-3 hover:bg-violet-500 disabled:opacity-40"><Send size={18} /></button>}
+            ? <motion.button key="stop" initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: [1, 1.07, 1], opacity: 1 }} transition={{ scale: { repeat: Infinity, duration: 1.4 }, opacity: { duration: 0.15 } }} whileTap={{ scale: 0.88 }} onClick={stopNow} aria-label="Stop" className="rounded-xl bg-red-600 p-3 hover:bg-red-500"><Square size={18} fill="currentColor" /></motion.button>
+            : <IconBtn key="send" icon={Send} size={18} anim="fly" onClick={() => send()} disabled={!input.trim() && !images.length} aria-label="Send" className="rounded-xl bg-violet-600 p-3 hover:bg-violet-500 disabled:opacity-40" />}
         </div>
       </div>
 
       {/* panels */}
-      {panel === 'activity' && <ActivityPanel devices={devices} onClose={() => setPanel(null)} />}
-      {panel === 'devices' && <DevicePanel devices={devices} reload={loadDevices} onClose={() => setPanel(null)} />}
+      <AnimatePresence>
+      {panel === 'activity' && <ActivityPanel key="activity" devices={devices} onClose={() => setPanel(null)} />}
+      {panel === 'devices' && <DevicePanel key="devices" devices={devices} reload={loadDevices} onClose={() => setPanel(null)} />}
 
       {panel === 'memory' && (
-        <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/70 backdrop-blur-sm sm:items-center sm:p-4" onClick={() => setPanel(null)}>
-          <div className="max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-white/10 bg-[#121217] p-5 sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+        <Sheet key="memory" onClose={() => setPanel(null)} className="max-h-[85dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-white/10 bg-[#121217] p-5 sm:rounded-3xl">
+          <div>
             <div className="mb-3 flex items-center justify-between"><h2 className="text-lg font-bold">What I remember</h2><button onClick={() => setPanel(null)} aria-label="Close"><X size={22} className="text-slate-400" /></button></div>
             <div className="space-y-2">
               {memory.length === 0 && <p className="text-sm text-slate-400">Nothing yet. Tell me things worth remembering, like your setup, projects and preferences.</p>}
@@ -523,18 +530,18 @@ export default function DwenliteHome() {
               <button onClick={async () => { if (!newFact.trim()) return; try { setMemory((await homeCall('memory_add', { fact: newFact })).facts); setNewFact(''); } catch (e) { toast.error(e.message); } }} className="rounded-xl bg-violet-600 px-4 text-sm font-semibold hover:bg-violet-500">Add</button>
             </div>
           </div>
-        </div>
+        </Sheet>
       )}
 
       {panel === 'settings' && (
-        <div className="fixed inset-0 z-[90] flex items-end justify-center bg-black/70 backdrop-blur-sm sm:items-center sm:p-4" onClick={() => setPanel(null)}>
-          <div className="max-h-[88dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-white/10 bg-[#121217] p-5 sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+        <Sheet key="settings" onClose={() => setPanel(null)} className="max-h-[88dvh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-white/10 bg-[#121217] p-5 sm:rounded-3xl">
+          <div>
             <div className="mb-3 flex items-center justify-between"><h2 className="text-lg font-bold">How much may it do alone?</h2><button onClick={() => setPanel(null)} aria-label="Close"><X size={22} className="text-slate-400" /></button></div>
             <div className="space-y-2">
               {MODES.map((m) => (
-                <button key={m.id} onClick={() => chooseMode(m.id)} className={`block w-full rounded-2xl border p-3 text-left ${mode === m.id ? (m.id === 'auto' ? 'border-red-500/60 bg-red-500/10' : 'border-violet-500/60 bg-violet-500/10') : 'border-white/10 bg-slate-900/60'}`}>
+                <motion.button key={m.id} whileTap={{ scale: 0.98 }} onClick={() => chooseMode(m.id)} className={`block w-full rounded-2xl border p-3 text-left transition-colors duration-300 ${mode === m.id ? (m.id === 'auto' ? 'border-red-500/60 bg-red-500/10' : 'border-violet-500/60 bg-violet-500/10') : 'border-white/10 bg-slate-900/60'}`}>
                   <p className="font-semibold">{m.title}</p><p className="mt-0.5 text-xs text-slate-400">{m.text}</p>
-                </button>
+                </motion.button>
               ))}
             </div>
             <label className="mt-4 flex items-center justify-between text-sm text-slate-300">Steps before it pauses
@@ -542,8 +549,9 @@ export default function DwenliteHome() {
             </label>
             <p className="mt-4 text-xs text-slate-500">The Stop button works in every mode. Each computer's agent also has its own switches (commands and screen control) that you set when you start it.</p>
           </div>
-        </div>
+        </Sheet>
       )}
+      </AnimatePresence>
 
       {codeRun && (
         <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={() => setCodeRun(null)}>
@@ -558,5 +566,6 @@ export default function DwenliteHome() {
         </div>
       )}
     </div>
+    </Motion>
   );
 }
