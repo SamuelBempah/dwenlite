@@ -35,6 +35,8 @@ const HOME_SYSTEM =
   "- When the owner shares a lasting preference or fact about themselves, their setup or projects, call remember.\n\n" +
   "PHONES AND OTHER DEVICES\n" +
   "- To work on an Android phone use the android tool: devices, then read (it lists the screen as numbered elements, no picture), then tap/text/key by number, reading again after each step. For Wi-Fi use pair/connect with the address shown in Developer options > Wireless debugging. Use network_scan to find devices on the same network and lan_http to talk to them. Always ask before sending messages, calls or purchases from a phone.\n\n" +
+  "CHECK YOUR OWN WORK\n" +
+  "- After you change something (a file, a setting, a page, a phone), verify it: read the file back, run the tests, read the page again. In your final message say plainly \"Checked: ...\" with what you verified, or \"Not checked: ...\" with why not. Never say it worked unless you saw evidence.\n\n" +
   "WEB AND BROWSER\n" +
   "- For facts, news or documentation use web_search then read_page. Never open google.com in the browser to search (it blocks automated browsers): web_search already covers it. If a page shows a bot check, switch to another site instead of retrying. To DO things on a website (log in, fill forms, click) use the browser tool: open, read, then click/type by element number, and read again. Prefer the browser tool over screenshots and mouse clicks.\n" +
   "- Never enter passwords or payment details unless the owner gave them in this chat for this exact purpose. Stop and ask before anything that spends money, sends messages or deletes things.\n" +
@@ -96,7 +98,7 @@ const normEmail = (e) => {
   return m ? `${m[1].split("+")[0].replace(/\./g, "")}@gmail.com` : x;
 };
 
-function create({ admin, db, logger, axios, cors, onRequest, onSchedule, webpush, defineString, DEEPSEEK_API_KEY, ADMIN_EMAILS, admins }) {
+function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskDispatched, enqueueTask, webpush, defineString, DEEPSEEK_API_KEY, ADMIN_EMAILS, admins }) {
   const adminsApi = admins || require("./admins").create({ db, ADMIN_EMAILS });
   const JOB_POLL_MS = 1500;
   const NEVER = 9e15; // nextRun for routines that are not scheduled
@@ -104,7 +106,7 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, webpush
   const GEMINI_MODEL = defineString("GEMINI_MODEL", { default: "gemini-3.5-flash" });
 
   // Anyone signed in may use Home (no admin list). To protect the AI budget each person gets a daily allowance.
-  const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30 };
+  const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30, bgtask: 25, chatsave: 400 };
   // Admins (ADMIN_EMAILS) have no limits anywhere in Home.
   const isAdminDecoded = (decoded) => adminsApi.isAdmin(decoded);
   const adminCache = new Map(); // uid -> { yes, at }
@@ -276,7 +278,7 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, webpush
   // ---- unattended runs (saved routines, on a schedule or on demand) ----
   const DEVICE_TOOLS = new Set(["run_shell", "read_file", "write_file", "list_dir", "system_info", "screenshot", "click", "type_text", "press_key", "scroll", "open_url", "list_windows", "browser", "android", "network_scan", "lan_http", "git", "run_tests"]);
   const MIXED = new Set(["browser", "git", "android", "lan_http"]);
-  async function runTask({ uid, prompt, deviceId, allowActions, maxSteps = 10, deadline = Date.now() + 360000 }) {
+  async function runTask({ uid, prompt, deviceId, allowActions, watch = false, previous = "", maxSteps = 10, deadline = Date.now() + 360000 }) {
     const tools = TOOLS.filter((t) => { const n = t.function.name; return n !== "run_js" && n !== "send_file" && (MIXED.has(n) || routines.allowedUnattended(n, {}, allowActions)); });
     const dq = await db.collection("homeDevices").where("ownerUid", "==", uid).get();
     const now = Date.now();
@@ -285,7 +287,8 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, webpush
     try { const m = await db.collection("homeMemory").doc(uid).get(); const f = (m.exists && m.data().facts) || []; if (f.length) memory = "\n\nWHAT YOU REMEMBER ABOUT THE OWNER:\n" + f.map((x) => `- ${clip(x.text, 400)}`).join("\n"); } catch (e) { /* optional */ }
     const system = `${HOME_SYSTEM}\n\nTODAY: ${new Date().toISOString().slice(0, 10)}\nDEVICES:\n${devs.map((d) => `- ${d.name} (id ${d.id}, ${d.online ? "ONLINE" : "offline"})`).join("\n") || "- none"}${memory}\n\n` +
       `YOU ARE RUNNING UNATTENDED as a saved routine. Nobody can answer questions or approve anything. ${allowActions ? "The owner allowed you to change things on their devices; be careful and keep changes minimal." : "You may only read, look and search: do not try to change anything."} ` +
-      `Do the task, then finish with a short plain-English report of what you found or did (no jargon). If something could not be done, say so honestly.`;
+      `Do the task, then finish with a short plain-English report of what you found or did (no jargon). If something could not be done, say so honestly.` +
+      (watch ? `\n\nWATCH MODE: you are checking for changes. ${previous ? `Your previous report was:\n"""\n${clip(previous, 1500)}\n"""\n` : ""}If nothing important is new or different since then, reply with exactly NOTHING_NEW and nothing else. Otherwise report only what is new or changed.` : "");
     const messages = [{ role: "system", content: system }, { role: "user", content: clip(prompt, 4000) }];
     let text = ""; let steps = 0;
     for (; steps < maxSteps && Date.now() < deadline; steps++) {
@@ -342,8 +345,12 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, webpush
     const runRef = db.collection("homeRuns").doc();
     let status = "done"; let text = ""; let steps = 0;
     try {
-      const out = await runTask({ uid: routine.ownerUid, prompt: routine.prompt, deviceId: routine.deviceId || "", allowActions: !!routine.allowActions, deadline: startedAt + (manual ? 240000 : 380000) });
+      const out = await runTask({ uid: routine.ownerUid, prompt: routine.prompt, deviceId: routine.deviceId || "", allowActions: !!routine.allowActions, watch: !!routine.watch, previous: routine.lastText || "", deadline: startedAt + (manual ? 240000 : 380000) });
       text = out.text; steps = out.steps;
+      if (routine.watch && /^NOTHING_NEW\b/i.test(text.trim())) {
+        await db.collection("homeRoutines").doc(id).update({ lastRun: Date.now(), lastStatus: "unchanged", running: 0 }).catch(() => {});
+        return { status: "unchanged", text: "Nothing new since the last check.", steps, runId: "" };
+      }
     } catch (e) {
       status = "error"; text = e.response && e.response.status === 402 ? "The AI balance is empty." : `The routine could not finish: ${clip(e.message, 200)}`;
       logger.error("routine failed", id, e.message);
@@ -354,6 +361,20 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, webpush
     await db.collection("homeRoutines").doc(id).update(patch).catch(() => {});
     try { await notify(routine.ownerUid, { title: `${routine.name}${status === "error" ? " (problem)" : ""}`, body: text || "Finished." }); } catch (e) { logger.warn("notify failed", e.message); }
     return { status, text, steps, runId: runRef.id };
+  }
+
+  // a task started from the chat that keeps going on the server, even if the page is closed
+  async function runAdhoc(runId) {
+    const ref = db.collection("homeRuns").doc(runId);
+    const snap = await ref.get();
+    if (!snap.exists || snap.data().status !== "queued") return;
+    const r = snap.data();
+    await ref.update({ status: "running", startedAt: Date.now() });
+    let status = "done"; let text = "";
+    try { const out = await runTask({ uid: r.ownerUid, prompt: r.prompt, deviceId: r.deviceId || "", allowActions: !!r.allowActions, maxSteps: 14, deadline: Date.now() + 480000 }); text = out.text; }
+    catch (e) { status = "error"; text = e.response && e.response.status === 402 ? "The AI balance is empty." : `The task could not finish: ${clip(e.message, 200)}`; logger.error("background task failed", runId, e.message); }
+    await ref.update({ status, text, finishedAt: Date.now() });
+    try { await notify(r.ownerUid, { title: status === "error" ? "Background task problem" : "Background task finished", body: text || "Finished." }); } catch (e) { /* optional */ }
   }
 
   async function schedulerTick() {
@@ -664,10 +685,46 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, webpush
             return res.status(200).json({ sent: await notify(uid, { title: clip(body.title, 80) || "Dwenlite Home", body: clip(body.body, 180) }) });
           }
 
+          // ---- chat history (kept on the server so you can come back to a conversation on any device) ----
+          if (action === "chat_save") {
+            if (!(await capUsage(uid, "chatsave"))) return res.status(200).json({ ok: false });
+            const data = typeof body.data === "string" ? body.data : "";
+            if (!data || data.length > 700000) return res.status(413).json({ error: "This conversation is too long to keep. Start a new chat." });
+            const id = /^[\w-]{6,40}$/.test(String(body.id || "")) ? String(body.id) : crypto.randomBytes(9).toString("base64url");
+            const ref = db.collection("homeChats").doc(id);
+            const cur = await ref.get();
+            if (cur.exists && cur.data().ownerUid !== uid) return res.status(404).json({ error: "No such chat." });
+            await ref.set({ ownerUid: uid, title: clip(body.title, 80) || "New chat", preview: clip(body.preview, 160), search: clip(body.search, 6000).toLowerCase(), data, updatedAt: Date.now(), createdAt: cur.exists ? cur.data().createdAt || Date.now() : Date.now() });
+            if (!cur.exists) { // keep the newest 60
+              const all = await db.collection("homeChats").where("ownerUid", "==", uid).get();
+              if (all.docs.length > 60) all.docs.sort((a, b) => (a.data().updatedAt || 0) - (b.data().updatedAt || 0)).slice(0, all.docs.length - 60).forEach((d) => d.ref.delete().catch(() => {}));
+            }
+            return res.status(200).json({ ok: true, id });
+          }
+          if (action === "chat_list") {
+            let q = db.collection("homeChats").where("ownerUid", "==", uid);
+            if (q.select) q = q.select("title", "preview", "search", "updatedAt");
+            const snap = await q.get();
+            const needle = clip(body.q, 80).toLowerCase().trim();
+            const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((r) => !needle || (r.title || "").toLowerCase().includes(needle) || (r.search || "").includes(needle)).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).slice(0, 60);
+            return res.status(200).json({ chats: rows.map((r) => ({ id: r.id, title: r.title, preview: r.preview, updatedAt: r.updatedAt })) });
+          }
+          if (action === "chat_get") {
+            const d = await db.collection("homeChats").doc(String(body.id || "x")).get();
+            if (!d.exists || d.data().ownerUid !== uid) return res.status(404).json({ error: "No such chat." });
+            return res.status(200).json({ id: d.id, title: d.data().title, data: d.data().data });
+          }
+          if (action === "chat_delete") {
+            const ref = db.collection("homeChats").doc(String(body.id || "x")); const d = await ref.get();
+            if (!d.exists || d.data().ownerUid !== uid) return res.status(404).json({ error: "No such chat." });
+            await ref.delete();
+            return res.status(200).json({ ok: true });
+          }
+
           // ---- saved routines ----
           if (action === "routine_list") {
             const q = await db.collection("homeRoutines").where("ownerUid", "==", uid).get();
-            return res.status(200).json({ routines: q.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, prompt: x.prompt, deviceId: x.deviceId || "", schedule: x.schedule || null, allowActions: !!x.allowActions, enabled: x.enabled !== false, nextRun: x.nextRun && x.nextRun < NEVER ? x.nextRun : 0, lastRun: x.lastRun || 0, lastStatus: x.lastStatus || "", lastText: x.lastText || "", running: !!(x.running && Date.now() - x.running < 600000) }; }).sort((a, b) => a.name.localeCompare(b.name)) });
+            return res.status(200).json({ routines: q.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, prompt: x.prompt, deviceId: x.deviceId || "", schedule: x.schedule || null, allowActions: !!x.allowActions, watch: !!x.watch, enabled: x.enabled !== false, nextRun: x.nextRun && x.nextRun < NEVER ? x.nextRun : 0, lastRun: x.lastRun || 0, lastStatus: x.lastStatus || "", lastText: x.lastText || "", running: !!(x.running && Date.now() - x.running < 600000) }; }).sort((a, b) => a.name.localeCompare(b.name)) });
           }
           if (action === "routine_save") {
             const name = clip(body.name, 60).trim(); const prompt = clip(body.prompt, 2000).trim();
@@ -682,7 +739,7 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, webpush
             let deviceId = "";
             if (body.deviceId) { const d = await db.collection("homeDevices").doc(String(body.deviceId)).get(); if (d.exists && d.data().ownerUid === uid) deviceId = d.id; }
             const enabled = body.enabled !== false;
-            const doc = { ownerUid: uid, name, prompt, deviceId, schedule, allowActions: !!body.allowActions, enabled, nextRun: enabled && schedule ? routines.computeNextRun(schedule) : NEVER };
+            const doc = { ownerUid: uid, name, prompt, deviceId, schedule, allowActions: !!body.allowActions, watch: !!body.watch, enabled, nextRun: enabled && schedule ? routines.computeNextRun(schedule) : NEVER };
             if (body.id) {
               const ref = db.collection("homeRoutines").doc(String(body.id)); const cur = await ref.get();
               if (!cur.exists || cur.data().ownerUid !== uid) return res.status(404).json({ error: "No such routine." });
@@ -709,11 +766,30 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, webpush
             const out = await runRoutine(cur.data(), ref.id, { manual: true });
             return res.status(200).json(out);
           }
+          if (action === "task_start") {
+            const prompt = clip(body.prompt, 4000).trim();
+            if (!prompt) return res.status(400).json({ error: "Nothing to do." });
+            if (!(await capUsage(uid, "bgtask"))) return res.status(429).json({ error: "You have used today's background task allowance. It resets tomorrow." });
+            let deviceId = "";
+            if (body.deviceId) { const d = await db.collection("homeDevices").doc(String(body.deviceId)).get(); if (d.exists && d.data().ownerUid === uid) deviceId = d.id; }
+            const ref = db.collection("homeRuns").doc();
+            await ref.set({ ownerUid: uid, routineId: "", name: prompt.slice(0, 60), prompt, deviceId, allowActions: !!body.allowActions, status: "queued", text: "", adhoc: true, createdAt: Date.now(), finishedAt: 0 });
+            let queued = false;
+            if (enqueueTask) { try { await enqueueTask({ runId: ref.id }); queued = true; } catch (e) { logger.warn("could not queue the task, running it now", e.message); } }
+            if (!queued) { await runAdhoc(ref.id); const d = await ref.get(); return res.status(200).json({ runId: ref.id, mode: "inline", status: d.data().status, text: d.data().text }); }
+            return res.status(200).json({ runId: ref.id, mode: "queued", status: "queued" });
+          }
+          if (action === "run_get") {
+            const d = await db.collection("homeRuns").doc(String(body.id || "x")).get();
+            if (!d.exists || d.data().ownerUid !== uid) return res.status(404).json({ error: "No such task." });
+            const x = d.data(); return res.status(200).json({ status: x.status, text: x.text || "", finishedAt: x.finishedAt || 0 });
+          }
           if (action === "run_list") {
             const q = await db.collection("homeRuns").where("ownerUid", "==", uid).get();
             const now = Date.now();
-            q.docs.filter((d) => (d.data().finishedAt || 0) < now - 14 * 86400000).forEach((d) => d.ref.delete().catch(() => {}));
-            return res.status(200).json({ runs: q.docs.map((d) => ({ id: d.id, ...d.data() })).filter((r) => r.finishedAt >= now - 14 * 86400000).sort((a, b) => b.finishedAt - a.finishedAt).slice(0, 30).map((r) => ({ id: r.id, routineId: r.routineId, name: r.name, status: r.status, text: r.text, finishedAt: r.finishedAt })) });
+            const t = (d) => d.finishedAt || d.createdAt || d.startedAt || 0;
+            q.docs.filter((d) => t(d.data()) < now - 14 * 86400000).forEach((d) => d.ref.delete().catch(() => {}));
+            return res.status(200).json({ runs: q.docs.map((d) => ({ id: d.id, ...d.data() })).filter((r) => t(r) >= now - 14 * 86400000).sort((a, b) => t(b) - t(a)).slice(0, 30).map((r) => ({ id: r.id, routineId: r.routineId, name: r.name, status: r.status, text: r.text, adhoc: !!r.adhoc, finishedAt: r.finishedAt || 0, createdAt: r.createdAt || 0 })) });
           }
 
           // ---- jobs ----
@@ -842,11 +918,15 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, webpush
     }
   );
 
+  const runTaskWorker = onTaskDispatched
+    ? onTaskDispatched({ retryConfig: { maxAttempts: 1 }, rateLimits: { maxConcurrentDispatches: 3 }, timeoutSeconds: 540, memory: "512MiB", secrets: [DEEPSEEK_API_KEY] }, async (req) => { await runAdhoc(String((req.data && req.data.runId) || "")); })
+    : null;
+
   const homeScheduler = onSchedule
     ? onSchedule({ schedule: "every 5 minutes", timeoutSeconds: 540, memory: "512MiB", maxInstances: 1, secrets: [DEEPSEEK_API_KEY] }, async () => { await schedulerTick(); })
     : null;
 
-  return { homeApi, homeScheduler, _test: { schedulerTick, runTask, notify, vapid, validateJob, cleanMessages, hash, TOOLS, JOB_TYPES } };
+  return { homeApi, homeScheduler, runTaskWorker, _test: { runAdhoc, schedulerTick, runTask, notify, vapid, validateJob, cleanMessages, hash, TOOLS, JOB_TYPES } };
 }
 
 module.exports = { create };

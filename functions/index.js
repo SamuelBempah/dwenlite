@@ -716,6 +716,11 @@ exports.generateNotesProxy = onRequest(
 
 // Dwenlite Home (admin only): personal assistant that codes, sees images and operates the owner's devices.
 const { onSchedule } = require("firebase-functions/v2/scheduler");
-const homeParts = require("./home").create({ admin, db, logger, axios, cors, onRequest, onSchedule, defineString, DEEPSEEK_API_KEY, ADMIN_EMAILS, admins });
+const { onTaskDispatched } = require("firebase-functions/v2/tasks");
+const homeParts = require("./home").create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskDispatched,
+  // hands a task to a queue that runs it on its own, so it keeps going when the page is closed
+  enqueueTask: async (data) => { const { getFunctions } = require("firebase-admin/functions"); await getFunctions().taskQueue("runTaskWorker").enqueue(data, { dispatchDeadlineSeconds: 540 }); },
+  defineString, DEEPSEEK_API_KEY, ADMIN_EMAILS, admins });
 exports.homeApi = homeParts.homeApi;
 exports.homeScheduler = homeParts.homeScheduler; // runs saved routines every 5 minutes
+exports.runTaskWorker = homeParts.runTaskWorker; // runs background tasks started from the chat
