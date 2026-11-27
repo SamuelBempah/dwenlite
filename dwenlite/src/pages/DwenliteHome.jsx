@@ -9,6 +9,7 @@ import PlanCard from '../components/home/PlanCard';
 import ActivityPanel from '../components/home/ActivityPanel';
 import RoutinesPanel from '../components/home/RoutinesPanel';
 import ChatsPanel from '../components/home/ChatsPanel';
+import { sleep, keepWorking } from '../lib/homeTimer';
 import { startWake, wakeSupported } from '../lib/homeWake';
 import TodayPanel, { myZone } from '../components/home/TodayPanel';
 import DwenLogo from '../components/home/DwenLogo';
@@ -44,7 +45,7 @@ const readJson = (k, d) => { try { return JSON.parse(localStorage.getItem(k) || 
 const SCREEN = new Set(['screenshot', 'click', 'type_text', 'press_key', 'scroll', 'browser', 'app_ui']);
 const JOB_TYPE = { run_shell: 'shell' };
 const uid = () => Math.random().toString(36).slice(2, 10);
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const MAX_STEPS = 400; // no step limit in practice: it works until the job is done (Stop is always there)
 
 const QUICK = [
   'Take a screenshot and tell me what is on my screen',
@@ -64,7 +65,6 @@ export default function DwenliteHome() {
   const [imageMode, setImageMode] = useState('describe');
   const [busy, setBusy] = useState(false);
   const [mode] = useState('auto'); // Dwenlite Home always works on its own: there is no other mode
-  const [maxSteps, setMaxSteps] = useState(15);
   const [maxMinutes, setMaxMinutes] = useState(() => Number(readJson('dwenliteMaxMinutes', 0)) || 0); // 0 = no time limit
   const [project, setProject] = useState(() => readJson('dwenliteProject', null));
   const [pending, setPending] = useState([]);
@@ -371,7 +371,7 @@ export default function DwenliteHome() {
     voiceRef.current && voiceRef.current.stop();
     let finalText = '';
     try {
-      for (let step = 0; step < maxSteps; step++) {
+      for (let step = 0; step < MAX_STEPS; step++) {
         const { text, tools } = await streamAssistant();
         const msg = { role: 'assistant', content: text };
         if (tools.length) msg.tool_calls = tools.map((t) => ({ id: t.id, type: 'function', function: { name: t.name, arguments: t.arguments || '{}' } }));
@@ -383,7 +383,6 @@ export default function DwenliteHome() {
           convo.current.push({ role: 'tool', tool_call_id: t.id, content: String(out).slice(0, 8000) });
         }
         if (stopRef.current) break;
-        if (step === maxSteps - 1) add({ id: uid(), type: 'info', text: `Paused after ${maxSteps} steps. Send a message to let it continue.` });
       }
     } catch (e) {
       if (e.name !== 'AbortError') toast.error(e.message || 'Something went wrong.');
@@ -481,7 +480,7 @@ export default function DwenliteHome() {
   async function startCloud() {
     try {
       await saveNow(); // so the conversation is kept even if the page closes now
-      const r = await homeCall('chat_send', { messages: convo.current, chatId: chatIdRef.current, maxSteps, tz: myZone(), projectId: project ? project.id : undefined, maxMinutes: maxMinutes || undefined, googleToken: googleToken() || undefined });
+      const r = await homeCall('chat_send', { messages: convo.current, chatId: chatIdRef.current, maxSteps: MAX_STEPS, tz: myZone(), projectId: project ? project.id : undefined, maxMinutes: maxMinutes || undefined, googleToken: googleToken() || undefined });
       if (r.fallback || !r.runId) { cloudDown.current = true; add({ id: uid(), type: 'info', text: 'Working from this page (the cloud helper is not available right now).' }); return false; }
       watchRun(r.runId, 0);
       return true;
@@ -513,6 +512,7 @@ export default function DwenliteHome() {
         else if (ev.type === 'done') {
           (ev.messages || []).forEach((m) => convo.current.push(m));
           finalText = ev.status === 'done' ? ev.text : '';
+          if (ev.status === 'done') setItems((p) => p.map((i) => (i.type === 'plan' && i.steps.some((x) => x.status !== 'done') ? { ...i, steps: i.steps.map((x) => ({ ...x, status: 'done' })) } : i)));
           if (ev.status === 'stopped') add({ id: uid(), type: 'info', text: 'Stopped.' });
           if (ev.status === 'error') add({ id: uid(), type: 'info', text: ev.text || 'It ran into a problem.' });
         }
@@ -573,6 +573,9 @@ export default function DwenliteHome() {
     })();
   }, [gate]);
 
+  useEffect(() => { if (!busy) return undefined; return keepWorking(); }, [busy]);
+  // when the page comes back into view, catch up at once
+  const pinnedPlan = busy ? [...items].reverse().find((i) => i.type === 'plan') : null;
   // "Hey Dwen": listens while this page is open and nothing else is going on
   useEffect(() => {
     if (!wakeOn || gate !== 'ok' || busy || listening || speaking || !wakeSupported()) return undefined;
@@ -702,12 +705,13 @@ export default function DwenliteHome() {
               <ChatAnswer content={plainText(m.content)} typing={m.typing} live={m.live} />
             </Appear>
           );
-          if (m.type === 'plan') return <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><PlanCard steps={m.steps} /></div>;
+          if (m.type === 'plan') return pinnedPlan && pinnedPlan.id === m.id ? null : <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><PlanCard steps={m.steps} /></div>;
           if (m.type === 'action') return <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><ActionCard item={m} onUndo={undoAction} onDownload={downloadFile} /></div>;
           return <p key={m.id} className="text-center text-xs italic text-slate-500">{plainText(m.text)}</p>;
         })}
       </div>
 
+      {pinnedPlan && <div className="max-h-[32dvh] overflow-y-auto border-t border-violet-500/20 bg-[#0e0e13] px-3 pt-1"><PlanCard steps={pinnedPlan.steps} /></div>}
       <AnimatePresence initial={false}>
         {live && (
           <motion.div key="live" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={spring} style={{ overflow: 'hidden' }} className="border-t border-violet-500/20 bg-violet-500/10 px-3">
@@ -822,9 +826,6 @@ export default function DwenliteHome() {
                 <span className="shrink-0 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold">{googleOn ? 'Disconnect' : 'Connect Google'}</span>
               </button>
             </div>
-            <label className="mt-4 flex items-center justify-between text-sm text-slate-300">Steps before it pauses
-              <select value={maxSteps} onChange={(e) => setMaxSteps(Number(e.target.value))} className="rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5">{[8, 15, 25, 40].map((n) => <option key={n} value={n}>{n}</option>)}</select>
-            </label>
             <label className="mt-3 flex items-center justify-between gap-3 text-sm text-slate-300"><span>Hands-free<span className="block text-xs text-slate-500">Say "Hey Dwen" while this page is open. The microphone listens only on this page.</span></span>
               <button type="button" role="switch" aria-checked={wakeOn} onClick={toggleWake} className={`h-6 w-11 shrink-0 rounded-full p-0.5 transition-colors ${wakeOn ? 'bg-violet-600' : 'bg-slate-700'}`}><span className={`block h-5 w-5 rounded-full bg-white transition-transform ${wakeOn ? 'translate-x-5' : ''}`} /></button>
             </label>
