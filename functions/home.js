@@ -878,11 +878,12 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
       case "clipboard": { if (a.action === "read") return { action: "read" }; return a.action === "write" && typeof a.text === "string" && a.text && a.text.length <= 100000 ? { action: "write", text: a.text } : null; }
       case "browser_view": {
         const op = String(a.op || "frame");
-        if (!["frame", "tap", "text", "key", "scroll", "back", "forward", "reload", "go"].includes(op)) return null;
+        if (!["frame", "tap", "text", "key", "scroll", "back", "forward", "reload", "go", "resize"].includes(op)) return null;
         const o = { op };
         if (op === "tap") { if (!num(a.x, 0, 20000) || !num(a.y, 0, 20000)) return null; o.x = a.x; o.y = a.y; }
         if (op === "text") { if (typeof a.text !== "string" || !a.text) return null; o.text = clip(a.text, 2000); }
         if (op === "key") { if (typeof a.key !== "string" || !/^[\w+]{1,30}$/.test(a.key)) return null; o.key = a.key; }
+        if (op === "resize") { if (!num(a.w, 200, 4000) || !num(a.h, 200, 4000)) return null; o.w = Math.round(a.w); o.h = Math.round(a.h); }
         if (op === "scroll") o.dy = num(a.dy, -3000, 3000) ? a.dy : 400;
         if (op === "go") { let u = String(a.url || "").trim(); if (u && !/^[a-z][a-z0-9+.-]*:/i.test(u)) u = /^[\w-]+(\.[\w-]+)+(:\d+)?([\/?#].*)?$/.test(u) ? `https://${u}` : `https://www.google.com/search?q=${encodeURIComponent(u)}`; if (!/^https?:\/\/[^\s]+$/i.test(u) || u.length > 2000) return null; o.url = u; }
         return o;
@@ -1065,9 +1066,9 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
                   tx.update(d.ref, { status: "running", startedAt: Date.now(), ...hide });
                   return before;
                 });
-                if (claimed) return res.status(200).json({ job: { id: d.id, type: claimed.type, args: claimed.args }, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now(), live: LIVE_KINDS.filter((k) => (snap.data()[`live_${k}`] || 0) > Date.now()) } });
+                if (claimed) return res.status(200).json({ job: { id: d.id, type: claimed.type, args: claimed.args }, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now(), live: LIVE_KINDS.filter((k) => (snap.data()[`live_${k}`] || 0) > Date.now()), liveKey: (snap.data().liveKeyUntil || 0) > Date.now() ? snap.data().liveKey : "" } });
               }
-              return res.status(200).json({ job: null, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now(), live: LIVE_KINDS.filter((k) => (snap.data()[`live_${k}`] || 0) > Date.now()) } });
+              return res.status(200).json({ job: null, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now(), live: LIVE_KINDS.filter((k) => (snap.data()[`live_${k}`] || 0) > Date.now()), liveKey: (snap.data().liveKeyUntil || 0) > Date.now() ? snap.data().liveKey : "" } });
             }
             if (action === "agent_frame") {
               const kind = LIVE_KINDS.includes(body.kind) ? body.kind : "";
@@ -1519,6 +1520,11 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
           if (action === "live_start") {
             const kind = LIVE_KINDS.includes(body.kind) ? body.kind : ""; const dev = await liveOwner(uid, body.deviceId);
             if (!kind || !dev) return res.status(404).json({ error: "No such computer." });
+            if (body.local) { // the page will connect straight to the computer: hand over a one-time key (no pictures go through here)
+              const key = crypto.randomBytes(24).toString("base64url");
+              await dev.ref.update({ liveKey: key, liveKeyUntil: Date.now() + 20 * 60000, viewUntil: Date.now() + 45000 });
+              return res.status(200).json({ ok: true, key });
+            }
             await dev.ref.update({ [`live_${kind}`]: Date.now() + 25000, viewUntil: Date.now() + 45000 });
             return res.status(200).json({ ok: true });
           }

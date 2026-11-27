@@ -21,6 +21,7 @@ export default function BrowserView({ device, kind = 'browser', reason, onClose,
   const [dev, setDev] = useState(null); // what the computer reports, to explain a stall
   const [updating, setUpdating] = useState(false);
   const editingRef = useRef(false); const live = useRef(null); const imgRef = useRef(null); const metaRef = useRef(null); const typeRef = useRef(null);
+  const stageRef = useRef(null);
   const drag = useRef(null); const composing = useRef(false);
 
   useEffect(() => {
@@ -31,7 +32,12 @@ export default function BrowserView({ device, kind = 'browser', reason, onClose,
       onError: (m) => setErr(m),
     });
     live.current = w;
-    return () => w.stop();
+    // like a real browser: the page uses all the room on this screen (and follows it if it changes)
+    let t = null;
+    const fit = () => { const r = stageRef.current && stageRef.current.getBoundingClientRect(); if (!isScreen && r && r.width > 100 && r.height > 100) w.input({ op: 'resize', w: Math.round(r.width), h: Math.round(r.height) }); };
+    fit(); const onResize = () => { clearTimeout(t); t = setTimeout(fit, 350); };
+    window.addEventListener('resize', onResize);
+    return () => { clearTimeout(t); window.removeEventListener('resize', onResize); w.stop(); };
   }, [device.id, kind]);
 
   // if no picture arrives, find out why (an old helper is by far the most common reason)
@@ -108,7 +114,7 @@ export default function BrowserView({ device, kind = 'browser', reason, onClose,
         </div>
       )}
       {reason && <p className="border-b border-amber-400/20 bg-amber-500/10 px-3 py-1.5 text-xs text-amber-100">{reason}</p>}
-      <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black text-white">
+      <div ref={stageRef} className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-black text-white">
         {!frame && !err && <div className="flex flex-col items-center gap-2 px-6 text-center text-sm text-slate-300"><span className="flex items-center gap-2"><Spinner size={18} /> {isScreen ? 'Connecting to the screen...' : 'Opening the browser...'}</span>{slow && (
           <div className="mt-1 max-w-xs space-y-2 text-xs text-slate-400">
             {!dev && <p>Taking longer than usual. Checking the computer...</p>}

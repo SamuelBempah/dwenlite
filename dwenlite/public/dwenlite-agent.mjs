@@ -22,7 +22,7 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import dns from 'node:dns/promises';
 
-export const VERSION = '2.8.0';
+export const VERSION = '2.9.0';
 export const DEFAULT_URL = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/homeApi';
 export const SITE = 'https://www.dwenlite.space';
 const MAX_OUT = 100000;      // characters of command output sent back
@@ -728,11 +728,11 @@ export function createBrowser({ root, api, log }) {
   }
 
   // ---- a live picture of the browser: the browser pushes a new frame whenever the page changes ----
-  async function screencast(onFrame) {
+  async function screencast(onFrame, q = {}) {
     if (!proc || !page || page.closed) return null;
     const p = page;
     const off = p.on('Page.screencastFrame', (f) => { onFrame(f); p.send('Page.screencastFrameAck', { sessionId: f.sessionId }).catch(() => {}); });
-    await p.send('Page.startScreencast', { format: 'jpeg', quality: 55, maxWidth: 1100, maxHeight: 1100, everyNthFrame: 1 });
+    await p.send('Page.startScreencast', { format: 'jpeg', quality: q.quality || 55, maxWidth: q.maxWidth || 1100, maxHeight: q.maxHeight || 1100, everyNthFrame: 1 });
     return () => { off(); p.send('Page.stopScreencast').catch(() => {}); };
   }
   const isOpen = () => !!(proc && page && !page.closed);
@@ -747,6 +747,7 @@ export function createBrowser({ root, api, log }) {
     else if (op === 'back') await evalJs(p, 'history.back()');
     else if (op === 'forward') await evalJs(p, 'history.forward()');
     else if (op === 'reload') await p.send('Page.reload', {});
+    else if (op === 'resize') { if (!visible) await p.send('Emulation.setDeviceMetricsOverride', { width: Math.max(320, Math.min(2560, Number(a.w) || 1280)), height: Math.max(320, Math.min(2000, Number(a.h) || 900)), deviceScaleFactor: 1, mobile: false }); }
     else if (op === 'go') { const u = String(a.url || ''); if (/^https?:\/\/[^\s]+$/i.test(u)) await p.send('Page.navigate', { url: u }); }
   }
 
@@ -1246,45 +1247,93 @@ export function createAgent(opts) {
   const logFile = path.join(root, 'dwenlite-agent.log');
   const log = (m) => { const line = `${new Date().toISOString()} ${m}`; console.log(line); try { fs.appendFileSync(logFile, line + '\n'); } catch { /* ignore */ } };
   // ---- live views: while the owner is watching, pictures are sent as fast as they can be, and their taps and typing come back with each reply ----
-  const streams = new Map(); // kind -> { stop }
-  function startStream(kind) {
-    if (streams.has(kind) || !opts.gui) return; // viewing the screen or the browser needs the screen permission
+  const streams = new Map(); // kind -> stream state
+  const viewers = { browser: new Set(), screen: new Set() }; // viewers connected straight to this computer (same computer or home network): no relay, no delay
+  let cloudLive = new Set(); // kinds someone is watching through the relay
+  const localKeys = new Map(); // one-time keys from the cloud that let the owner's page connect directly
+  const wantStream = (kind) => viewers[kind].size > 0 || cloudLive.has(kind);
+  function ensureStream(kind) {
+    if (streams.has(kind) || !opts.gui || !wantStream(kind)) return; // viewing the screen or the browser needs the screen permission
     log(`live view started: ${kind}`);
-    const st = { stopped: false, latest: null, seq: 0, sent: 0, inflight: 0, hold: 0, cleanup: null, proc: null };
+    const st = { stopped: false, latest: null, seq: 0, sentCloud: 0, sentLocal: 0, lastLocal: 0, lastSend: 0, inflight: 0, hold: 0, cleanup: null, proc: null, hi: viewers[kind].size > 0, born: Date.now() };
     streams.set(kind, st);
     (async () => {
-      let lastInfo = 0; let info = null; let sc = null;
-      const stopAll = () => { st.stopped = true; try { sc && sc(); } catch { /* gone */ } try { st.proc && st.proc.kill(); } catch { /* gone */ } streams.delete(kind); };
+      let lastInfo = 0; let info = null; let sc = null; let scHi = null;
+      const stopAll = () => { st.stopped = true; try { sc && sc(); } catch { /* gone */ } try { st.proc && st.proc.kill(); } catch { /* gone */ } streams.delete(kind); if (kind === 'browser') browser.input({ op: 'resize', w: 1280, h: 900 }).catch(() => {}); };
       st.cleanup = stopAll;
       try {
         if (kind === 'screen' && IS_WIN) {
           const file = psFile('stream', PS_STREAM);
-          st.proc = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file, '-MaxW', '1100', '-Quality', '45'], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+          st.proc = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file, '-MaxW', st.hi ? '1600' : '1100', '-Quality', st.hi ? '70' : '45'], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
           let buf = ''; st.proc.stdout.on('data', (d) => { buf += d; let i; while ((i = buf.indexOf('\n')) >= 0) { const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1); if (line.length > 200) { st.latest = { image: line, meta: { open: true }, n: ++st.seq }; } } if (buf.length > 3000000) buf = ''; });
           st.proc.on('exit', () => { if (!st.stopped) st.latest = { image: '', meta: { open: false }, n: ++st.seq }; });
         }
         while (!st.stopped) {
           const t0 = Date.now();
+          st.hi = viewers[kind].size > 0;
           if (kind === 'browser') {
-            if (!sc && browser.isOpen()) { try { sc = await browser.screencast((f) => { st.latest = { image: f.data, meta: { open: true, w: Math.round(f.metadata.deviceWidth) || 1280, h: Math.round(f.metadata.deviceHeight) || 900, ...(info || {}) }, n: ++st.seq }; }); } catch { sc = null; } }
-            if (sc && !browser.isOpen()) { try { sc(); } catch { /* gone */ } sc = null; }
+            if (sc && (!browser.isOpen() || scHi !== st.hi)) { try { sc(); } catch { /* gone */ } sc = null; }
+            if (!sc && browser.isOpen()) { try { scHi = st.hi; sc = await browser.screencast((f) => { st.latest = { image: f.data, meta: { open: true, w: Math.round(f.metadata.deviceWidth) || 1280, h: Math.round(f.metadata.deviceHeight) || 900, ...(info || {}) }, n: ++st.seq }; }, st.hi ? { quality: 80, maxWidth: 1920, maxHeight: 1920 } : {}); } catch { sc = null; } }
             if (!browser.isOpen()) { if (!st.latest || st.latest.meta.open) st.latest = { image: '', meta: { open: false }, n: ++st.seq }; }
-            else if (t0 - lastInfo > 700) { lastInfo = t0; const i = await browser.pageInfo(); if (i) { info = { url: String(i.url).slice(0, 300), title: String(i.title).slice(0, 120), editable: !!i.editable }; if (st.latest && st.latest.meta.open) st.latest.meta = { ...st.latest.meta, ...info }; } }
+            else if (t0 - lastInfo > 500) { lastInfo = t0; const i = await browser.pageInfo(); if (i) { info = { url: String(i.url).slice(0, 300), title: String(i.title).slice(0, 120), editable: !!i.editable }; if (st.latest && st.latest.meta.open) st.latest.meta = { ...st.latest.meta, ...info }; } }
           } else if (kind === 'screen' && !IS_WIN) {
             try { const r = await actions.screenshot({ look: 'live', novision: true }); if (r && r.image) st.latest = { image: r.image, meta: { open: true }, n: ++st.seq }; } catch (e) { st.latest = { image: '', meta: { open: false, error: String(e.message).slice(0, 200) }, n: ++st.seq }; }
           }
-          // send the newest picture (or repeat the last one now and then so the viewer knows we are alive)
-          if (st.latest && st.inflight < (kind === 'screen' ? 4 : 3) && Date.now() >= st.hold && (st.latest.n !== st.sent || t0 - (st.lastSend || 0) > 2000)) { // two pictures can be on their way at once, which hides the network delay
-            st.sent = st.latest.n; st.lastSend = t0; st.inflight++;
+          // straight to viewers on this computer or network: every new picture
+          if (viewers[kind].size && st.latest && (st.latest.n !== st.sentLocal || t0 - st.lastLocal > 2000)) {
+            st.sentLocal = st.latest.n; st.lastLocal = t0;
+            const payload = `data: ${JSON.stringify({ seq: t0, image: st.latest.image, meta: st.latest.meta })}\n\n`;
+            for (const r of viewers[kind]) { if (!r.writableNeedDrain) { try { r.write(payload); } catch { viewers[kind].delete(r); } } }
+          }
+          // through the relay (a phone away from home): the newest picture, with a couple in flight at once
+          if (cloudLive.has(kind) && st.latest && st.latest.image.length < 800000 && st.inflight < (kind === 'screen' ? 4 : 3) && Date.now() >= st.hold && (st.latest.n !== st.sentCloud || t0 - st.lastSend > 2000)) {
+            st.sentCloud = st.latest.n; st.lastSend = t0; st.inflight++;
             api('agent_frame', { kind, image: st.latest.image, meta: st.latest.meta }).then(async (r) => {
-              if (!r || r.live === false) { stopAll(); return; }
+              if (!r || r.live === false) { cloudLive.delete(kind); return; }
               if (kind === 'browser' && Array.isArray(r.ops)) for (const o of r.ops) { try { await browser.input(o); } catch (e) { log('live input failed: ' + clip(e.message, 120)); } }
             }).catch((e) => { if (e.fatal) stopAll(); else st.hold = Date.now() + 500; }).finally(() => { st.inflight--; });
           }
+          if (Date.now() - st.born > 4000 && !wantStream(kind)) { stopAll(); return; }
           const spent = Date.now() - t0; await sleep(Math.max(3, (kind === 'screen' && !IS_WIN ? 100 : 8) - spent)); // up to 120 pictures a second; in practice the screen capture and the connection set the pace
         }
       } catch (e) { log('live view stopped: ' + clip(e.message, 160)); stopAll(); }
     })();
+  }
+  // the direct door: the owner's page talks to this computer without going through the internet
+  const LOCAL_PORTS = [47821, 47822, 47823, 47824, 47825];
+  const originOk = (o) => !o || /^https:\/\/(www\.)?dwenlite\.space$/.test(o) || /^https:\/\/[\w-]+\.vercel\.app$/.test(o) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o);
+  let localServer = null;
+  function startLocalServer() {
+    if (localServer) return;
+    const keyOk = (k) => { const e = localKeys.get(String(k || '')); return !!e && e > Date.now(); };
+    const server = http.createServer((req, res) => {
+      const origin = req.headers.origin;
+      if (!originOk(origin)) { res.writeHead(403); return res.end(); }
+      if (origin) { res.setHeader('Access-Control-Allow-Origin', origin); res.setHeader('Vary', 'Origin'); }
+      res.setHeader('Access-Control-Allow-Private-Network', 'true'); res.setHeader('Access-Control-Allow-Headers', 'Content-Type'); res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS'); res.setHeader('Access-Control-Max-Age', '600');
+      if (req.method === 'OPTIONS') { res.writeHead(204); return res.end(); }
+      const u = new URL(req.url, 'http://127.0.0.1');
+      const json = (code, o) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(o)); };
+      if (req.method === 'GET' && u.pathname === '/hello') return json(200, { app: 'dwenlite', device: opts.device, version: VERSION });
+      if (!keyOk(u.searchParams.get('key'))) return json(401, { error: 'Not yet.' });
+      if (!opts.gui) return json(403, { error: 'Screen sharing is off for this computer.' });
+      if (req.method === 'GET' && u.pathname === '/live') {
+        const kind = u.searchParams.get('kind'); if (!viewers[kind]) return json(400, { error: 'Unknown view.' });
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' }); res.write(': hello\n\n');
+        viewers[kind].add(res); ensureStream(kind);
+        req.on('close', () => { viewers[kind].delete(res); });
+        return;
+      }
+      if (req.method === 'POST' && u.pathname === '/input') {
+        let b = ''; req.on('data', (c) => { b += c; if (b.length > 20000) req.destroy(); });
+        req.on('end', async () => { try { const op = JSON.parse(b || '{}'); if (!['tap', 'text', 'key', 'scroll', 'back', 'forward', 'reload', 'go', 'resize'].includes(op.op)) return json(400, { error: 'No.' }); await browser.input(op); json(200, { ok: true }); } catch (e) { json(500, { error: String(e.message).slice(0, 120) }); } });
+        return;
+      }
+      json(404, { error: 'No.' });
+    });
+    let i = 0;
+    const tryNext = () => { if (i >= LOCAL_PORTS.length) return; const port = LOCAL_PORTS[i++]; server.once('error', tryNext); server.listen(port, '127.0.0.1', () => { server.removeListener('error', tryNext); localServer = server; log(`direct view ready on port ${port}`); }); };
+    tryNext();
   }
   const watchSeen = new Map(); let lastWatchCheck = 0;
   async function scanWatches(list) {
@@ -1886,6 +1935,10 @@ Start-Process $u`;
     if (!IS_WIN) { execFile('loginctl', ['show-session', process.env.XDG_SESSION_ID || 'self', '-p', 'LockedHint'], { timeout: 5000 }, (err, out) => { if (!err) state.locked = /LockedHint=yes/.test(String(out)); }); return; } execFile('tasklist', ['/FI', 'IMAGENAME eq LogonUI.exe', '/NH'], { windowsHide: true, timeout: 5000 }, (err, out) => { if (!err) state.locked = /LogonUI\.exe/i.test(String(out)); }); };
 
   async function loop(stop = { stopped: false }) {
+    try { await loopInner(stop); } finally { for (const st of [...streams.values()]) { try { st.cleanup && st.cleanup(); } catch { /* gone */ } } try { localServer && localServer.close(); } catch { /* gone */ } localServer = null; }
+  }
+  async function loopInner(stop) {
+    startLocalServer();
     if (!lockTimer) { refreshLock(); lockTimer = setInterval(refreshLock, 8000); lockTimer.unref && lockTimer.unref(); }
     log(`Dwenlite agent ${VERSION} started. Work folder: ${root}. Shell: ${opts.shell ? 'ON' : 'off'}. Screen/mouse/keyboard: ${opts.gui ? 'ON' : 'off'}.`);
     let fails = 0;
@@ -1895,7 +1948,9 @@ Start-Process $u`;
         fails = 0; state.lastOk = Date.now();
         if (config && Array.isArray(config.folders)) extraRoots = config.folders.map(presetFolder).filter((f) => typeof f === 'string' && path.isAbsolute(f) && fs.existsSync(f)).map((f) => fs.realpathSync(f));
         state.fast = !!(config && config.fast);
-        if (config && Array.isArray(config.live)) for (const k of config.live) if (k === 'browser' || k === 'screen') startStream(k);
+        cloudLive = new Set(Array.isArray(config && config.live) ? config.live.filter((k) => k === 'browser' || k === 'screen') : []);
+        if (config && config.liveKey) { localKeys.set(String(config.liveKey), Date.now() + 20 * 60000); for (const [k, e] of localKeys) if (e < Date.now()) localKeys.delete(k); }
+        for (const k of cloudLive) ensureStream(k);
         if (config && Array.isArray(config.watches) && config.watches.length) scanWatches(config.watches).catch(() => {});
         if (job) {
           log(`job ${job.id}: ${job.type} ${job.type === 'shell' ? clip(job.args.command, 200) : job.type === 'browser_view' ? job.args.op : JSON.stringify(job.args).slice(0, 200)}`);
@@ -1916,7 +1971,7 @@ Start-Process $u`;
       await sleep(state.fast ? 450 : opts.interval);
     }
   }
-  return { loop, actions, runJob, api, log, state, shutdown: () => { for (const st of [...streams.values()]) { try { st.cleanup && st.cleanup(); } catch { /* gone */ } } try { awake && awake.kill(); } catch { /* gone */ } return browser.close(); } };
+  return { loop, actions, runJob, api, log, state, shutdown: () => { for (const st of [...streams.values()]) { try { st.cleanup && st.cleanup(); } catch { /* gone */ } } try { localServer && localServer.close(); } catch { /* gone */ } try { awake && awake.kill(); } catch { /* gone */ } return browser.close(); } };
 }
 
 // ----------------------------------------------------------------------------- the installed app: pairing, saved settings, status, quick ask, self-update
