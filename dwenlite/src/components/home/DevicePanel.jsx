@@ -31,6 +31,9 @@ export default function DevicePanel({ devices, reload, onClose }) {
   const command = made
     ? `node dwenlite-agent.mjs --url ${HOME_URL} --device ${made.deviceId} --token ${made.token}${shell ? ' --allow-shell' : ''}${gui ? ' --allow-gui' : ''}`
     : '';
+  const winCommand = made
+    ? `Invoke-WebRequest -UseBasicParsing ${window.location.origin}/dwenlite-start.ps1 -OutFile $HOME\\dwenlite-start.ps1; powershell -ExecutionPolicy Bypass -File $HOME\\dwenlite-start.ps1 -Device ${made.deviceId} -Token ${made.token} -Install${shell ? '' : ' -NoShell'}${gui ? '' : ' -NoGui'}`
+    : '';
   const copy = async (t) => { try { await navigator.clipboard.writeText(t); toast.success('Copied'); } catch { toast.error('Copy failed'); } };
 
   return (
@@ -79,7 +82,11 @@ export default function DevicePanel({ devices, reload, onClose }) {
               <li>Already installed Node.js and downloaded the agent before? Skip to the last step.</li>
               <li>Install <a className="text-violet-300 underline" href="https://nodejs.org" target="_blank" rel="noreferrer">Node.js</a> (version 18 or newer).</li>
               <li><a className="inline-flex items-center gap-1 text-violet-300 underline" href="/dwenlite-agent.mjs" download="dwenlite-agent.mjs"><Download size={13} /> Download dwenlite-agent.mjs</a> into a folder.</li>
-              <li>Open a terminal (PowerShell on Windows) in the folder that holds dwenlite-agent.mjs and run:
+              <li><b>Windows, easiest:</b> open PowerShell and paste this. It downloads the newest agent, restarts it if it stops, and (with the last line) starts it by itself when you sign in:
+                <pre className="mt-1 whitespace-pre-wrap break-all rounded-lg bg-black/50 p-2.5 font-mono text-xs text-slate-200">{winCommand}</pre>
+                <button onClick={() => copy(winCommand)} className="mt-1 flex items-center gap-1.5 text-xs text-violet-300 hover:text-violet-200"><Copy size={13} /> Copy Windows command</button>
+              </li>
+              <li>Mac or Linux: open a terminal in the folder that holds dwenlite-agent.mjs and run:
                 <pre className="mt-1 whitespace-pre-wrap break-all rounded-lg bg-black/50 p-2.5 font-mono text-xs text-slate-200">{command}</pre>
                 <button onClick={() => copy(command)} className="mt-1 flex items-center gap-1.5 text-xs text-violet-300 hover:text-violet-200"><Copy size={13} /> Copy command</button>
               </li>

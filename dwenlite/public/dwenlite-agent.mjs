@@ -16,7 +16,7 @@ import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
-export const VERSION = '1.3.1';
+export const VERSION = '1.3.2';
 const MAX_OUT = 100000;      // characters of command output sent back
 const MAX_READ = 200000;     // bytes read from a file
 const IS_WIN = process.platform === 'win32';
@@ -586,5 +586,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const agent = createAgent(o);
   const stop = { stopped: false };
   process.on('SIGINT', () => { stop.stopped = true; console.log('\nStopping...'); setTimeout(() => process.exit(0), 300); });
-  agent.loop(stop);
+  agent.loop(stop).then(() => { if (!stop.stopped) process.exit(2); }); // 2 = this device was removed, do not restart
 }
