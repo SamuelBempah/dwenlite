@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useState } from 'react';
 import { auth } from '../firebase';
+import { homeCall } from '../lib/homeClient';
 
 const URL = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
 const fmt = (n) => (n || 0).toLocaleString();
@@ -22,6 +23,8 @@ export default function AdminUsage() {
   const [email, setEmail] = useState('');
   const [adminMsg, setAdminMsg] = useState({ type: '', text: '' });
   const [busy, setBusy] = useState(false);
+  const [homeDays, setHomeDays] = useState(null);
+  useEffect(() => { homeCall('home_usage').then((r) => setHomeDays(r.days)).catch(() => setHomeDays(null)); }, []);
 
   const loadAdmins = async () => { try { const j = await adminCall('admin_list'); setAdmins(j.admins); setYou(j.you || ''); } catch (e) { setAdmins(null); } };
   const changeAdmin = async (task, addr) => {
@@ -62,6 +65,16 @@ export default function AdminUsage() {
 
   return (
     <div className="mx-auto max-w-3xl p-4 md:p-8 text-white">
+      {homeDays && homeDays.length > 0 && (
+        <section className="mb-8 rounded-2xl border border-white/10 bg-slate-900/60 p-4">
+          <h2 className="text-lg font-bold">Dwenlite Home</h2>
+          <p className="mt-1 text-xs text-slate-400">AI use by the cloud assistant. Cache hits are cheap: the higher, the less it costs.</p>
+          <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-xs">
+            <thead className="text-slate-400"><tr><th className="py-1 pr-3">Day</th><th className="pr-3">Tasks</th><th className="pr-3">AI calls</th><th className="pr-3">Input</th><th className="pr-3">Cache hits</th><th>Output</th></tr></thead>
+            <tbody>{homeDays.map((d) => <tr key={d.day} className="border-t border-white/5"><td className="py-1.5 pr-3">{d.day}</td><td className="pr-3">{fmt(d.runs)}</td><td className="pr-3">{fmt(d.calls)}</td><td className="pr-3">{fmt(d.input)}</td><td className="pr-3">{d.input ? Math.round((d.cached / d.input) * 100) : 0}%</td><td>{fmt(d.output)}</td></tr>)}</tbody>
+          </table></div>
+        </section>
+      )}
       {admins && (
         <section className="mb-8 rounded-2xl border border-white/10 bg-slate-900/60 p-4">
           <h2 className="text-lg font-bold">Admins</h2>

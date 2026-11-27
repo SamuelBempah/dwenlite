@@ -646,13 +646,27 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
   const clipMsgs = (msgs) => msgs.map((m) => (m.role === "tool" ? { role: "tool", tool_call_id: m.tool_call_id, content: clip(m.content, 1500) } : m.role === "assistant" ? { role: "assistant", content: clip(m.content, 6000), ...(m.tool_calls ? { tool_calls: m.tool_calls.map((c) => ({ id: c.id, type: "function", function: { name: c.function.name, arguments: clip(c.function.arguments, 1500) } })) } : {}) } : { role: "user", content: clip(m.content, 4000) }));
   const compact = (msgs) => { let size = JSON.stringify(msgs).length; for (let i = 0; i < msgs.length && size > 800000; i++) if (msgs[i].role === "tool" && msgs[i].content.length > 300) { size -= msgs[i].content.length - 300; msgs[i].content = msgs[i].content.slice(0, 300); } return msgs; };
 
+  // keeps long jobs cheap: when the conversation gets big, old tool results are cut down once (and stay cut, so the AI's cache of the start keeps working)
+  const TRIM_AT = 120000;
+  function trimOld(msgs) {
+    let size = 0; for (const m of msgs) size += (m.content || "").length + (m.tool_calls ? JSON.stringify(m.tool_calls).length : 0);
+    if (size <= TRIM_AT) return false;
+    let changed = false;
+    for (let i = 0; i < msgs.length - 8; i++) { const m = msgs[i]; if (m.role === "tool" && m.content.length > 400) { m.content = m.content.slice(0, 350) + "\n...[shortened to save space]"; changed = true; } }
+    return changed;
+  }
+  async function recordUsage(tokens) {
+    if (!tokens || !tokens.calls) return;
+    const day = new Date().toISOString().slice(0, 10); const ref = db.collection("homeUsage").doc(`ai_${day}`);
+    try { await db.runTransaction(async (tx) => { const d = await tx.get(ref); const x = d.exists ? d.data() : {}; tx.set(ref, { day, kind: "ai", calls: (x.calls || 0) + tokens.calls, input: (x.input || 0) + tokens.input, cached: (x.cached || 0) + tokens.cached, output: (x.output || 0) + tokens.output, runs: (x.runs || 0) + 1 }); }); } catch (e) { /* statistics only */ }
+  }
   async function runChat(runId, ctx = {}) {
     const ref = db.collection("homeRuns").doc(runId);
     const snap = await ref.get();
     if (!snap.exists || snap.data().kind !== "chat" || !["queued", "running"].includes(snap.data().status)) return;
     const run = snap.data(); const uid = run.ownerUid; const started = Date.now();
     await ref.update({ status: "running", startedAt: run.startedAt || started });
-    let planOpen = false; let sincePlan = 0;
+    let planOpen = false; let sincePlan = 0; const tokens = { calls: 0, input: 0, cached: 0, output: 0 };
     let trail = []; try { trail = JSON.parse(run.trail || "[]"); } catch (e) { trail = []; }
     let messages = JSON.parse(run.msgs); let n = run.eventCount || 0; let step = run.step || 0;
     const emit = async (ev) => { n++; await db.collection("homeEvents").doc(`${runId}_${n}`).set({ ownerUid: uid, runId, n, at: Date.now(), ...ev }); await ref.update({ eventCount: n }); };
@@ -661,7 +675,8 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
       await ref.update({ status, text: clip(text, 4000), finishedAt: Date.now(), msgs: "", note: "" });
       if (run.quick) { try { const prompt = run.prompt || run.name; await db.collection("homeChats").doc().set({ ownerUid: uid, title: clip(prompt, 70), preview: clip(text, 150), search: clip(`${prompt} ${text}`, 6000).toLowerCase(), data: JSON.stringify({ v: 1, items: [{ id: "q1", type: "user", text: prompt }, { id: "q2", type: "ai", content: text }], convo: [{ role: "user", content: prompt }, { role: "assistant", content: text }] }), updatedAt: Date.now(), createdAt: Date.now() }); } catch (e) { /* optional */ } }
       if (status === "done" || status === "error") { await scoreSkills(run.skillIds, status === "done"); }
-      if (status === "done") { const lastUser = [...messages.slice(0, run.baseLen)].reverse().find((m) => m.role === "user"); await learnSkill(uid, lastUser ? lastUser.content : run.name, trail, trail.filter((t) => !t.ok).length); }
+      if (status === "done" && !(run.skillIds && run.skillIds.length)) { const lastUser = [...messages.slice(0, run.baseLen)].reverse().find((m) => m.role === "user"); await learnSkill(uid, lastUser ? lastUser.content : run.name, trail, trail.filter((t) => !t.ok).length); }
+      await recordUsage(tokens);
       const cur = (await ref.get()).data();
       if (Date.now() - (cur.lastPoll || 0) > 20000) { try { await notify(uid, { title: status === "error" ? "Dwenlite Home hit a problem" : status === "stopped" ? "Stopped" : "Dwenlite Home finished", body: text || "Finished." }); } catch (e) { /* optional */ } }
     };
@@ -679,7 +694,9 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
           await ref.update({ msgs: JSON.stringify(compact(messages)), step, status: "running", trail: JSON.stringify(trail.slice(-40)) });
           try { await enqueueTask({ runId, googleToken: ctx.googleToken || "" }); return; } catch (e) { await finish("error", "The task took too long and could not be continued."); return; }
         }
+        trimOld(messages);
         const r = await axios.post("https://api.deepseek.com/chat/completions", { model: "deepseek-chat", messages, tools, tool_choice: "auto", max_tokens: 4000, temperature: 0.3 }, { headers: { Authorization: `Bearer ${DEEPSEEK_API_KEY.value()}`, "Content-Type": "application/json" }, timeout: 150000 });
+        const u = r.data.usage || {}; tokens.calls++; tokens.input += Number(u.prompt_tokens) || 0; tokens.cached += Number(u.prompt_cache_hit_tokens) || 0; tokens.output += Number(u.completion_tokens) || 0;
         const msg = r.data.choices[0].message || {};
         const calls = (msg.tool_calls || []).slice(0, 6);
         messages.push({ role: "assistant", content: msg.content || "", ...(calls.length ? { tool_calls: calls } : {}) });
@@ -1470,6 +1487,11 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
             const q = await db.collection("homeApprovals").where("ownerUid", "==", uid).where("status", "==", "pending").get();
             return res.status(200).json({ asks: q.docs.map((d) => ({ id: d.id, question: d.data().question, runId: d.data().runId, createdAt: d.data().createdAt })).filter((x) => Date.now() - x.createdAt < 250000) });
           }
+          if (action === "home_usage") {
+            if (!(await uidIsAdmin(uid))) return res.status(403).json({ error: "Only admins can see usage." });
+            const q = await db.collection("homeUsage").where("kind", "==", "ai").get();
+            return res.status(200).json({ days: q.docs.map((d) => d.data()).sort((a, b) => String(b.day).localeCompare(String(a.day))).slice(0, 14) });
+          }
           if (action === "settings_get") { const st = await getSettings(uid); return res.status(200).json({ shareSkills: st.shareSkills !== false }); }
           if (action === "settings_set") { await settingsRef(uid).set({ shareSkills: body.shareSkills !== false }, { merge: true }); return res.status(200).json({ ok: true }); }
           // ---- reminders, to-dos, projects, settings, briefing ----
@@ -1575,7 +1597,7 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
     ? onSchedule({ schedule: "every 1 minutes", timeoutSeconds: 60, memory: "256MiB", maxInstances: 1 }, async () => { await remindersTick(); })
     : null;
 
-  return { homeApi, homeScheduler, homeReminderTick, runTaskWorker, _test: { googleAccessFor, setAskPoll: (n) => { askPollMs = n; }, learnSkill, findSkills, allSkills, remindersTick, serverTool, runChat, runAdhoc, schedulerTick, runTask, notify, vapid, validateJob, cleanMessages, hash, TOOLS, JOB_TYPES } };
+  return { homeApi, homeScheduler, homeReminderTick, runTaskWorker, _test: { trimOld, recordUsage, googleAccessFor, setAskPoll: (n) => { askPollMs = n; }, learnSkill, findSkills, allSkills, remindersTick, serverTool, runChat, runAdhoc, schedulerTick, runTask, notify, vapid, validateJob, cleanMessages, hash, TOOLS, JOB_TYPES } };
 }
 
 module.exports = { create };
