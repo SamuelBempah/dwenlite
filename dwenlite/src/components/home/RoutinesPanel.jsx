@@ -4,34 +4,46 @@ import toast from 'react-hot-toast';
 import { homeCall } from '../../lib/homeClient';
 import { Collapse, Sheet, Spinner, Tap, motion, spring } from './motion';
 
-const describe = (s) => (!s ? 'Only when you run it' : s.kind === 'interval' ? `Every ${s.everyMinutes} minutes` : s.kind === 'weekdays' ? `Weekdays at ${s.time}` : `Every day at ${s.time}`);
+const describe = (s, t) => (t ? (t.kind === 'file' ? `When a file ${t.pattern ? `(${t.pattern}) ` : ''}appears in ${t.folder}` : t.kind === 'online' ? 'When the computer comes online' : 'When its link is called') : !s ? 'Only when you run it' : s.kind === 'interval' ? `Every ${s.everyMinutes} minutes` : s.kind === 'weekdays' ? `Weekdays at ${s.time}` : `Every day at ${s.time}`);
 const ago = (t) => { if (!t) return 'never'; const s = Math.max(1, Math.round((Date.now() - t) / 1000)); if (s < 60) return 'just now'; if (s < 3600) return `${Math.round(s / 60)} min ago`; if (s < 86400) return `${Math.round(s / 3600)} h ago`; return `${Math.round(s / 86400)} d ago`; };
 const tz = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; } };
 
 function Editor({ draft, devices, onCancel, onSaved }) {
   const [f, setF] = useState({ name: '', prompt: '', deviceId: '', when: 'none', time: '08:00', every: 60, allowActions: false, watch: false, enabled: true, ...draft });
   const [busy, setBusy] = useState(false);
+  const [link, setLink] = useState('');
   const save = async () => {
     setBusy(true);
     try {
-      const schedule = f.when === 'none' ? null : f.when === 'interval' ? { kind: 'interval', everyMinutes: Number(f.every) } : { kind: f.when, time: f.time, tz: tz() };
-      await homeCall('routine_save', { id: f.id, name: f.name, prompt: f.prompt, deviceId: f.deviceId, schedule, allowActions: f.allowActions, watch: f.watch, enabled: f.enabled });
-      toast.success('Saved'); onSaved();
+      const trig = ['file', 'online', 'hook'].includes(f.when) ? { kind: f.when, folder: f.folder || '', pattern: f.pattern || '' } : null;
+      const schedule = trig || f.when === 'none' ? null : f.when === 'interval' ? { kind: 'interval', everyMinutes: Number(f.every) } : { kind: f.when, time: f.time, tz: tz() };
+      const out = await homeCall('routine_save', { id: f.id, name: f.name, prompt: f.prompt, deviceId: f.deviceId, schedule, allowActions: f.allowActions, watch: f.watch, enabled: f.enabled, trigger: trig, newLink: !!f.newLink });
+      toast.success('Saved'); if (out.hookUrl) { setLink(out.hookUrl); return; } onSaved();
     } catch (e) { toast.error(e.message); } finally { setBusy(false); }
   };
   const inp = 'w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm outline-none focus:border-violet-500';
+  if (link) return (
+    <div className="space-y-3 text-sm">
+      <p className="font-semibold">Your private link</p>
+      <p className="text-xs text-slate-400">Anything that can open or call this link will start the routine: a bookmark, a phone shortcut, or a service like IFTTT, Zapier or GitHub webhooks. Keep it private. This is the only time it is shown.</p>
+      <p className="break-all rounded-xl border border-slate-700 bg-slate-950 p-3 text-xs">{link}</p>
+      <div className="flex gap-2"><Tap onClick={async () => { try { await navigator.clipboard.writeText(link); toast.success('Copied'); } catch { toast.error('Press and hold the link to copy it.'); } }} className="flex-1 rounded-xl bg-violet-600 py-2.5 font-semibold">Copy link</Tap><Tap onClick={onSaved} className="rounded-xl bg-slate-800 px-4 py-2.5">Done</Tap></div>
+    </div>
+  );
   return (
     <div className="space-y-3 text-sm">
       <input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} maxLength={60} placeholder="Name, e.g. Morning check" className={inp} />
       <textarea value={f.prompt} onChange={(e) => setF({ ...f, prompt: e.target.value })} rows={4} maxLength={2000} placeholder="What should it do? Write it like you would in the chat." className={`${inp} resize-none`} />
       <div className="grid grid-cols-2 gap-2">
         <select value={f.when} onChange={(e) => setF({ ...f, when: e.target.value })} className={inp}>
-          <option value="none">Only when I run it</option><option value="daily">Every day</option><option value="weekdays">Weekdays</option><option value="interval">Every few minutes</option>
+          <option value="none">Only when I run it</option><option value="daily">Every day</option><option value="weekdays">Weekdays</option><option value="interval">Every few minutes</option><option value="file">When a file appears</option><option value="online">When my computer comes online</option><option value="hook">When a link is called</option>
         </select>
-        {f.when === 'interval'
+        {['file', 'online', 'hook'].includes(f.when) ? <div className={`${inp} flex items-center text-xs text-slate-400`}>{f.when === 'file' ? 'Watches a folder' : f.when === 'online' ? 'Runs once it is back' : 'Gives you a private link'}</div> : f.when === 'interval'
           ? <select value={f.every} onChange={(e) => setF({ ...f, every: e.target.value })} className={inp}>{[15, 30, 60, 120, 360, 720, 1440].map((n) => <option key={n} value={n}>{n >= 60 ? `${n / 60} h` : `${n} min`}</option>)}</select>
           : <input type="time" value={f.time} disabled={f.when === 'none'} onChange={(e) => setF({ ...f, time: e.target.value })} className={`${inp} disabled:opacity-40`} />}
       </div>
+      {f.when === 'file' && <div className="grid grid-cols-2 gap-2"><input value={f.folder || ''} onChange={(e) => setF({ ...f, folder: e.target.value })} placeholder="Folder, e.g. ~Downloads" className={inp} /><input value={f.pattern || ''} onChange={(e) => setF({ ...f, pattern: e.target.value })} placeholder="Only names like *.pdf (optional)" className={inp} /><p className="col-span-2 text-xs text-slate-500">The folder must be one the computer is allowed to use (see the folder icon under Your computers). Pick the computer below.</p></div>}
+      {f.when === 'hook' && f.id && <label className="flex items-center gap-2 text-xs text-slate-400"><input type="checkbox" checked={!!f.newLink} onChange={(e) => setF({ ...f, newLink: e.target.checked })} className="accent-violet-500" /> Make a new link (the old one stops working)</label>}
       <select value={f.deviceId} onChange={(e) => setF({ ...f, deviceId: e.target.value })} className={inp}>
         <option value="">Any computer that is online</option>{devices.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
       </select>
@@ -66,9 +78,9 @@ export default function RoutinesPanel({ devices, draft, onClose, onRunHere }) {
     setBusyId(r.id);
     try { const out = await homeCall('routine_run', { id: r.id }); toast.success(out.status === 'error' ? 'It ran into a problem.' : 'Finished. See the result below.'); } catch (e) { toast.error(e.message); } finally { setBusyId(''); load(); }
   };
-  const toggle = async (r) => { try { await homeCall('routine_save', { id: r.id, name: r.name, prompt: r.prompt, deviceId: r.deviceId, schedule: r.schedule, allowActions: r.allowActions, watch: r.watch, enabled: !r.enabled }); load(); } catch (e) { toast.error(e.message); } };
+  const toggle = async (r) => { try { await homeCall('routine_save', { id: r.id, name: r.name, prompt: r.prompt, deviceId: r.deviceId, schedule: r.schedule, trigger: r.trigger, allowActions: r.allowActions, watch: r.watch, enabled: !r.enabled }); load(); } catch (e) { toast.error(e.message); } };
   const del = async (r) => { if (!window.confirm(`Delete "${r.name}"?`)) return; try { await homeCall('routine_delete', { id: r.id }); load(); } catch (e) { toast.error(e.message); } };
-  const startEdit = (r) => setEdit({ id: r.id, name: r.name, prompt: r.prompt, deviceId: r.deviceId, allowActions: r.allowActions, watch: r.watch, enabled: r.enabled, when: r.schedule ? r.schedule.kind : 'none', time: (r.schedule && r.schedule.time) || '08:00', every: (r.schedule && r.schedule.everyMinutes) || 60 });
+  const startEdit = (r) => setEdit({ id: r.id, name: r.name, prompt: r.prompt, deviceId: r.deviceId, allowActions: r.allowActions, watch: r.watch, enabled: r.enabled, when: r.trigger ? r.trigger.kind : r.schedule ? r.schedule.kind : 'none', folder: r.trigger && r.trigger.folder, pattern: r.trigger && r.trigger.pattern, time: (r.schedule && r.schedule.time) || '08:00', every: (r.schedule && r.schedule.everyMinutes) || 60 });
 
   return (
     <Sheet onClose={onClose} className="max-h-[90dvh] w-full max-w-xl overflow-y-auto rounded-t-3xl border border-white/10 bg-[#121217] p-5 text-white shadow-2xl sm:rounded-3xl">
@@ -85,7 +97,7 @@ export default function RoutinesPanel({ devices, draft, onClose, onRunHere }) {
                   <div className="flex items-start gap-2">
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-semibold">{r.name}</p>
-                      <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-400"><Clock size={11} />{describe(r.schedule)}{r.watch ? ' · watching for changes' : ''}{r.allowActions ? ' · can change things' : ''}</p>
+                      <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-400"><Clock size={11} />{describe(r.schedule, r.trigger)}{r.once ? ' (one time)' : ''}{r.watch ? ' · watching for changes' : ''}{r.allowActions ? ' · can change things' : ''}</p>
                     </div>
                     <button onClick={() => toggle(r)} role="switch" aria-checked={r.enabled} aria-label={`${r.enabled ? 'Pause' : 'Resume'} ${r.name}`} className={`relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors ${r.enabled ? 'bg-emerald-500' : 'bg-slate-600'}`}><motion.span className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white" animate={{ x: r.enabled ? 16 : 0 }} transition={spring} /></button>
                   </div>

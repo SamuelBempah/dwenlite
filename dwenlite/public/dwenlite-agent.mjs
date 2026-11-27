@@ -22,7 +22,7 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import dns from 'node:dns/promises';
 
-export const VERSION = '2.2.0';
+export const VERSION = '2.3.0';
 export const DEFAULT_URL = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/homeApi';
 export const SITE = 'https://www.dwenlite.space';
 const MAX_OUT = 100000;      // characters of command output sent back
@@ -1107,6 +1107,17 @@ function dirSize(dir, deadline) { // bytes in a folder, stopping early on huge o
   return total;
 }
 const gb = (n) => (n / 1073741824).toFixed(1) + ' GB';
+// Watching a folder: the first look only remembers what is there; later looks report files that were not there before.
+export function globMatch(pattern, name) {
+  const p = String(pattern || '').trim().toLowerCase(); if (!p) return true;
+  if (!/[*?]/.test(p)) return name.toLowerCase().includes(p);
+  return new RegExp('^' + p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$').test(name.toLowerCase());
+}
+export function diffWatch(prev, names, pattern) {
+  const now = new Set(names);
+  if (!prev) return { fresh: [], next: now };
+  return { fresh: names.filter((n) => !prev.has(n) && globMatch(pattern, n)), next: now };
+}
 export async function pcHealth(runCmd, kind) {
   const lines = []; const deadline = Date.now() + 20000;
   const home = os.homedir();
@@ -1163,6 +1174,18 @@ export function createAgent(opts) {
   fs.mkdirSync(root, { recursive: true });
   const logFile = path.join(root, 'dwenlite-agent.log');
   const log = (m) => { const line = `${new Date().toISOString()} ${m}`; console.log(line); try { fs.appendFileSync(logFile, line + '\n'); } catch { /* ignore */ } };
+  const watchSeen = new Map(); let lastWatchCheck = 0;
+  async function scanWatches(list) {
+    if (Date.now() - lastWatchCheck < 20000) return; lastWatchCheck = Date.now();
+    const ids = new Set(list.map((w) => w.id)); for (const k of [...watchSeen.keys()]) if (!ids.has(k)) watchSeen.delete(k);
+    for (const w of list) {
+      let dir; try { dir = safePath(root, presetFolder(w.folder), extraRoots); } catch (e) { continue; } // only folders the owner allowed
+      let names = []; try { names = fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isFile()).slice(0, 3000).filter((e) => { try { return Date.now() - fs.statSync(path.join(dir, e.name)).mtimeMs > 3000; } catch { return false; } }).map((e) => e.name); } catch { continue; }
+      const { fresh, next } = diffWatch(watchSeen.get(w.id) || null, names, w.pattern);
+      watchSeen.set(w.id, next);
+      if (fresh.length) { try { await api('agent_event', { watchId: w.id, files: fresh.slice(0, 10) }); log(`watch ${w.id}: ${fresh.length} new file(s)`); } catch (e) { watchSeen.set(w.id, new Set([...next].filter((n) => !fresh.includes(n)))); } }
+    }
+  }
   let extraRoots = []; // extra folders the owner allowed in Dwenlite Home (sent with every poll)
   const extra = () => extraRoots;
   const undoDir = path.join(root, '.undo');
@@ -1743,6 +1766,7 @@ Start-Process $u`;
         const { job, config } = await api('agent_poll', { platform: process.platform, hostname: os.hostname(), version: VERSION, caps: { shell: opts.shell, gui: opts.gui }, state: { locked: state.locked } });
         fails = 0; state.lastOk = Date.now();
         if (config && Array.isArray(config.folders)) extraRoots = config.folders.map(presetFolder).filter((f) => typeof f === 'string' && path.isAbsolute(f) && fs.existsSync(f)).map((f) => fs.realpathSync(f));
+        if (config && Array.isArray(config.watches) && config.watches.length) scanWatches(config.watches).catch(() => {});
         if (job) {
           log(`job ${job.id}: ${job.type} ${job.type === 'shell' ? clip(job.args.command, 200) : JSON.stringify(job.args).slice(0, 200)}`);
           let ok = true; let output = ''; let image = '';
