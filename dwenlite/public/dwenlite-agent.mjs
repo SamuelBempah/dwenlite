@@ -22,7 +22,7 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import dns from 'node:dns/promises';
 
-export const VERSION = '2.6.0';
+export const VERSION = '2.7.0';
 export const DEFAULT_URL = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/homeApi';
 export const SITE = 'https://www.dwenlite.space';
 const MAX_OUT = 100000;      // characters of command output sent back
@@ -283,7 +283,7 @@ while ($true) {
   $small.Save($ms,$enc,$ep)
   $out.WriteLine([Convert]::ToBase64String($ms.ToArray()))
   $out.Flush()
-  Start-Sleep -Milliseconds 40
+  Start-Sleep -Milliseconds 4
 }
 `;
 
@@ -745,6 +745,9 @@ export function createBrowser({ root, api, log }) {
     else if (op === 'key') await press(p, String(a.key || 'enter'));
     else if (op === 'scroll') await evalJs(p, `window.scrollBy(0, ${Math.max(-3000, Math.min(3000, Number(a.dy) || 0))})`);
     else if (op === 'back') await evalJs(p, 'history.back()');
+    else if (op === 'forward') await evalJs(p, 'history.forward()');
+    else if (op === 'reload') await p.send('Page.reload', {});
+    else if (op === 'go') { const u = String(a.url || ''); if (/^https?:\/\/[^\s]+$/i.test(u)) await p.send('Page.navigate', { url: u }); }
   }
 
   return { run, close: closeAll, screencast, isOpen, pageInfo, input };
@@ -1265,19 +1268,19 @@ export function createAgent(opts) {
             if (!sc && browser.isOpen()) { try { sc = await browser.screencast((f) => { st.latest = { image: f.data, meta: { open: true, w: Math.round(f.metadata.deviceWidth) || 1280, h: Math.round(f.metadata.deviceHeight) || 900, ...(info || {}) }, n: ++st.seq }; }); } catch { sc = null; } }
             if (sc && !browser.isOpen()) { try { sc(); } catch { /* gone */ } sc = null; }
             if (!browser.isOpen()) { if (!st.latest || st.latest.meta.open) st.latest = { image: '', meta: { open: false }, n: ++st.seq }; }
-            else if (t0 - lastInfo > 1500) { lastInfo = t0; const i = await browser.pageInfo(); if (i) { info = { url: String(i.url).slice(0, 300), title: String(i.title).slice(0, 120) }; if (st.latest && st.latest.meta.open) st.latest.meta = { ...st.latest.meta, ...info }; } }
+            else if (t0 - lastInfo > 700) { lastInfo = t0; const i = await browser.pageInfo(); if (i) { info = { url: String(i.url).slice(0, 300), title: String(i.title).slice(0, 120) }; if (st.latest && st.latest.meta.open) st.latest.meta = { ...st.latest.meta, ...info }; } }
           } else if (kind === 'screen' && !IS_WIN) {
             try { const r = await actions.screenshot({ look: 'live', novision: true }); if (r && r.image) st.latest = { image: r.image, meta: { open: true }, n: ++st.seq }; } catch (e) { st.latest = { image: '', meta: { open: false, error: String(e.message).slice(0, 200) }, n: ++st.seq }; }
           }
           // send the newest picture (or repeat the last one now and then so the viewer knows we are alive)
-          if (st.latest && st.inflight < 2 && Date.now() >= st.hold && (st.latest.n !== st.sent || t0 - (st.lastSend || 0) > 2000)) { // two pictures can be on their way at once, which hides the network delay
+          if (st.latest && st.inflight < (kind === 'screen' ? 4 : 3) && Date.now() >= st.hold && (st.latest.n !== st.sent || t0 - (st.lastSend || 0) > 2000)) { // two pictures can be on their way at once, which hides the network delay
             st.sent = st.latest.n; st.lastSend = t0; st.inflight++;
             api('agent_frame', { kind, image: st.latest.image, meta: st.latest.meta }).then(async (r) => {
               if (!r || r.live === false) { stopAll(); return; }
               if (kind === 'browser' && Array.isArray(r.ops)) for (const o of r.ops) { try { await browser.input(o); } catch (e) { log('live input failed: ' + clip(e.message, 120)); } }
             }).catch((e) => { if (e.fatal) stopAll(); else st.hold = Date.now() + 500; }).finally(() => { st.inflight--; });
           }
-          const spent = Date.now() - t0; await sleep(Math.max(25, (kind === 'screen' && !IS_WIN ? 150 : 60) - spent));
+          const spent = Date.now() - t0; await sleep(Math.max(3, (kind === 'screen' && !IS_WIN ? 100 : 8) - spent)); // up to 120 pictures a second; in practice the screen capture and the connection set the pace
         }
       } catch (e) { log('live view stopped: ' + clip(e.message, 160)); stopAll(); }
     })();

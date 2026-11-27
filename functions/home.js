@@ -452,6 +452,7 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
   }
   // ---- live views: the computer sends pictures as fast as it can, and this relays them to the phone with almost no delay ----
   const LIVE_KINDS = ["browser", "screen"]; const RING = 3;
+  const liveMem = new Map(); // newest picture per stream, held in memory so a viewer on the same server instance gets it at once
   async function liveFrames(deviceId, kind) { const docs = await Promise.all(Array.from({ length: RING }, (_, i) => db.collection("homeFrames").doc(`${deviceId}_${kind}_${i}`).get())); return docs.filter((d) => d.exists).map((d) => d.data()); }
   async function liveOwner(uid, deviceId) { const d = await db.collection("homeDevices").doc(String(deviceId || "x")).get(); return d.exists && d.data().ownerUid === uid ? d : null; }
   // ---- asking the owner before something risky (answer comes from the phone or the page) ----
@@ -877,12 +878,13 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
       case "clipboard": { if (a.action === "read") return { action: "read" }; return a.action === "write" && typeof a.text === "string" && a.text && a.text.length <= 100000 ? { action: "write", text: a.text } : null; }
       case "browser_view": {
         const op = String(a.op || "frame");
-        if (!["frame", "tap", "text", "key", "scroll", "back"].includes(op)) return null;
+        if (!["frame", "tap", "text", "key", "scroll", "back", "forward", "reload", "go"].includes(op)) return null;
         const o = { op };
         if (op === "tap") { if (!num(a.x, 0, 20000) || !num(a.y, 0, 20000)) return null; o.x = a.x; o.y = a.y; }
         if (op === "text") { if (typeof a.text !== "string" || !a.text) return null; o.text = clip(a.text, 2000); }
         if (op === "key") { if (typeof a.key !== "string" || !/^[\w+]{1,30}$/.test(a.key)) return null; o.key = a.key; }
         if (op === "scroll") o.dy = num(a.dy, -3000, 3000) ? a.dy : 400;
+        if (op === "go") { let u = String(a.url || "").trim(); if (u && !/^[a-z][a-z0-9+.-]*:/i.test(u)) u = /^[\w-]+(\.[\w-]+)+(:\d+)?([\/?#].*)?$/.test(u) ? `https://${u}` : `https://www.google.com/search?q=${encodeURIComponent(u)}`; if (!/^https?:\/\/[^\s]+$/i.test(u) || u.length > 2000) return null; o.url = u; }
         return o;
       }
       case "reveal_file": return typeof a.path === "string" && a.path ? { path: clip(a.path, 1000), mode: a.mode === "open" ? "open" : "show" } : null;
@@ -1070,14 +1072,16 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
             if (action === "agent_frame") {
               const kind = LIVE_KINDS.includes(body.kind) ? body.kind : "";
               if (!kind || (snap.data()[`live_${kind}`] || 0) < Date.now()) { // nobody is watching any more: tidy up and tell the computer to stop
+                liveMem.delete(`${ref.id}_${kind}`);
                 if (kind) Promise.all(Array.from({ length: RING }, (_, i) => db.collection("homeFrames").doc(`${ref.id}_${kind}_${i}`).delete().catch(() => {}))).catch(() => {});
                 return res.status(200).json({ live: false });
               }
               const image = typeof body.image === "string" && body.image.length <= 900000 ? body.image : "";
               const m = body.meta && typeof body.meta === "object" ? body.meta : {};
               const meta = { open: !!m.open, w: Number(m.w) || 0, h: Number(m.h) || 0, url: clip(m.url, 300), title: clip(m.title, 120), error: clip(m.error, 200) };
-              const seq = Date.now();
-              await db.collection("homeFrames").doc(`${ref.id}_${kind}_${Math.floor(seq / 120) % RING}`).set({ ownerUid: snap.data().ownerUid, seq, image, meta });
+              const seq = Date.now(); const mk = `${ref.id}_${kind}`; const prev = liveMem.get(mk);
+              liveMem.set(mk, { seq, image, meta, saved: prev && seq - prev.saved < 120 ? prev.saved : seq });
+              if (!prev || seq - prev.saved >= 120) await db.collection("homeFrames").doc(`${mk}_${Math.floor(seq / 120) % RING}`).set({ ownerUid: snap.data().ownerUid, seq, image, meta }); // the shared copy is kept at a calmer pace than the fast one
               let ops = [];
               if (kind === "browser") {
                 const iq = await db.collection("homeInputs").where("deviceId", "==", ref.id).get();
@@ -1511,10 +1515,12 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
             if (!kind || !dev) return res.status(404).json({ error: "No such computer." });
             const after = Number(body.after) || 0; const until = Date.now() + 7000;
             if ((dev.data()[`live_${kind}`] || 0) - Date.now() < 15000) await dev.ref.update({ [`live_${kind}`]: Date.now() + 25000, viewUntil: Date.now() + 45000 });
+            let lastDb = 0;
             while (Date.now() < until) {
-              const best = (await liveFrames(dev.id, kind)).filter((f) => f.seq > after).sort((a, b) => b.seq - a.seq)[0];
-              if (best) return res.status(200).json({ seq: best.seq, image: best.image, meta: best.meta });
-              await new Promise((r) => setTimeout(r, liveWaitMs));
+              const mem = liveMem.get(`${dev.id}_${kind}`);
+              if (mem && mem.seq > after) return res.status(200).json({ seq: mem.seq, image: mem.image, meta: mem.meta });
+              if (Date.now() - lastDb >= Math.max(liveWaitMs, 200)) { lastDb = Date.now(); const best = (await liveFrames(dev.id, kind)).filter((f) => f.seq > after).sort((a, b) => b.seq - a.seq)[0]; if (best) return res.status(200).json({ seq: best.seq, image: best.image, meta: best.meta }); }
+              await new Promise((r) => setTimeout(r, 12));
             }
             return res.status(200).json({ seq: after, none: true });
           }
