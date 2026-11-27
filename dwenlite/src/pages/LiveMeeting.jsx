@@ -255,11 +255,11 @@ export default function LiveMeeting() {
             </div>
             <div className="rounded-xl border border-slate-700 bg-slate-950/60 p-2.5">
               <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Transcription</p>
-              <label className={`flex items-start gap-2 py-1 ${hqAvail ? '' : 'opacity-50'}`}><input type="radio" name="tmode" disabled={!hqAvail || state !== 'idle' || lines.length > 0 && !!recRef.current} checked={mode === 'hq'} onChange={() => { setMode('hq'); recRef.current = null; }} className="mt-1 accent-violet-500" /><span><b>High accuracy</b> <span className="text-slate-400">noise filtering, works from further away, tells speakers apart{hqAvail ? '' : ' (not set up yet)'}</span></span></label>
+              <label className={`flex items-start gap-2 py-1 ${hqAvail ? '' : 'opacity-50'}`}><input type="radio" name="tmode" disabled={!hqAvail || state !== 'idle' || lines.length > 0 && !!recRef.current} checked={mode === 'hq'} onChange={() => { setMode('hq'); recRef.current = null; }} className="mt-1 accent-violet-500" /><span><b>High accuracy</b> <span className="text-slate-400">noise filtering, picks up voices from across the room, tells speakers apart{hqAvail ? '' : ' (not set up yet)'}</span></span></label>
               <label className="flex items-start gap-2 py-1"><input type="radio" name="tmode" disabled={state !== 'idle' || !speechSupported()} checked={mode === 'std'} onChange={() => { setMode('std'); recRef.current = null; }} className="mt-1 accent-violet-500" /><span><b>Standard</b> <span className="text-slate-400">free, uses your browser, no speaker names</span></span></label>
             </div>
             <label className="flex items-center gap-2 text-slate-300"><input type="checkbox" checked={autoQ} onChange={(e) => setAutoQ(e.target.checked)} className="accent-violet-500" /> Suggest questions automatically when someone asks "any questions?"</label>
-            <p className="text-xs text-slate-500">Transcription hears what your microphone hears. In an online meeting, play the audio through your speakers (not headphones) so it can hear the other people, or use it in the room. Nothing is recorded: only text is kept, on this device.</p>
+            <p className="text-xs text-slate-500">For a meeting in a room: put your phone or laptop in the middle of the table with the microphone facing the speakers, and keep it away from fans and loud screens. A small external microphone helps most. Nothing is recorded: only text is kept, on this device.</p>
           </div>
         )}
 

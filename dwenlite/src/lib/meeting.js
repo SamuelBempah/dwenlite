@@ -129,20 +129,35 @@ export function groupWords(words) {
 }
 
 export function createHqRecognizer({ getToken, heartbeat, lang, terms = [], onInterim, onFinal, onError, onState }) {
-  let ws = null; let rec = null; let stream = null; let want = false; let hb = null; let keep = null; let tries = 0;
+  let audio = null; let ws = null; let rec = null; let stream = null; let want = false; let hb = null; let keep = null; let tries = 0;
   const cleanup = () => {
     clearInterval(hb); clearInterval(keep);
     try { rec && rec.state !== 'inactive' && rec.stop(); } catch { /* ignore */ }
     try { ws && ws.readyState <= 1 && ws.close(); } catch { /* ignore */ }
     try { stream && stream.getTracks().forEach((t) => t.stop()); } catch { /* ignore */ }
-    ws = null; rec = null; stream = null;
+    try { audio && audio.close(); } catch { /* ignore */ }
+    ws = null; rec = null; stream = null; audio = null;
   };
   const fail = (msg, fatal) => { cleanup(); want = false; onError && onError(msg, fatal); onState && onState('idle'); };
 
   async function open() {
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      // in a room nothing is playing back, so echo cancelling is off (it can swallow distant voices); noise suppression and gain stay on
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false, noiseSuppression: true, autoGainControl: true } });
     } catch { return fail('Microphone access was blocked. Allow the microphone for this site and try again.', false); }
+    // far-field boost: cut low rumble, level out quiet and loud talkers, lift faint voices
+    let sendStream = stream;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      audio = new AC();
+      const src = audio.createMediaStreamSource(stream);
+      const hp = audio.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 110;
+      const comp = audio.createDynamicsCompressor(); comp.threshold.value = -48; comp.knee.value = 30; comp.ratio.value = 10; comp.attack.value = 0.005; comp.release.value = 0.25;
+      const gain = audio.createGain(); gain.gain.value = 2.2;
+      const dest = audio.createMediaStreamDestination();
+      src.connect(hp); hp.connect(comp); comp.connect(gain); gain.connect(dest);
+      sendStream = dest.stream;
+    } catch { sendStream = stream; }
     let token;
     try { token = await getToken(); } catch (e) { return fail(e.message, true); }
     const q = new URLSearchParams({ model: 'nova-3', language: dgLang(lang), punctuate: 'true', smart_format: 'true', diarize: 'true', interim_results: 'true', endpointing: '400', utterance_end_ms: '1500', vad_events: 'false' });
@@ -150,7 +165,7 @@ export function createHqRecognizer({ getToken, heartbeat, lang, terms = [], onIn
     ws = new WebSocket(`wss://api.deepgram.com/v1/listen?${q}`, ['bearer', token]);
     ws.onopen = () => {
       tries = 0;
-      rec = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 32000 });
+      rec = new MediaRecorder(sendStream, { mimeType: 'audio/webm;codecs=opus', audioBitsPerSecond: 32000 });
       rec.ondataavailable = (e) => { if (e.data && e.data.size && ws && ws.readyState === 1) ws.send(e.data); };
       rec.start(250);
       keep = setInterval(() => { try { ws.readyState === 1 && ws.send(JSON.stringify({ type: 'KeepAlive' })); } catch { /* ignore */ } }, 8000);
