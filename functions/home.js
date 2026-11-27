@@ -340,7 +340,10 @@ function create({ admin, db, logger, axios, cors, onRequest, defineString, DEEPS
           if (!m) return res.status(401).json({ error: "Please sign in." });
           let decoded;
           try { decoded = await admin.auth().verifyIdToken(m[1]); } catch (e) { return res.status(401).json({ error: "Session expired. Please sign in again." }); }
-          if (!isAdmin(decoded)) return res.status(403).json({ error: "Not allowed." });
+          if (!isAdmin(decoded)) {
+            const n = ADMIN_EMAILS.value().split(",").map((x) => x.trim()).filter(Boolean).length;
+            return res.status(403).json({ error: `Not allowed. Signed in as ${decoded.email || "no email"} (verified: ${!!decoded.email_verified}). The server's admin list has ${n} email${n === 1 ? "" : "s"}.` });
+          }
           const uid = decoded.uid;
 
           if (action === "whoami") return res.status(200).json({ admin: true, vision: hasVision() });

@@ -46,6 +46,7 @@ export default function DwenliteHome() {
 
   const convo = useRef([]);
   const stopRef = useRef(false);
+  const [why, setWhy] = useState('');
   const approvals = useRef({});
   useEffect(() => { const old = document.title; document.title = 'Dwenlite Home'; return () => { document.title = old; }; }, []);
   const abortRef = useRef(null);
@@ -71,7 +72,7 @@ export default function DwenliteHome() {
         try { localStorage.setItem('dwenliteAdmin', '1'); } catch { /* ignore */ }
         setGate('ok');
       } catch (e) {
-        setGate(e.status === 403 ? 'denied' : e.status === 401 ? 'signin' : 'error');
+        if (e.status === 403) setWhy(e.message || ''); setGate(e.status === 403 ? 'denied' : e.status === 401 ? 'signin' : 'error');
       }
     });
     return unsub;
@@ -320,6 +321,7 @@ export default function DwenliteHome() {
         <div>
           <ShieldAlert className="mx-auto mb-3 text-violet-300" size={36} />
           <p className={gate === 'checking' ? 'animate-pulse' : ''}>{msg}</p>
+          {gate === 'denied' && why && <p className="mx-auto mt-3 max-w-sm text-xs text-slate-500">{why}</p>}
         </div>
       </div>
     );
