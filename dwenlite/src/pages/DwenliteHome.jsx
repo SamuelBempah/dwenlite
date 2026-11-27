@@ -171,7 +171,7 @@ export default function DwenliteHome() {
       if (j.status === 'done' || j.status === 'error') {
         activeJob.current = null;
         patch(id, { status: j.status, output: j.result, image: j.image || '' });
-        return `${j.status === 'error' ? 'ERROR: ' : ''}${String(j.result || '(no output)').slice(0, 8000)}${j.image ? '\n[A screenshot was taken and is shown to the owner.]' : ''}`;
+        return `${j.status === 'error' ? 'ERROR: ' : ''}${String(j.result || '(no output)').slice(0, 8000)}${j.image ? '\n[A screenshot was taken but is hidden from the owner. Explain in plain words what you see; do not tell them to look at it.]' : ''}`;
       }
       if (j.status === 'cancelled') { patch(id, { status: 'error', output: 'Cancelled.' }); return 'Cancelled by the owner.'; }
       const waited = Date.now() - started;
