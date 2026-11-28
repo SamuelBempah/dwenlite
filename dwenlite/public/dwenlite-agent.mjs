@@ -22,7 +22,7 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import dns from 'node:dns/promises';
 
-export const VERSION = '2.9.0';
+export const VERSION = '2.10.0';
 export const DEFAULT_URL = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/homeApi';
 export const SITE = 'https://www.dwenlite.space';
 const MAX_OUT = 100000;      // characters of command output sent back
@@ -1368,7 +1368,7 @@ export function createAgent(opts) {
   let lastShot = null; // sizes of the last screenshot, to turn screenshot pixels into real screen coordinates
 
   async function api(action, body) {
-    const r = await fetch(opts.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, deviceId: opts.device, token: opts.token, ...body }) });
+    const r = await fetch(opts.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, deviceId: opts.device, token: opts.token, ...body }), signal: AbortSignal.timeout(action === 'agent_result' ? 60000 : 20000) }); // a stalled connection (wifi change, waking from sleep) must not freeze the helper
     const j = await r.json().catch(() => ({}));
     if (r.status === 401) { const e = new Error('This device was removed or its token is wrong.'); e.fatal = true; throw e; }
     if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
@@ -1942,16 +1942,20 @@ Start-Process $u`;
     if (!lockTimer) { refreshLock(); lockTimer = setInterval(refreshLock, 8000); lockTimer.unref && lockTimer.unref(); }
     log(`Dwenlite agent ${VERSION} started. Work folder: ${root}. Shell: ${opts.shell ? 'ON' : 'off'}. Screen/mouse/keyboard: ${opts.gui ? 'ON' : 'off'}.`);
     let fails = 0;
+    // while a long job runs the main loop is busy, so a separate heartbeat keeps this computer shown as online (and live views working)
+    const pollBody = (extra) => ({ platform: process.platform, hostname: os.hostname(), version: VERSION, caps: { shell: opts.shell, gui: opts.gui }, state: { locked: state.locked, busy: state.busy > 0 }, ...extra });
+    let hbBusy = false;
+    const hb = setInterval(async () => {
+      if (!state.busy || hbBusy || stop.stopped) return; hbBusy = true;
+      try { const r = await api('agent_poll', pollBody({ noJob: true })); state.lastOk = Date.now(); applyConfig(r.config); } catch (e) { if (e.fatal) stop.stopped = true; } finally { hbBusy = false; }
+    }, 4000);
+    hb.unref && hb.unref();
+    try {
     while (!stop.stopped) {
       try {
-        const { job, config } = await api('agent_poll', { platform: process.platform, hostname: os.hostname(), version: VERSION, caps: { shell: opts.shell, gui: opts.gui }, state: { locked: state.locked } });
+        const { job, config } = await api('agent_poll', pollBody({}));
         fails = 0; state.lastOk = Date.now();
-        if (config && Array.isArray(config.folders)) extraRoots = config.folders.map(presetFolder).filter((f) => typeof f === 'string' && path.isAbsolute(f) && fs.existsSync(f)).map((f) => fs.realpathSync(f));
-        state.fast = !!(config && config.fast);
-        cloudLive = new Set(Array.isArray(config && config.live) ? config.live.filter((k) => k === 'browser' || k === 'screen') : []);
-        if (config && config.liveKey) { localKeys.set(String(config.liveKey), Date.now() + 20 * 60000); for (const [k, e] of localKeys) if (e < Date.now()) localKeys.delete(k); }
-        for (const k of cloudLive) ensureStream(k);
-        if (config && Array.isArray(config.watches) && config.watches.length) scanWatches(config.watches).catch(() => {});
+        applyConfig(config);
         if (job) {
           log(`job ${job.id}: ${job.type} ${job.type === 'shell' ? clip(job.args.command, 200) : job.type === 'browser_view' ? job.args.op : JSON.stringify(job.args).slice(0, 200)}`);
           let ok = true; let output = ''; let image = '';
@@ -1965,10 +1969,23 @@ Start-Process $u`;
         if (e.fatal) { log('STOPPED: ' + e.message); return; }
         fails++;
         log(`Cannot reach Dwenlite (${e.message}). Retrying...`);
-        await sleep(Math.min(30000, 2000 * fails));
+        await sleep(Math.min(8000, 1500 * fails));
         continue;
       }
       await sleep(state.fast ? 450 : opts.interval);
+    }
+    } finally { clearInterval(hb); }
+  }
+  function applyConfig(config) {
+    {
+      {
+        if (config && Array.isArray(config.folders)) extraRoots = config.folders.map(presetFolder).filter((f) => typeof f === 'string' && path.isAbsolute(f) && fs.existsSync(f)).map((f) => fs.realpathSync(f));
+        state.fast = !!(config && config.fast);
+        cloudLive = new Set(Array.isArray(config && config.live) ? config.live.filter((k) => k === 'browser' || k === 'screen') : []);
+        if (config && config.liveKey) { localKeys.set(String(config.liveKey), Date.now() + 20 * 60000); for (const [k, e] of localKeys) if (e < Date.now()) localKeys.delete(k); }
+        for (const k of cloudLive) ensureStream(k);
+        if (config && Array.isArray(config.watches) && config.watches.length) scanWatches(config.watches).catch(() => {});
+      }
     }
   }
   return { loop, actions, runJob, api, log, state, shutdown: () => { for (const st of [...streams.values()]) { try { st.cleanup && st.cleanup(); } catch { /* gone */ } } try { localServer && localServer.close(); } catch { /* gone */ } try { awake && awake.kill(); } catch { /* gone */ } return browser.close(); } };
