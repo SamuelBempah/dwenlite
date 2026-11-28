@@ -1,16 +1,31 @@
-import { Circle } from 'lucide-react';
+import { useState } from 'react';
+import { Circle, ChevronDown } from 'lucide-react';
 import { AnimatePresence, AnimatedCheck, Spinner, motion, Appear, spring } from './motion';
 
 // The assistant's checklist for a bigger job.
-export default function PlanCard({ steps: raw, active = false }) {
+export default function PlanCard({ steps: raw, active = false, compact = false }) {
+  const [open, setOpen] = useState(false);
   // while the task is running, one step is always shown as being worked on
   const steps = active && !raw.some((x) => x.status === 'doing') && raw.some((x) => x.status === 'pending') ? (() => { let hit = false; return raw.map((x) => (!hit && x.status === 'pending' ? ((hit = true), { ...x, status: 'doing' }) : x)); })() : raw;
   const done = steps.filter((s) => s.status === 'done').length;
   const pct = steps.length ? Math.round((done / steps.length) * 100) : 0;
+  const current = steps.find((x) => x.status === 'doing') || steps.find((x) => x.status === 'pending');
+  if (compact && !open) {
+    return (
+      <Appear className="my-1.5 max-w-full rounded-2xl border border-violet-500/25 bg-slate-900/70 text-sm">
+        <button onClick={() => setOpen(true)} aria-label="Show the whole plan" className="flex w-full items-center gap-2.5 px-3 py-2 text-left">
+          <span className="relative h-[15px] w-[15px] shrink-0">{current && current.status === 'doing' ? <Spinner size={15} className="text-violet-300" /> : <AnimatedCheck size={15} className="text-emerald-400" />}</span>
+          <span className="min-w-0 flex-1"><span className="block truncate text-slate-100">{current ? current.text : 'All done'}</span><span className="block text-[11px] text-slate-500">Plan · {done} of {steps.length} done</span></span>
+          <ChevronDown size={15} className="shrink-0 text-slate-500" />
+        </button>
+        <div className="mx-3 mb-2 h-1 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-gradient-to-r from-violet-500 to-emerald-400 transition-all duration-500" style={{ width: `${pct}%` }} /></div>
+      </Appear>
+    );
+  }
   return (
     <Appear className="my-1.5 max-w-full rounded-2xl border border-violet-500/25 bg-slate-900/70 px-3 py-2.5 text-sm">
       <div className="mb-2 flex items-center justify-between gap-3">
-        <p className="font-semibold text-slate-100">Plan</p>
+        <p className="font-semibold text-slate-100">Plan{compact && <button onClick={() => setOpen(false)} className="ml-2 text-xs font-normal text-slate-500 underline">Hide</button>}</p>
         <p className="text-xs text-slate-400">{done} of {steps.length} done</p>
       </div>
       <div className="mb-2.5 h-1.5 overflow-hidden rounded-full bg-slate-800"><motion.div className="h-full w-full rounded-full bg-gradient-to-r from-violet-500 to-emerald-400" style={{ transformOrigin: 'left' }} initial={{ scaleX: 0 }} animate={{ scaleX: pct / 100 }} transition={{ type: 'spring', stiffness: 120, damping: 20 }} /></div>

@@ -19,6 +19,14 @@ const WORDS = {
   document: ['Working on a document', 'Worked on a document'], app_ui: ['Working in a program', 'Worked in a program'], google_mail: ['Checking your email', 'Checked your email'], google_calendar: ['Checking your calendar', 'Checked your calendar'], google_drive: ['Looking in your Drive', 'Looked in your Drive'],
 };
 
+export function actionLabel(item) {
+  const [doing, done] = WORDS[item.tool] || ['Working', 'Done'];
+  const finished = item.status === 'done' || item.status === 'error' || item.status === 'denied';
+  const said = item.args && typeof item.args.summary === 'string' ? plainText(item.args.summary.trim()) : '';
+  return said || (finished ? done : doing);
+}
+export const actionHasFile = (item) => item.status === 'done' && ((['write_file', 'document'].includes(item.tool) && /^(?:Created|Wrote|Appended to) (.+?) \(\d+ bytes\)/.test(item.output || '')) || (item.tool === 'send_file' && !!(item.args && item.args.path)));
+
 export default function ActionCard({ item, onUndo, onDownload }) {
   const [doing, done] = WORDS[item.tool] || ['Working', 'Done'];
   const finished = item.status === 'done' || item.status === 'error' || item.status === 'denied';

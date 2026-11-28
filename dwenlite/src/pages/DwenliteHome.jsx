@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Home, Monitor, Brain, SlidersHorizontal, RotateCcw, History, Repeat, Mic, Volume2, VolumeX, Bell, BookmarkPlus, FileUp, MessagesSquare, Radio, Mail, Paperclip, Camera, Send, Square, X, Wifi, WifiOff, ShieldAlert, Trash2, Sparkles, CalendarCheck, Globe } from 'lucide-react';
+import { Home, Monitor, Brain, SlidersHorizontal, RotateCcw, History, Repeat, Mic, Volume2, VolumeX, Bell, BookmarkPlus, FileUp, MessagesSquare, Radio, Mail, Paperclip, Camera, Send, Square, X, Wifi, WifiOff, ShieldAlert, Trash2, Sparkles, CalendarCheck, Globe, MoreHorizontal } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { auth } from '../firebase';
 import ChatAnswer from '../components/ChatAnswer';
@@ -12,6 +12,8 @@ import ChatsPanel from '../components/home/ChatsPanel';
 import { sleep, keepWorking } from '../lib/homeTimer';
 import { startWake, wakeSupported } from '../lib/homeWake';
 import BrowserView from '../components/home/BrowserView';
+import ActionGroup from '../components/home/ActionGroup';
+import { actionHasFile } from '../components/home/ActionCard';
 import AskCard from '../components/home/AskCard';
 import TodayPanel, { myZone } from '../components/home/TodayPanel';
 import DwenLogo from '../components/home/DwenLogo';
@@ -56,6 +58,23 @@ const QUICK = [
   'Check how much free disk space I have',
 ];
 
+// true on a phone-sized screen
+function useIsMobile() {
+  const q = '(max-width: 639px)';
+  const [m, setM] = useState(() => typeof window !== 'undefined' && window.matchMedia(q).matches);
+  useEffect(() => { const mq = window.matchMedia(q); const f = () => setM(mq.matches); mq.addEventListener('change', f); return () => mq.removeEventListener('change', f); }, []);
+  return m;
+}
+// on a phone, runs of plain steps become one tidy line; steps that made a file (or the browser's hidden ones) stay as they are
+function groupActions(items) {
+  const out = []; let run = null;
+  for (const it of items) {
+    if (it.type === 'action' && it.tool === 'browser') continue;
+    if (it.type === 'action' && !actionHasFile(it)) { if (!run) { run = { id: `g_${it.id}`, type: 'group', items: [] }; out.push(run); } run.items.push(it); } else { run = null; out.push(it); }
+  }
+  return out;
+}
+
 export default function DwenliteHome() {
   const [gate, setGate] = useState('checking'); // checking | ok | denied | signin | error
   const [vision, setVision] = useState(false);
@@ -74,6 +93,9 @@ export default function DwenliteHome() {
   const [browserDev, setBrowserDev] = useState(null); // set once the assistant has used its browser during this task
   const [showBrowser, setShowBrowser] = useState(false);
   const [gLink, setGLink] = useState({ available: false, linked: false });
+  const isMobile = useIsMobile();
+  const [moreOpen, setMoreOpen] = useState(false);
+  const feed = isMobile ? groupActions(items) : items;
   const [wakeOn, setWakeOn] = useState(() => readJson('dwenliteWake', false) === true);
   const [panel, setPanel] = useState(null); // devices | memory | settings | activity | routines
   const [routineDraft, setRoutineDraft] = useState(null);
@@ -644,19 +666,36 @@ export default function DwenliteHome() {
       {/* top bar */}
       <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2.5 md:px-6">
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
-          <motion.span initial={{ scale: 0.6, rotate: -20, opacity: 0 }} animate={{ scale: 1, rotate: 0, opacity: 1 }} whileHover={{ scale: 1.08, rotate: -6 }} whileTap={{ scale: 0.92 }} transition={spring} className="inline-flex"><DwenLogo size={36} /></motion.span>
+          <motion.span initial={{ scale: 0.6, rotate: -20, opacity: 0 }} animate={{ scale: 1, rotate: 0, opacity: 1 }} whileHover={{ scale: 1.08, rotate: -6 }} whileTap={{ scale: 0.92 }} transition={spring} className="inline-flex shrink-0"><DwenLogo size={36} /></motion.span>
           <div className="hidden min-w-0 sm:block">
             <p className="truncate font-bold leading-tight">Dwenlite Home</p>
             <p className="truncate text-[11px] text-slate-500">Your personal assistant</p>
           </div>
         </div>
-        <motion.button onClick={() => setPanel('devices')} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.93 }} transition={spring} className="flex items-center gap-1.5 rounded-full border border-white/10 bg-slate-800/70 px-3 py-1.5 text-xs hover:border-violet-500/50">
+        <motion.button onClick={() => setPanel('devices')} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.93 }} transition={spring} className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-slate-800/70 px-3 py-1.5 text-xs hover:border-violet-500/50">
           {onlineCount ? <motion.span style={{ display: 'inline-flex' }} animate={{ opacity: [1, 0.4, 1] }} transition={{ repeat: Infinity, duration: 2.2, ease: 'easeInOut' }}><Wifi size={13} className="text-emerald-400" /></motion.span> : <WifiOff size={13} className="text-slate-500" />}
           <span className="hidden sm:inline">{devices.length ? `${onlineCount}/${devices.length} online` : 'Add a computer'}</span>
           <Monitor size={13} className="sm:hidden" />
         </motion.button>
         {project && <motion.button initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} onClick={() => setPanel('today')} className="max-w-[9rem] truncate rounded-full border border-violet-400/40 bg-violet-500/15 px-3 py-1.5 text-xs text-violet-100" title="Current project">{project.name}</motion.button>}
+        {/* phone: the main things stay, the rest live in one menu */}
         <IconBtn icon={Radio} anim="pulse" onClick={() => setPanel('remote')} aria-label="Remote" title="See and control what is running" className={`rounded-full border p-2 transition-colors ${live ? 'border-violet-400/60 bg-violet-500/20 text-violet-200' : 'border-white/10 bg-slate-800/70 hover:border-violet-500/50'}`} />
+        <div className="relative sm:hidden">
+          <IconBtn icon={MoreHorizontal} anim="pop" onClick={() => setMoreOpen((o) => !o)} aria-label="More" aria-expanded={moreOpen} className="rounded-full border border-white/10 bg-slate-800/70 p-2" />
+          <AnimatePresence>
+            {moreOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setMoreOpen(false)} />
+                <motion.div initial={{ opacity: 0, y: -6, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -6, scale: 0.97 }} transition={{ duration: 0.14 }} className="absolute right-0 top-full z-50 mt-2 w-56 overflow-hidden rounded-2xl border border-white/10 bg-[#17171f] p-1.5 shadow-2xl">
+                  {[[MessagesSquare, 'Earlier chats', () => setPanel('chats')], [CalendarCheck, 'Today', () => setPanel('today')], [Repeat, 'Routines', () => { setRoutineDraft(null); setPanel('routines'); }], [History, 'Activity', () => setPanel('activity')], [Brain, 'What it remembers', () => setPanel('memory')], [SlidersHorizontal, 'Settings', () => setPanel('settings')], [RotateCcw, 'New chat', newChat]].map(([Ic, label, fn]) => (
+                    <button key={label} onClick={() => { setMoreOpen(false); fn(); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-slate-200 hover:bg-white/10"><Ic size={17} className="text-violet-300" /> {label}</button>
+                  ))}
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+        </div>
+        <div className="hidden items-center gap-2 sm:flex">
         <IconBtn icon={MessagesSquare} anim="pop" onClick={() => setPanel('chats')} aria-label="Earlier chats" title="Your earlier conversations" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
         <IconBtn icon={CalendarCheck} anim="pop" onClick={() => setPanel('today')} aria-label="Today" title="Reminders, to-dos, briefing and projects" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
         <IconBtn icon={Repeat} anim="spin" onClick={() => { setRoutineDraft(null); setPanel('routines'); }} aria-label="Routines" title="Saved and scheduled tasks" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
@@ -664,6 +703,7 @@ export default function DwenliteHome() {
         <IconBtn icon={Brain} anim="pulse" onClick={() => setPanel('memory')} aria-label="Memory" title="What it remembers" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
         <IconBtn icon={SlidersHorizontal} anim="tilt" onClick={() => setPanel('settings')} aria-label="Settings" title="How much it may do on its own" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
         <IconBtn icon={RotateCcw} anim="spin" onClick={newChat} aria-label="New chat" title="New chat" className="rounded-full border border-white/10 bg-slate-800/70 p-2 hover:border-violet-500/50" />
+        </div>
       </div>
 
       <AnimatePresence initial={false}>
@@ -698,7 +738,8 @@ export default function DwenliteHome() {
           </div>
         )}
 
-        {items.map((m) => {
+        {feed.map((m) => {
+          if (m.type === 'group') return <ActionGroup key={m.id} items={m.items} />;
           if (m.type === 'user') return (
             <Appear key={m.id} className="ml-auto max-w-[92%] sm:max-w-[80%]">
               <div className="rounded-2xl rounded-br-md bg-violet-600 p-3 text-sm">
@@ -723,13 +764,13 @@ export default function DwenliteHome() {
         })}
       </div>
 
-      {pinnedPlan && <div className="max-h-[32dvh] overflow-y-auto border-t border-violet-500/20 bg-[#0e0e13] px-3 pt-1"><PlanCard steps={pinnedPlan.steps} active /></div>}
+      {pinnedPlan && <div className="max-h-[40dvh] overflow-y-auto border-t border-violet-500/20 bg-[#0e0e13] px-3 pt-1"><PlanCard steps={pinnedPlan.steps} active compact={isMobile} /></div>}
       <AnimatePresence initial={false}>
         {live && (
           <motion.div key="live" initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={spring} style={{ overflow: 'hidden' }} className="border-t border-violet-500/20 bg-violet-500/10 px-3">
             <div className="flex items-center gap-2.5 py-2">
               <DwenLogo size={26} working />
-              <div className="min-w-0 flex-1"><p className="truncate text-sm text-violet-100">{live.stopping ? 'Stopping...' : plainText(live.note) || 'Working on it...'}</p><p className="text-[11px] text-violet-300/70">Running in the cloud · {Math.floor((Date.now() - live.startedAt) / 60000)}:{String(Math.floor(((Date.now() - live.startedAt) % 60000) / 1000)).padStart(2, '0')} · you can type to tell it something new</p></div>
+              <div className="min-w-0 flex-1"><p className="truncate text-sm text-violet-100">{live.stopping ? 'Stopping...' : isMobile ? 'Working on it...' : plainText(live.note) || 'Working on it...'}</p><p className="text-[11px] text-violet-300/70"><span className="sm:hidden">{Math.floor((Date.now() - live.startedAt) / 60000)}:{String(Math.floor(((Date.now() - live.startedAt) % 60000) / 1000)).padStart(2, '0')}</span><span className="hidden sm:inline">Running in the cloud · {Math.floor((Date.now() - live.startedAt) / 60000)}:{String(Math.floor(((Date.now() - live.startedAt) % 60000) / 1000)).padStart(2, '0')} · you can type to tell it something new</span></p></div>
               {browserDev && <Tap onClick={() => setShowBrowser(true)} aria-label="Watch the browser" className="flex shrink-0 items-center gap-1 rounded-lg bg-slate-800 px-2.5 py-1.5 text-xs font-semibold hover:bg-slate-700"><Globe size={13} /> Browser</Tap>}
               <Tap onClick={stopNow} disabled={live.stopping} aria-label="Stop the task" className="shrink-0 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold hover:bg-red-500 disabled:opacity-50">Stop</Tap>
             </div>
@@ -763,7 +804,7 @@ export default function DwenliteHome() {
           <input ref={fileRef} type="file" multiple className="hidden" onChange={(e) => { addPicked(e.target.files); e.target.value = ''; }} />
           <input ref={camRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { addImages(e.target.files); e.target.value = ''; }} />
           <IconBtn icon={Paperclip} size={20} anim="tilt" onClick={() => fileRef.current?.click()} aria-label="Attach an image or a file" title="Attach an image, or send a file to your computer" className="rounded-xl p-2.5 text-slate-400 hover:bg-white/10 hover:text-white" />
-          <IconBtn icon={Camera} size={20} anim="pop" onClick={() => camRef.current?.click()} aria-label="Take a photo" className="rounded-xl p-2.5 text-slate-400 hover:bg-white/10 hover:text-white" />
+          <IconBtn icon={Camera} size={20} anim="pop" onClick={() => camRef.current?.click()} aria-label="Take a photo" className="max-sm:hidden rounded-xl p-2.5 text-slate-400 hover:bg-white/10 hover:text-white" />
           <IconBtn icon={listening ? Mic : Mic} size={20} anim="pulse" onClick={toggleMic} aria-label={listening ? 'Stop listening' : 'Talk'} title="Talk instead of typing" className={`rounded-xl p-2.5 transition-colors ${listening ? 'bg-red-500/20 text-red-300' : 'text-slate-400 hover:bg-white/10 hover:text-white'}`} />
           <textarea
             value={input}
@@ -771,7 +812,7 @@ export default function DwenliteHome() {
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && window.innerWidth >= 768) { e.preventDefault(); send(); } }}
             onPaste={(e) => { const f = Array.from(e.clipboardData?.files || []); if (f.length) { e.preventDefault(); addImages(f); } }}
             rows={1}
-            placeholder={live ? 'Tell it something new while it works...' : 'Ask me anything, or tell me what to do on your computer...'}
+            placeholder={isMobile ? (live ? 'Tell it something new...' : 'Ask me anything...') : (live ? 'Tell it something new while it works...' : 'Ask me anything, or tell me what to do on your computer...')}
             className="max-h-40 min-h-[2.75rem] flex-1 resize-none rounded-2xl border border-slate-700 bg-slate-900 px-4 py-2.5 text-sm outline-none focus:border-violet-500"
           />
           {busy && !live
