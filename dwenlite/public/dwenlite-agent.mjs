@@ -22,7 +22,7 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import dns from 'node:dns/promises';
 
-export const VERSION = '2.13.0';
+export const VERSION = '2.14.0';
 export const DEFAULT_URL = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/homeApi';
 export const SITE = 'https://www.dwenlite.space';
 const MAX_OUT = 100000;      // characters of command output sent back
@@ -719,6 +719,7 @@ export function createBrowser({ root, api, log, see }) {
     if (act === 'screenshot') {
       const shot = await p.send('Page.captureScreenshot', { format: 'jpeg', quality: 60 });
       const buf = Buffer.from(shot.data, 'base64');
+      if (a.novision) return { text: 'Screenshot taken.', image: buf.length < 520000 ? shot.data : '' };
       const sz = imageSize(buf) || { w: 1280, h: 900 };
       let text = '';
       try { text = (await (see || ((x) => api('agent_see', x)))({ image: shot.data, mime: 'image/jpeg', look: a.look, width: sz.w, height: sz.h })).text; } catch (e) { text = `(The screenshot was taken but could not be read by the image model: ${e.message})`; }

@@ -12,6 +12,7 @@ import ChatsPanel from '../components/home/ChatsPanel';
 import { sleep, keepWorking } from '../lib/homeTimer';
 import { startWake, wakeSupported } from '../lib/homeWake';
 import BrowserView from '../components/home/BrowserView';
+import ImageCard from '../components/home/ImageCard';
 import ActionGroup from '../components/home/ActionGroup';
 import { actionHasFile } from '../components/home/ActionCard';
 import AskCard from '../components/home/AskCard';
@@ -537,6 +538,7 @@ export default function DwenliteHome() {
         runRef.current.after = Math.max(runRef.current.after, ev.n);
         if (ev.type === 'text') add({ id: uid(), type: 'ai', content: ev.text, typing: false });
         else if (ev.type === 'plan') setItems((p) => { const last = [...p].reverse().find((i) => i.type === 'plan'); if (last && !last.steps.every((x) => x.status === 'done')) return p.map((i) => (i.id === last.id ? { ...i, steps: ev.steps } : i)); return [...p, { id: uid(), type: 'plan', steps: ev.steps }]; });
+        else if (ev.type === 'image') add({ id: ev.id, type: 'image', image: ev.image, caption: ev.caption, deviceName: ev.deviceName });
         else if (ev.type === 'ask') add({ id: `ask_${ev.id}`, askId: ev.id, type: 'ask', question: ev.question, answer: 'waiting', handoff: !!ev.handoff, deviceId: ev.deviceId, deviceName: ev.deviceName });
         else if (ev.type === 'ask_done') setItems((p) => p.map((i) => (i.id === `ask_${ev.id}` ? { ...i, answer: ev.answer } : i)));
         else if (ev.type === 'tool_start') { if (ev.name === 'browser' && ev.deviceId) setBrowserDev({ id: ev.deviceId, name: ev.deviceName }); actionsThisTurn.current += 1; add({ id: ev.id, type: 'action', tool: ev.name, args: ev.args, deviceName: ev.deviceName, deviceId: ev.deviceId, status: 'running' }); if (stealsFor(ev.name, ev.args)) awayFrom.current = ev.deviceId; }
@@ -756,6 +758,7 @@ export default function DwenliteHome() {
               <ChatAnswer content={plainText(m.content)} typing={m.typing} live={m.live} />
             </Appear>
           );
+          if (m.type === 'image') return <ImageCard key={m.id} item={m} />;
           if (m.type === 'ask') return <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><AskCard item={m} /></div>;
           if (m.type === 'plan') return pinnedPlan && pinnedPlan.id === m.id ? null : <div key={m.id} className="max-w-[96%] sm:max-w-[85%]"><PlanCard steps={m.steps} /></div>;
           if (m.type === 'action' && m.tool === 'browser') return null; // the browser's inner workings are never shown; the Browser button shows the real thing
