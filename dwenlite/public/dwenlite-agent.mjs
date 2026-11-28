@@ -1392,7 +1392,7 @@ export function createAgent(opts) {
     tryNext();
   }
   // ---- reading a picture: the online image models first (fast); this computer's own as a free backup, or first if the owner chose that ----
-  const localVis = { mode: 'first', model: '', checked: 0, wanted: '' }; // this computer's model first, the online ones as the backup
+  const localVis = { mode: 'fallback', model: '', checked: 0, wanted: '' }; // the shared image model first; a model on this computer only as a backup, unless the owner chose otherwise
   let seeChain = Promise.resolve();
   async function readyLocalModel() { // is a picture-reading model installed? (asked at most once a minute)
     if (Date.now() - localVis.checked < 60000) return localVis.model;

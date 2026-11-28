@@ -173,9 +173,13 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
   const OPENROUTER_VISION_MODEL = defineString("OPENROUTER_VISION_MODEL", { default: "openrouter/free" }); // a router that picks a free model that accepts images
   const HF_TOKEN = defineString("HF_TOKEN", { default: "" });
   const HF_VISION_MODEL = defineString("HF_VISION_MODEL", { default: "Qwen/Qwen2.5-VL-72B-Instruct" });
-  const VISION_ORDER = defineString("VISION_ORDER", { default: "groq" }); // Groq only; add others (comma separated) to use them as backups
+  // our own vision model (Qwen), served from a computer or server we control and shared by every user. It is tried first when configured; the online ones are the backup.
+  const OWN_VISION_URL = defineString("OWN_VISION_URL", { default: "" }); // the address of the vision gateway, like https://my-pc.tailnet.ts.net
+  const OWN_VISION_KEY = defineString("OWN_VISION_KEY", { default: "" }); // the gateway's secret
+  const OWN_VISION_MODEL = defineString("OWN_VISION_MODEL", { default: "qwen2.5vl:3b" });
+  const VISION_ORDER = defineString("VISION_ORDER", { default: "own,groq" }); // our own first, then Groq; add others (comma separated) as more backups
 
-  const visionKeys = () => ({ groq: GROQ_API_KEY.value(), openrouter: OPENROUTER_API_KEY.value(), gemini: GEMINI_API_KEY.value(), huggingface: HF_TOKEN.value() });
+  const visionKeys = () => ({ groq: GROQ_API_KEY.value(), openrouter: OPENROUTER_API_KEY.value(), gemini: GEMINI_API_KEY.value(), huggingface: HF_TOKEN.value(), own: OWN_VISION_URL.value() && OWN_VISION_KEY.value() ? OWN_VISION_KEY.value() : "" });
   const hasVision = () => { const k = visionKeys(); return VISION_ORDER.value().split(",").map((x) => x.trim().toLowerCase()).some((x) => k[x]); };
   const cooldown = {}; // provider -> time (ms) until which it is skipped
   const lastGood = {}; // provider -> the model name that worked last
@@ -188,14 +192,14 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
     return { st, msg: clip(typeof msg === "string" ? msg : JSON.stringify(msg), 220) };
   };
 
-  async function openAiStyle({ name, url, key, models, headers, prompt, mime, b64 }) {
+  async function openAiStyle({ name, url, key, models, headers, prompt, mime, b64, timeout }) {
     let lastErr = "";
     for (const model of [...new Set([lastGood[name], ...models].filter(Boolean))]) {
       try {
         const r = await axios.post(url, {
           model, temperature: 0.2, max_tokens: 1500,
           messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: `data:${mime};base64,${b64}` } }] }],
-        }, { headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...(headers || {}) }, timeout: 45000 });
+        }, { headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...(headers || {}) }, timeout: timeout || 45000 });
         const text = String((r.data.choices && r.data.choices[0] && r.data.choices[0].message && r.data.choices[0].message.content) || "").trim();
         if (text) { lastGood[name] = model; return text; }
         lastErr = `${model}: the model returned nothing`;
@@ -231,7 +235,22 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
     const e = new Error(lastErr || "no answer"); e.status = 0; throw e;
   }
 
+  // our own model: a quick health check first (a switched-off computer is skipped at once), and never more than two pictures waiting on it
+  let ownHealth = { at: 0, ok: false }; let ownBusy = 0;
+  async function ownVision(a) {
+    const base = OWN_VISION_URL.value().replace(/\/+$/, "");
+    if (Date.now() - ownHealth.at > 30000) {
+      try { await axios.get(`${base}/health`, { headers: { Authorization: `Bearer ${OWN_VISION_KEY.value()}` }, timeout: 4000 }); ownHealth = { at: Date.now(), ok: true }; }
+      catch (e) { ownHealth = { at: Date.now(), ok: false }; }
+    }
+    if (!ownHealth.ok) { const e = new Error("our own image model is not reachable right now"); e.status = 503; throw e; }
+    if (ownBusy >= 2) { const e = new Error("our own image model is busy"); e.status = 429; e.skipCooldown = true; throw e; }
+    ownBusy++;
+    try { return await openAiStyle({ ...a, name: "own", url: `${base}/v1/chat/completions`, key: OWN_VISION_KEY.value(), models: [OWN_VISION_MODEL.value()], timeout: 100000 }); }
+    finally { ownBusy--; }
+  }
   const VISION_CALLS = {
+    own: (a) => ownVision(a),
     groq: (a) => openAiStyle({ ...a, name: "groq", url: "https://api.groq.com/openai/v1/chat/completions", key: GROQ_API_KEY.value(), models: [GROQ_VISION_MODEL.value(), "qwen/qwen3.8-27b", "qwen/qwen3.6-27b", "meta-llama/llama-4-scout-17b-16e-instruct"] }),
     openrouter: (a) => openAiStyle({ ...a, name: "openrouter", url: "https://openrouter.ai/api/v1/chat/completions", key: OPENROUTER_API_KEY.value(), models: [OPENROUTER_VISION_MODEL.value(), "openrouter/free"], headers: { "HTTP-Referer": "https://www.dwenlite.space", "X-Title": "Dwenlite Home" } }),
     gemini: (a) => geminiVision(a),
@@ -240,7 +259,7 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
 
   async function vision({ b64, mime, mode, instruction, lang, width, height }) {
     const keys = visionKeys();
-    if (!hasVision()) { const e = new Error("Image model is not configured. Add GROQ_API_KEY to functions/.env."); e.code = "no_vision"; throw e; }
+    if (!hasVision()) { const e = new Error("Image model is not configured. Add GROQ_API_KEY (or OWN_VISION_URL and OWN_VISION_KEY) to functions/.env."); e.code = "no_vision"; throw e; }
     mime = mime || "image/jpeg";
     let prompt = (VISION_PROMPTS[mode] || VISION_PROMPTS.describe).replace("{lang}", clip(lang || "English", 30));
     if (instruction) prompt += `\n\nInstruction from the user: ${clip(instruction, 1000)}`;
@@ -263,7 +282,8 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
           fails.push(`${name}: ${clip(e.message, 200)}`);
           logger.error("vision provider failed", name, e.message);
           // out of free quota, bad key or no credit: skip this provider for a while
-          if (st === 429) cooldown[name] = Date.now() + 5 * 60 * 1000;
+          if (e.skipCooldown) { /* just busy: try it again next time */ }
+          else if (st === 429) cooldown[name] = Date.now() + 5 * 60 * 1000;
           else if (st === 402 || st === 401 || st === 403) cooldown[name] = Date.now() + 60 * 60 * 1000;
           else if (st >= 500 || !st) cooldown[name] = Date.now() + 60 * 1000;
         }
@@ -1055,7 +1075,7 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
               await ref.set({ lastSeen: Date.now(), platform: clip(body.platform, 40), hostname: clip(body.hostname, 80), agentVersion: clip(body.version, 20), locked: !!(body.state && body.state.locked), caps: { shell: !!(body.caps && body.caps.shell), gui: !!(body.caps && body.caps.gui) } }, { merge: true });
               let watches = []; try { watches = await watchesFor(ref.id); } catch (e) { /* optional */ }
               if (wasAway) { try { const rq = await db.collection("homeRoutines").where("deviceId", "==", ref.id).get(); for (const rd of rq.docs) if (rd.data().trigger && rd.data().trigger.kind === "online") await fireTrigger(rd.id, rd.data(), `The computer "${snap.data().name}" just came back online after ${Math.round(gap / 60000)} minutes away.`); } catch (e) { logger.warn("online trigger failed", e.message); } }
-              if (body.noJob) return res.status(200).json({ job: null, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now(), live: LIVE_KINDS.filter((k) => (snap.data()[`live_${k}`] || 0) > Date.now()), liveKey: (snap.data().liveKeyUntil || 0) > Date.now() ? snap.data().liveKey : "", localVision: snap.data().localVision || "first", localVisionModel: snap.data().localVisionModel || "" } }); // a heartbeat while a long job is running
+              if (body.noJob) return res.status(200).json({ job: null, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now(), live: LIVE_KINDS.filter((k) => (snap.data()[`live_${k}`] || 0) > Date.now()), liveKey: (snap.data().liveKeyUntil || 0) > Date.now() ? snap.data().liveKey : "", localVision: snap.data().localVision || "fallback", localVisionModel: snap.data().localVisionModel || "" } }); // a heartbeat while a long job is running
               const q = await db.collection("homeJobs").where("deviceId", "==", ref.id).where("status", "==", "pending").limit(10).get();
               const docs = q.docs.sort((a, b) => (a.data().createdAt || 0) - (b.data().createdAt || 0));
               for (const d of docs) {
@@ -1067,9 +1087,9 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
                   tx.update(d.ref, { status: "running", startedAt: Date.now(), ...hide });
                   return before;
                 });
-                if (claimed) return res.status(200).json({ job: { id: d.id, type: claimed.type, args: claimed.args }, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now(), live: LIVE_KINDS.filter((k) => (snap.data()[`live_${k}`] || 0) > Date.now()), liveKey: (snap.data().liveKeyUntil || 0) > Date.now() ? snap.data().liveKey : "", localVision: snap.data().localVision || "first", localVisionModel: snap.data().localVisionModel || "" } });
+                if (claimed) return res.status(200).json({ job: { id: d.id, type: claimed.type, args: claimed.args }, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now(), live: LIVE_KINDS.filter((k) => (snap.data()[`live_${k}`] || 0) > Date.now()), liveKey: (snap.data().liveKeyUntil || 0) > Date.now() ? snap.data().liveKey : "", localVision: snap.data().localVision || "fallback", localVisionModel: snap.data().localVisionModel || "" } });
               }
-              return res.status(200).json({ job: null, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now(), live: LIVE_KINDS.filter((k) => (snap.data()[`live_${k}`] || 0) > Date.now()), liveKey: (snap.data().liveKeyUntil || 0) > Date.now() ? snap.data().liveKey : "", localVision: snap.data().localVision || "first", localVisionModel: snap.data().localVisionModel || "" } });
+              return res.status(200).json({ job: null, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now(), live: LIVE_KINDS.filter((k) => (snap.data()[`live_${k}`] || 0) > Date.now()), liveKey: (snap.data().liveKeyUntil || 0) > Date.now() ? snap.data().liveKey : "", localVision: snap.data().localVision || "fallback", localVisionModel: snap.data().localVisionModel || "" } });
             }
             if (action === "agent_frame") {
               const kind = LIVE_KINDS.includes(body.kind) ? body.kind : "";
@@ -1187,7 +1207,7 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
             const q = await db.collection("homeDevices").where("ownerUid", "==", uid).get();
             const now = Date.now();
             return res.status(200).json({
-              devices: q.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, platform: x.platform || "", hostname: x.hostname || "", lastSeen: x.lastSeen || 0, agentVersion: x.agentVersion || "", localVision: x.localVision || "first", localVisionModel: x.localVisionModel || "", caps: x.caps || {}, folders: x.folders || [], locked: !!x.locked && now - (x.lastSeen || 0) < ONLINE_MS, online: now - (x.lastSeen || 0) < ONLINE_MS }; }),
+              devices: q.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, platform: x.platform || "", hostname: x.hostname || "", lastSeen: x.lastSeen || 0, agentVersion: x.agentVersion || "", localVision: x.localVision || "fallback", localVisionModel: x.localVisionModel || "", caps: x.caps || {}, folders: x.folders || [], locked: !!x.locked && now - (x.lastSeen || 0) < ONLINE_MS, online: now - (x.lastSeen || 0) < ONLINE_MS }; }),
             });
           }
           if (action === "device_delete") {
