@@ -38,27 +38,27 @@ export const Collapse = ({ open, children }) => (
   </AnimatePresence>
 );
 
-// Icons that draw themselves.
+// Icons that draw themselves (plain CSS, see index.css, so they always animate).
 export function AnimatedCheck({ size = 15, className = '' }) {
   return (
-    <motion.svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={className} initial={{ scale: 0.5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={spring}>
-      <motion.path d="M5 12.5l4.5 4.5L19 7.5" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.32, ease: 'easeOut' }} />
-    </motion.svg>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={`dw-pop ${className}`}>
+      <path className="dw-draw" pathLength="1" d="M5 12.5l4.5 4.5L19 7.5" />
+    </svg>
   );
 }
 export function AnimatedX({ size = 15, className = '' }) {
   return (
-    <motion.svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className={className} initial={{ scale: 0.5, opacity: 0, rotate: -40 }} animate={{ scale: 1, opacity: 1, rotate: 0 }} transition={spring}>
-      <motion.path d="M6 6l12 12" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.2 }} />
-      <motion.path d="M18 6L6 18" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 0.2, delay: 0.08 }} />
-    </motion.svg>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className={`dw-pop ${className}`}>
+      <path className="dw-draw" pathLength="1" d="M6 6l12 12" />
+      <path className="dw-draw dw-draw-2" pathLength="1" d="M18 6L6 18" />
+    </svg>
   );
 }
 export function Spinner({ size = 15, className = '' }) {
   return (
-    <motion.svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className={className} animate={{ rotate: 360 }} transition={{ repeat: Infinity, ease: 'linear', duration: 0.8 }}>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className={`dw-spin ${className}`} role="status" aria-label="Working">
       <path d="M21 12a9 9 0 1 1-6.2-8.55" />
-    </motion.svg>
+    </svg>
   );
 }
 

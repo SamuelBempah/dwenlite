@@ -4,6 +4,7 @@ import { homeCall } from '../lib/homeClient';
 
 const URL = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/generateNotesProxy';
 const fmt = (n) => (n || 0).toLocaleString();
+const shortDay = (d) => { try { return new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' }); } catch { return d; } };
 const SOURCE = { owner: 'Owner', setting: 'Server setting', added: 'Added here' };
 
 async function adminCall(task, body = {}) {
@@ -69,7 +70,15 @@ export default function AdminUsage() {
         <section className="mb-8 rounded-2xl border border-white/10 bg-slate-900/60 p-4">
           <h2 className="text-lg font-bold">Dwenlite Home</h2>
           <p className="mt-1 text-xs text-slate-400">AI use by the cloud assistant. Cache hits are cheap: the higher, the less it costs.</p>
-          <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-xs">
+          <ul className="mt-3 space-y-2 sm:hidden">
+            {homeDays.map((d) => (
+              <li key={d.day} className="rounded-xl bg-slate-800/60 px-3 py-2.5 text-sm">
+                <div className="flex items-baseline justify-between gap-2"><span className="font-semibold">{shortDay(d.day)}</span><span className="text-xs text-slate-400">{fmt(d.runs)} tasks · {fmt(d.calls)} AI calls</span></div>
+                <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-slate-400"><span>Input {fmt(d.input)}</span><span>Cache {d.input ? Math.round((d.cached / d.input) * 100) : 0}%</span><span>Output {fmt(d.output)}</span></div>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-3 hidden overflow-x-auto sm:block"><table className="w-full text-left text-xs">
             <thead className="text-slate-400"><tr><th className="py-1 pr-3">Day</th><th className="pr-3">Tasks</th><th className="pr-3">AI calls</th><th className="pr-3">Input</th><th className="pr-3">Cache hits</th><th>Output</th></tr></thead>
             <tbody>{homeDays.map((d) => <tr key={d.day} className="border-t border-white/5"><td className="py-1.5 pr-3">{d.day}</td><td className="pr-3">{fmt(d.runs)}</td><td className="pr-3">{fmt(d.calls)}</td><td className="pr-3">{fmt(d.input)}</td><td className="pr-3">{d.input ? Math.round((d.cached / d.input) * 100) : 0}%</td><td>{fmt(d.output)}</td></tr>)}</tbody>
           </table></div>
@@ -81,16 +90,16 @@ export default function AdminUsage() {
           <p className="mt-1 text-xs text-slate-400">Admins see this page and have no usage limits on Dwenlite Home and the Teacher. They must sign in with a verified email (Google works).</p>
           <ul className="mt-3 space-y-1.5">
             {admins.map((a) => (
-              <li key={a.email} className="flex items-center gap-2 rounded-xl bg-slate-800/60 px-3 py-2 text-sm">
-                <span className="min-w-0 flex-1 truncate">{a.email}{a.email.toLowerCase() === you.toLowerCase() ? ' (you)' : ''}</span>
+              <li key={a.email} className="flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-xl bg-slate-800/60 px-3 py-2 text-sm">
+                <span className="min-w-0 basis-full break-all sm:flex-1 sm:basis-0 sm:truncate">{a.email}{a.email.toLowerCase() === you.toLowerCase() ? ' (you)' : ''}</span>
                 <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${a.source === 'owner' ? 'bg-amber-400/15 text-amber-200' : a.source === 'setting' ? 'bg-slate-700 text-slate-300' : 'bg-sky-500/15 text-sky-200'}`}>{SOURCE[a.source]}</span>
-                {a.source === 'added' && a.email.toLowerCase() !== you.toLowerCase() && <button onClick={() => { if (window.confirm(`Remove ${a.email} as an admin?`)) changeAdmin('admin_remove', a.email); }} disabled={busy} aria-label={`Remove ${a.email}`} className="shrink-0 rounded-lg px-2 py-1 text-xs text-red-300 hover:bg-red-500/10 disabled:opacity-40">Remove</button>}
+                {a.source === 'added' && a.email.toLowerCase() !== you.toLowerCase() && <button onClick={() => { if (window.confirm(`Remove ${a.email} as an admin?`)) changeAdmin('admin_remove', a.email); }} disabled={busy} aria-label={`Remove ${a.email}`} className="ml-auto shrink-0 rounded-lg px-2 py-1 text-xs text-red-300 hover:bg-red-500/10 disabled:opacity-40">Remove</button>}
               </li>
             ))}
           </ul>
-          <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); if (email.trim()) changeAdmin('admin_add', email.trim()); }}>
+          <form className="mt-3 flex flex-col gap-2 sm:flex-row" onSubmit={(e) => { e.preventDefault(); if (email.trim()) changeAdmin('admin_add', email.trim()); }}>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email of the new admin" className="min-w-0 flex-1 rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-sm outline-none focus:border-sky-500" />
-            <button type="submit" disabled={busy || !email.trim()} className="shrink-0 rounded-xl bg-sky-600 px-4 text-sm font-semibold hover:bg-sky-500 disabled:opacity-40">Add admin</button>
+            <button type="submit" disabled={busy || !email.trim()} className="shrink-0 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold hover:bg-sky-500 disabled:opacity-40">Add admin</button>
           </form>
           {adminMsg.text && <p className={`mt-2 text-xs ${adminMsg.type === 'ok' ? 'text-emerald-300' : 'text-red-300'}`}>{adminMsg.text}</p>}
         </section>
@@ -118,7 +127,23 @@ export default function AdminUsage() {
             ))}
           </div>
 
-          <div className="mt-6 overflow-x-auto rounded-xl border border-white/10">
+          <ul className="mt-6 space-y-2 sm:hidden">
+            {days.length === 0 && <li className="rounded-xl border border-white/10 p-4 text-sm text-slate-500">No data yet. It fills in as people use the AI.</li>}
+            {days.map((d) => (
+              <li key={d.day} className="overflow-hidden rounded-xl border border-white/10 bg-slate-900/50 text-sm">
+                <button onClick={() => setOpen(open === d.day ? null : d.day)} aria-expanded={open === d.day} className="w-full px-3 py-2.5 text-left">
+                  <div className="flex items-baseline justify-between gap-2"><span className="font-semibold">{shortDay(d.day)}</span><span className="text-xs text-slate-300">{fmt(d.req)} requests</span></div>
+                  <div className="mt-1 flex flex-wrap gap-x-3 text-[11px] text-slate-400"><span>Input {fmt(d.prompt)}</span><span>Cache {d.hitPct}%</span><span>Output {fmt(d.out)}</span></div>
+                </button>
+                {open === d.day && (
+                  <ul className="space-y-1 border-t border-white/5 bg-slate-900/70 px-3 py-2 text-xs text-slate-300">
+                    {tasksOf(d).map((t) => <li key={d.day + t} className="flex justify-between gap-2"><span className="font-medium">{t}</span><span className="text-slate-400">{fmt(d[`${t}_req`])} req · {fmt(d[`${t}_prompt`])} in · {d[`${t}_prompt`] ? Math.round(((d[`${t}_hit`] || 0) / d[`${t}_prompt`]) * 100) : 0}% cached</span></li>)}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+          <div className="mt-6 hidden overflow-x-auto rounded-xl border border-white/10 sm:block">
             <table className="w-full min-w-[34rem] text-left text-sm">
               <thead className="bg-slate-800/70 text-xs text-slate-400">
                 <tr><th className="p-3">Day (UTC)</th><th className="p-3">Requests</th><th className="p-3">Input</th><th className="p-3">Cache</th><th className="p-3">Output</th></tr>

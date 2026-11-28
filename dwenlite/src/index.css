@@ -135,3 +135,12 @@ img, video, canvas, svg { max-width: 100%; }
 .md-code-bar [data-run] { display: none; }
 /* code blocks in Dwenlite Home only offer Copy */
 .md-code pre { margin: 0; border-radius: 0; background: transparent; padding: .8em 1em; overflow-x: auto; }
+
+/* ---- Home: the spinner, tick and cross are plain CSS so they always move (even when a phone asks for reduced motion or the page is busy) ---- */
+@keyframes dw-spin { to { transform: rotate(360deg); } }
+@keyframes dw-draw { to { stroke-dashoffset: 0; } }
+@keyframes dw-pop { 0% { transform: scale(.5); opacity: 0; } 70% { transform: scale(1.12); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+.dw-spin { animation: dw-spin .8s linear infinite; will-change: transform; }
+.dw-pop { animation: dw-pop .32s ease-out both; }
+.dw-draw { stroke-dasharray: 1; stroke-dashoffset: 1; animation: dw-draw .32s ease-out .05s forwards; }
+.dw-draw-2 { animation-delay: .13s; }
