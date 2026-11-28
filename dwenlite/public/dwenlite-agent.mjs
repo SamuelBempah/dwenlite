@@ -22,7 +22,7 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import dns from 'node:dns/promises';
 
-export const VERSION = '2.11.0';
+export const VERSION = '2.12.0';
 export const DEFAULT_URL = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/homeApi';
 export const SITE = 'https://www.dwenlite.space';
 const MAX_OUT = 100000;      // characters of command output sent back
@@ -1392,7 +1392,7 @@ export function createAgent(opts) {
     tryNext();
   }
   // ---- reading a picture: the online image models first (fast); this computer's own as a free backup, or first if the owner chose that ----
-  const localVis = { mode: 'fallback', model: '', checked: 0, wanted: '' };
+  const localVis = { mode: 'first', model: '', checked: 0, wanted: '' }; // this computer's model first, the online ones as the backup
   let seeChain = Promise.resolve();
   async function readyLocalModel() { // is a picture-reading model installed? (asked at most once a minute)
     if (Date.now() - localVis.checked < 60000) return localVis.model;
@@ -1412,28 +1412,34 @@ export function createAgent(opts) {
     } catch { return { b64, file: inF, mime, cleanup: [inF] }; }
   }
   async function windowsOcr(file) { if (!IS_WIN) return ''; try { return (await ps(psFile('ocr', PS_OCR), ['-Path', file])).stdout.replace(/\r/g, '').trim(); } catch { return ''; } }
-  function localSee({ image, mime, look }) { // one at a time: this computer is small
+  function localSee({ image, mime, look }, { needModel = false, timeoutMs = 300000 } = {}) { // one at a time: this computer is small
     const job = seeChain.then(async () => {
       const model = await readyLocalModel();
       const sm = await shrinkForLocal(image, mime || 'image/jpeg', 896);
       try {
         const ocr = (await windowsOcr(sm.file)).slice(0, 3000);
+        if (!model && needModel) throw new Error('No image model is installed on this computer.');
         if (!model) { if (ocr) return { text: `(No image model is installed on this computer, so this is only the text read from the screen.)\n${ocr}` }; throw new Error('No image model is installed on this computer. Install Ollama and a model such as qwen2.5vl:3b.'); }
         const prompt = `${LOCAL_PROMPT}${ocr ? `\n\nText read from the screen by a text reader (may contain mistakes):\n${ocr}` : ''}${look ? `\n\nInstruction: ${String(look).slice(0, 600)}` : ''}`;
         log(`reading a picture on this computer with ${model}...`);
-        const t0 = Date.now(); const text = await ollamaSee({ b64: sm.b64, prompt, model }); log(`local picture reading took ${Math.round((Date.now() - t0) / 1000)}s`);
+        const t0 = Date.now(); const text = await ollamaSee({ b64: sm.b64, prompt, model, timeoutMs }); log(`local picture reading took ${Math.round((Date.now() - t0) / 1000)}s`);
         return { text };
       } finally { for (const f of sm.cleanup || []) { try { fs.unlinkSync(f); } catch { /* gone */ } } }
     });
     seeChain = job.catch(() => {}); return job;
   }
   async function see(args) {
-    if (localVis.mode === 'first') { try { return await localSee(args); } catch (e) { log('local picture reading failed: ' + clip(e.message, 160)); } }
+    let localErr = null;
+    if (localVis.mode === 'first') { // this computer's own model first; if it is missing, fails or is too slow (2.5 minutes), the online ones take over
+      try { return await localSee(args, { needModel: true, timeoutMs: 150000 }); } catch (e) { localErr = e; log('local picture reading did not work, using the online model: ' + clip(e.message, 160)); }
+    }
     try { return await api('agent_see', args); }
     catch (e) {
+      if (localVis.mode === 'off') throw e;
       const retry = !e.status || e.status === 429 || e.status >= 500; // quota used up, no online model, or no connection
-      if (localVis.mode === 'off' || !retry || localVis.mode === 'first') throw e;
-      try { return await localSee(args); } catch (e2) { throw new Error(`${e.message} (and on this computer: ${e2.message})`); }
+      if (!retry) throw e;
+      try { return await localSee(args, { needModel: false }); } // last resort: whatever this computer can read (at least the text on the screen)
+      catch (e2) { throw new Error(`${e.message} (and on this computer: ${(localErr || e2).message})`); }
     }
   }
   const watchSeen = new Map(); let lastWatchCheck = 0;

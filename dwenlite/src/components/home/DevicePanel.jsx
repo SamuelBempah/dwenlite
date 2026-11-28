@@ -112,10 +112,10 @@ export default function DevicePanel({ devices, reload, onClose }) {
                 <button onClick={() => saveFolders(d)} className="mt-2 rounded-lg bg-violet-600 px-3 py-1.5 font-semibold hover:bg-violet-500">Save</button>
                 <div className="mt-4 border-t border-white/10 pt-3">
                   <p className="mb-1 font-semibold text-slate-200">Reading pictures on this computer</p>
-                  <p className="mb-2 text-slate-400">When it needs to understand a screenshot, it can use a small image model running on this computer. It is free and has no daily limit, but it is slow on a computer without a graphics card (often half a minute or more per picture). Windows also reads the text on the screen instantly.</p>
-                  <select value={d.localVision || 'fallback'} onChange={async (e) => { try { await homeCall('device_update', { id: d.id, localVision: e.target.value }); toast.success('Saved'); reload(); } catch (er) { toast.error(er.message); } }} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-2 text-xs outline-none focus:border-violet-500">
-                    <option value="fallback">Only when the online image models are out of quota (recommended)</option>
-                    <option value="first">Always use this computer first (free, slower)</option>
+                  <p className="mb-2 text-slate-400">When it needs to understand a screenshot, it uses a small image model running on this computer (if one is installed). It is free with no daily limit, but slow on a computer without a graphics card. If it is missing, fails or takes more than 2 and a half minutes, the online models answer instead. Windows also reads the text on the screen instantly.</p>
+                  <select value={d.localVision || 'first'} onChange={async (e) => { try { await homeCall('device_update', { id: d.id, localVision: e.target.value }); toast.success('Saved'); reload(); } catch (er) { toast.error(er.message); } }} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-2 text-xs outline-none focus:border-violet-500">
+                    <option value="first">This computer first, the online models as backup (recommended)</option>
+                    <option value="fallback">Online models first, this computer only as backup</option>
                     <option value="off">Never use this computer</option>
                   </select>
                   <details className="mt-2 text-slate-400">
