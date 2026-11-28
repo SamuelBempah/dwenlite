@@ -22,7 +22,7 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import dns from 'node:dns/promises';
 
-export const VERSION = '2.10.0';
+export const VERSION = '2.11.0';
 export const DEFAULT_URL = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/homeApi';
 export const SITE = 'https://www.dwenlite.space';
 const MAX_OUT = 100000;      // characters of command output sent back
@@ -557,7 +557,7 @@ const READ_SCRIPT = `(() => {
 const KEYMAP = { enter: ['Enter', 'Enter', 13], return: ['Enter', 'Enter', 13], tab: ['Tab', 'Tab', 9], esc: ['Escape', 'Escape', 27], escape: ['Escape', 'Escape', 27], backspace: ['Backspace', 'Backspace', 8], delete: ['Delete', 'Delete', 46], up: ['ArrowUp', 'ArrowUp', 38], down: ['ArrowDown', 'ArrowDown', 40], left: ['ArrowLeft', 'ArrowLeft', 37], right: ['ArrowRight', 'ArrowRight', 39], home: ['Home', 'Home', 36], end: ['End', 'End', 35], pageup: ['PageUp', 'PageUp', 33], pagedown: ['PageDown', 'PageDown', 34], space: [' ', 'Space', 32] };
 const EDIT_CMDS = { a: 'selectAll', c: 'copy', v: 'paste', x: 'cut', z: 'undo', y: 'redo' };
 
-export function createBrowser({ root, api, log }) {
+export function createBrowser({ root, api, log, see }) {
   let proc = null; let browserWs = null; let page = null; let visible = false;
   const profile = path.join(root, '.browser-profile');
 
@@ -721,7 +721,7 @@ export function createBrowser({ root, api, log }) {
       const buf = Buffer.from(shot.data, 'base64');
       const sz = imageSize(buf) || { w: 1280, h: 900 };
       let text = '';
-      try { text = (await api('agent_see', { image: shot.data, mime: 'image/jpeg', look: a.look, width: sz.w, height: sz.h })).text; } catch (e) { text = `(The screenshot was taken but could not be read by the image model: ${e.message})`; }
+      try { text = (await (see || ((x) => api('agent_see', x)))({ image: shot.data, mime: 'image/jpeg', look: a.look, width: sz.w, height: sz.h })).text; } catch (e) { text = `(The screenshot was taken but could not be read by the image model: ${e.message})`; }
       return { text, image: buf.length < 520000 ? shot.data : '' };
     }
     throw new Error(`Unknown browser action "${act}".`);
@@ -1179,6 +1179,62 @@ function dirSize(dir, deadline) { // bytes in a folder, stopping early on huge o
   return total;
 }
 const gb = (n) => (n / 1073741824).toFixed(1) + ' GB';
+// ----------------------------------------------------------------------------- reading images on this computer: free, no quota, slower
+// Windows has a text reader built in (instant). A small vision model run through Ollama can describe the picture.
+// Order of use is set per computer in Dwenlite Home: off, only when the online image models fail (default), or always.
+const PS_OCR = `param([string]$Path)
+Add-Type -AssemblyName System.Runtime.WindowsRuntime
+$null = [Windows.Storage.StorageFile, Windows.Storage, ContentType = WindowsRuntime]
+$null = [Windows.Media.Ocr.OcrEngine, Windows.Foundation, ContentType = WindowsRuntime]
+$null = [Windows.Graphics.Imaging.BitmapDecoder, Windows.Graphics, ContentType = WindowsRuntime]
+$asTask = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation\`1' })[0]
+function Await($op, $type) { $t = $asTask.MakeGenericMethod($type).Invoke($null, @($op)); $t.Wait(-1) | Out-Null; $t.Result }
+$file = Await ([Windows.Storage.StorageFile]::GetFileFromPathAsync($Path)) ([Windows.Storage.StorageFile])
+$stream = Await ($file.OpenAsync([Windows.Storage.FileAccessMode]::Read)) ([Windows.Storage.Streams.IRandomAccessStream])
+$decoder = Await ([Windows.Graphics.Imaging.BitmapDecoder]::CreateAsync($stream)) ([Windows.Graphics.Imaging.BitmapDecoder])
+$bmp = Await ($decoder.GetSoftwareBitmapAsync()) ([Windows.Graphics.Imaging.SoftwareBitmap])
+$engine = [Windows.Media.Ocr.OcrEngine]::TryCreateFromUserProfileLanguages()
+if (-not $engine) { exit 3 }
+$res = Await ($engine.RecognizeAsync($bmp)) ([Windows.Media.Ocr.OcrResult])
+$res.Lines | ForEach-Object { $_.Text }
+`;
+const PS_SHRINK = `param([string]$In,[string]$Out,[int]$MaxW)
+Add-Type -AssemblyName System.Drawing
+$img=[System.Drawing.Image]::FromFile($In)
+$w=$img.Width; $h=$img.Height
+if ($w -gt $MaxW) { $h=[int]($h*$MaxW/$w); $w=$MaxW }
+$bmp=New-Object System.Drawing.Bitmap $w,$h
+$g=[System.Drawing.Graphics]::FromImage($bmp)
+$g.InterpolationMode=[System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+$g.DrawImage($img,0,0,$w,$h)
+$enc=[System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' }
+$ep=New-Object System.Drawing.Imaging.EncoderParameters 1
+$ep.Param[0]=New-Object System.Drawing.Imaging.EncoderParameter ([System.Drawing.Imaging.Encoder]::Quality),([int64]80)
+$bmp.Save($Out,$enc,$ep)
+$img.Dispose(); $bmp.Dispose(); $g.Dispose()
+`;
+export const LOCAL_MODELS = ['qwen2.5vl:3b', 'qwen2.5vl:7b', 'qwen2.5vl', 'qwen2-vl:2b', 'qwen2-vl', 'moondream', 'minicpm-v', 'llava-phi3', 'llava:7b', 'llava'];
+const OLLAMA = () => (process.env.DWENLITE_OLLAMA || 'http://127.0.0.1:11434').replace(/\/$/, '');
+export async function ollamaModels(base = OLLAMA(), fetchFn = fetch) { // which picture-reading models are installed
+  const r = await fetchFn(`${base}/api/tags`, { signal: AbortSignal.timeout(2500) }); const j = await r.json();
+  return (j.models || []).map((m) => String(m.name || m.model || ''));
+}
+export function pickLocalModel(installed, wanted = '') {
+  if (wanted) { const hit = installed.find((n) => n === wanted || n.startsWith(wanted + ':') || n.split(':')[0] === wanted); if (hit) return hit; }
+  for (const p of LOCAL_MODELS) { const hit = installed.find((n) => n === p || (!p.includes(':') && n.split(':')[0] === p) || n.startsWith(p)); if (hit) return hit; }
+  return '';
+}
+export async function ollamaSee({ b64, prompt, model, base = OLLAMA(), fetchFn = fetch, timeoutMs = 300000 }) {
+  const r = await fetchFn(`${base}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(timeoutMs),
+    body: JSON.stringify({ model, stream: false, keep_alive: '2m', options: { temperature: 0.1, num_ctx: 4096, num_predict: 700 }, messages: [{ role: 'user', content: prompt, images: [b64] }] }) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || `The local image model answered ${r.status}.`);
+  const text = String((j.message && j.message.content) || '').trim();
+  if (!text) throw new Error('The local image model gave no answer.');
+  return text;
+}
+const LOCAL_PROMPT = 'You are the eyes of an AI that operates a computer. Describe this screenshot concisely: the active window or app, the visible text that matters, any errors (verbatim) and what is clickable or typeable that is relevant to the instruction. For every control you mention that can be clicked, give its centre on a 0-1000 grid as: label @ x,y (x across, y down). Do not invent controls that are not visible.';
+
 // Watching a folder: the first look only remembers what is there; later looks report files that were not there before.
 export function globMatch(pattern, name) {
   const p = String(pattern || '').trim().toLowerCase(); if (!p) return true;
@@ -1335,6 +1391,51 @@ export function createAgent(opts) {
     const tryNext = () => { if (i >= LOCAL_PORTS.length) return; const port = LOCAL_PORTS[i++]; server.once('error', tryNext); server.listen(port, '127.0.0.1', () => { server.removeListener('error', tryNext); localServer = server; log(`direct view ready on port ${port}`); }); };
     tryNext();
   }
+  // ---- reading a picture: the online image models first (fast); this computer's own as a free backup, or first if the owner chose that ----
+  const localVis = { mode: 'fallback', model: '', checked: 0, wanted: '' };
+  let seeChain = Promise.resolve();
+  async function readyLocalModel() { // is a picture-reading model installed? (asked at most once a minute)
+    if (Date.now() - localVis.checked < 60000) return localVis.model;
+    localVis.checked = Date.now();
+    try { localVis.model = pickLocalModel(await ollamaModels(), localVis.wanted); } catch { localVis.model = ''; }
+    return localVis.model;
+  }
+  async function shrinkForLocal(b64, mime, maxW) { // fewer pixels = far less waiting on a computer without a graphics card
+    const ext = mime === 'image/png' ? 'png' : 'jpg'; const id = crypto.randomBytes(5).toString('hex');
+    const inF = path.join(os.tmpdir(), `dwenlite-see-${id}.${ext}`); const outF = path.join(os.tmpdir(), `dwenlite-see-${id}-s.jpg`);
+    try {
+      fs.writeFileSync(inF, Buffer.from(b64, 'base64'));
+      if (IS_WIN) await ps(psFile('shrink', PS_SHRINK), ['-In', inF, '-Out', outF, '-MaxW', String(maxW)]);
+      else if (IS_MAC) await run('sips', ['-Z', String(maxW), '-s', 'format', 'jpeg', inF, '--out', outF]);
+      else { const c = (await have('magick')) ? 'magick' : (await have('convert')) ? 'convert' : ''; if (!c) return { b64, file: inF, mime }; await run(c, [inF, '-resize', `${maxW}x`, '-quality', '80', outF]); }
+      return { b64: fs.readFileSync(outF).toString('base64'), file: outF, mime: 'image/jpeg', cleanup: [inF, outF] };
+    } catch { return { b64, file: inF, mime, cleanup: [inF] }; }
+  }
+  async function windowsOcr(file) { if (!IS_WIN) return ''; try { return (await ps(psFile('ocr', PS_OCR), ['-Path', file])).stdout.replace(/\r/g, '').trim(); } catch { return ''; } }
+  function localSee({ image, mime, look }) { // one at a time: this computer is small
+    const job = seeChain.then(async () => {
+      const model = await readyLocalModel();
+      const sm = await shrinkForLocal(image, mime || 'image/jpeg', 896);
+      try {
+        const ocr = (await windowsOcr(sm.file)).slice(0, 3000);
+        if (!model) { if (ocr) return { text: `(No image model is installed on this computer, so this is only the text read from the screen.)\n${ocr}` }; throw new Error('No image model is installed on this computer. Install Ollama and a model such as qwen2.5vl:3b.'); }
+        const prompt = `${LOCAL_PROMPT}${ocr ? `\n\nText read from the screen by a text reader (may contain mistakes):\n${ocr}` : ''}${look ? `\n\nInstruction: ${String(look).slice(0, 600)}` : ''}`;
+        log(`reading a picture on this computer with ${model}...`);
+        const t0 = Date.now(); const text = await ollamaSee({ b64: sm.b64, prompt, model }); log(`local picture reading took ${Math.round((Date.now() - t0) / 1000)}s`);
+        return { text };
+      } finally { for (const f of sm.cleanup || []) { try { fs.unlinkSync(f); } catch { /* gone */ } } }
+    });
+    seeChain = job.catch(() => {}); return job;
+  }
+  async function see(args) {
+    if (localVis.mode === 'first') { try { return await localSee(args); } catch (e) { log('local picture reading failed: ' + clip(e.message, 160)); } }
+    try { return await api('agent_see', args); }
+    catch (e) {
+      const retry = !e.status || e.status === 429 || e.status >= 500; // quota used up, no online model, or no connection
+      if (localVis.mode === 'off' || !retry || localVis.mode === 'first') throw e;
+      try { return await localSee(args); } catch (e2) { throw new Error(`${e.message} (and on this computer: ${e2.message})`); }
+    }
+  }
   const watchSeen = new Map(); let lastWatchCheck = 0;
   async function scanWatches(list) {
     if (Date.now() - lastWatchCheck < 20000) return; lastWatchCheck = Date.now();
@@ -1371,7 +1472,7 @@ export function createAgent(opts) {
     const r = await fetch(opts.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, deviceId: opts.device, token: opts.token, ...body }), signal: AbortSignal.timeout(action === 'agent_result' ? 60000 : 20000) }); // a stalled connection (wifi change, waking from sleep) must not freeze the helper
     const j = await r.json().catch(() => ({}));
     if (r.status === 401) { const e = new Error('This device was removed or its token is wrong.'); e.fatal = true; throw e; }
-    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    if (!r.ok) { const e = new Error(j.error || `HTTP ${r.status}`); e.status = r.status; throw e; }
     return j;
   }
 
@@ -1455,7 +1556,7 @@ export function createAgent(opts) {
       const sz = imageSize(buf) || { w: 1080, h: 2400 };
       if (buf.length > 2900000) return { text: `(The screenshot is ${(buf.length / 1e6).toFixed(1)} MB, too large for the image model. Use the read action instead: it lists what is on screen without a picture.)`, image: '' };
       let text = '';
-      try { text = (await api('agent_see', { image: buf.toString('base64'), mime: 'image/png', look: a.look, width: sz.w, height: sz.h })).text; } catch (e) { text = `(The screenshot was taken but could not be read by the image model: ${e.message})`; }
+      try { text = (await see({ image: buf.toString('base64'), mime: 'image/png', look: a.look, width: sz.w, height: sz.h })).text; } catch (e) { text = `(The screenshot was taken but could not be read by the image model: ${e.message})`; }
       return { text, image: buf.length < 520000 ? buf.toString('base64') : '' };
     }
     if (act === 'tap') {
@@ -1514,7 +1615,7 @@ export function createAgent(opts) {
     throw new Error(`Unknown android action "${act}".`);
   }
 
-  const browser = createBrowser({ root, api: (action, body) => api(action, body), log: (m) => log(m) });
+  const browser = createBrowser({ root, api: (action, body) => api(action, body), log: (m) => log(m), see: (x) => see(x) });
 
   // ---- actions ----
   const actions = {
@@ -1853,7 +1954,7 @@ Start-Process $u`;
       if (a.novision) return { text: 'Screen picture for the owner.', image: buf.length < 520000 ? buf.toString('base64') : '' }; // a live peek: no image model needed
       let text = '';
       try {
-        const r = await api('agent_see', { image: buf.toString('base64'), mime: buf[0] === 0xff ? 'image/jpeg' : 'image/png', look: a.look, width: sz.w, height: sz.h });
+        const r = await see({ image: buf.toString('base64'), mime: buf[0] === 0xff ? 'image/jpeg' : 'image/png', look: a.look, width: sz.w, height: sz.h });
         text = r.text;
       } catch (e) { text = `(The screenshot was taken but could not be read by the image model: ${e.message})`; }
       if (a.app && shotTitle) text = `[Captured window: "${shotTitle}"]\n${text}`;
@@ -1981,6 +2082,8 @@ Start-Process $u`;
       {
         if (config && Array.isArray(config.folders)) extraRoots = config.folders.map(presetFolder).filter((f) => typeof f === 'string' && path.isAbsolute(f) && fs.existsSync(f)).map((f) => fs.realpathSync(f));
         state.fast = !!(config && config.fast);
+        if (config && ['off', 'fallback', 'first'].includes(config.localVision)) localVis.mode = config.localVision;
+        if (config && typeof config.localVisionModel === 'string') localVis.wanted = config.localVisionModel.slice(0, 60);
         cloudLive = new Set(Array.isArray(config && config.live) ? config.live.filter((k) => k === 'browser' || k === 'screen') : []);
         if (config && config.liveKey) { localKeys.set(String(config.liveKey), Date.now() + 20 * 60000); for (const [k, e] of localKeys) if (e < Date.now()) localKeys.delete(k); }
         for (const k of cloudLive) ensureStream(k);
@@ -1988,7 +2091,7 @@ Start-Process $u`;
       }
     }
   }
-  return { loop, actions, runJob, api, log, state, shutdown: () => { for (const st of [...streams.values()]) { try { st.cleanup && st.cleanup(); } catch { /* gone */ } } try { localServer && localServer.close(); } catch { /* gone */ } try { awake && awake.kill(); } catch { /* gone */ } return browser.close(); } };
+  return { loop, actions, runJob, api, log, state, see, localVis, shutdown: () => { for (const st of [...streams.values()]) { try { st.cleanup && st.cleanup(); } catch { /* gone */ } } try { localServer && localServer.close(); } catch { /* gone */ } try { awake && awake.kill(); } catch { /* gone */ } return browser.close(); } };
 }
 
 // ----------------------------------------------------------------------------- the installed app: pairing, saved settings, status, quick ask, self-update

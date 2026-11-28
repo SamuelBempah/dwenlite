@@ -99,7 +99,7 @@ export default function DevicePanel({ devices, reload, onClose }) {
               </div>
               {d.online && d.caps && d.caps.shell && <button onClick={() => runTest(d)} disabled={!!(tests[d.id] && tests[d.id].running)} aria-label={`Test the connection to ${d.name}`} title="Test that it stays online during a long command" className="rounded-lg p-2 text-slate-500 hover:bg-white/10 hover:text-slate-200 disabled:opacity-40"><Activity size={16} /></button>}
               {!d.online && <button onClick={() => reconnect(d)} disabled={busy} className="shrink-0 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold hover:bg-violet-500 disabled:opacity-50">Reconnect</button>}
-              <button onClick={() => { setFoldersFor(foldersFor === d.id ? null : d.id); setFolderText((d.folders || []).join('\n')); }} aria-label={`Folders for ${d.name}`} title="Folders it may use" className="rounded-lg p-2 text-slate-500 hover:bg-white/10 hover:text-slate-200"><FolderOpen size={16} /></button>
+              <button onClick={() => { setFoldersFor(foldersFor === d.id ? null : d.id); setFolderText((d.folders || []).join('\n')); }} aria-label={`Folders and picture reading for ${d.name}`} title="Folders it may use, and picture reading" className="rounded-lg p-2 text-slate-500 hover:bg-white/10 hover:text-slate-200"><FolderOpen size={16} /></button>
               <button onClick={() => remove(d)} aria-label={`Remove ${d.name}`} className="rounded-lg p-2 text-slate-500 hover:bg-red-500/10 hover:text-red-400"><Trash2 size={16} /></button>
             </div>
             {tests[d.id] && <p className={`-mt-1 rounded-xl border px-3 py-2 text-xs ${tests[d.id].running ? 'border-violet-500/30 bg-violet-500/10 text-violet-100' : tests[d.id].ok ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100' : 'border-red-500/30 bg-red-500/10 text-red-100'}`}>{tests[d.id].text}</p>}
@@ -110,6 +110,23 @@ export default function DevicePanel({ devices, reload, onClose }) {
                 <div className="mb-2 flex flex-wrap gap-1.5">{['Documents', 'Desktop', 'Downloads', 'Pictures'].map((n) => <button key={n} type="button" onClick={() => setFolderText((t) => (t.split('\n').includes('~' + n) ? t : (t.trim() ? t.trim() + '\n' : '') + '~' + n))} className="rounded-full border border-white/10 bg-slate-800 px-2.5 py-1 text-slate-200 hover:border-violet-500/50">+ {n}</button>)}</div>
                 <textarea value={folderText} onChange={(e) => setFolderText(e.target.value)} rows={3} placeholder="C:\\Users\\you\\Documents\\Projects" className="w-full resize-none rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-2 font-mono outline-none focus:border-violet-500" />
                 <button onClick={() => saveFolders(d)} className="mt-2 rounded-lg bg-violet-600 px-3 py-1.5 font-semibold hover:bg-violet-500">Save</button>
+                <div className="mt-4 border-t border-white/10 pt-3">
+                  <p className="mb-1 font-semibold text-slate-200">Reading pictures on this computer</p>
+                  <p className="mb-2 text-slate-400">When it needs to understand a screenshot, it can use a small image model running on this computer. It is free and has no daily limit, but it is slow on a computer without a graphics card (often half a minute or more per picture). Windows also reads the text on the screen instantly.</p>
+                  <select value={d.localVision || 'fallback'} onChange={async (e) => { try { await homeCall('device_update', { id: d.id, localVision: e.target.value }); toast.success('Saved'); reload(); } catch (er) { toast.error(er.message); } }} className="w-full rounded-lg border border-slate-700 bg-slate-950 px-2.5 py-2 text-xs outline-none focus:border-violet-500">
+                    <option value="fallback">Only when the online image models are out of quota (recommended)</option>
+                    <option value="first">Always use this computer first (free, slower)</option>
+                    <option value="off">Never use this computer</option>
+                  </select>
+                  <details className="mt-2 text-slate-400">
+                    <summary className="cursor-pointer text-slate-300">How to set it up</summary>
+                    <ol className="mt-1.5 list-decimal space-y-1 pl-5">
+                      <li>Install Ollama from ollama.com (or in PowerShell: <span className="font-mono">winget install Ollama.Ollama</span>).</li>
+                      <li>Download a picture model: <span className="font-mono">ollama pull qwen2.5vl:3b</span> (about 3 GB). On a small computer with 8 GB of memory, <span className="font-mono">moondream</span> is lighter and faster.</li>
+                      <li>That is all. Dwenlite finds it by itself, loads it only when needed, and frees the memory a couple of minutes later.</li>
+                    </ol>
+                  </details>
+                </div>
               </div>
             )}
             </Fragment>

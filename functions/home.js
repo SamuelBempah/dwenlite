@@ -1055,7 +1055,7 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
               await ref.set({ lastSeen: Date.now(), platform: clip(body.platform, 40), hostname: clip(body.hostname, 80), agentVersion: clip(body.version, 20), locked: !!(body.state && body.state.locked), caps: { shell: !!(body.caps && body.caps.shell), gui: !!(body.caps && body.caps.gui) } }, { merge: true });
               let watches = []; try { watches = await watchesFor(ref.id); } catch (e) { /* optional */ }
               if (wasAway) { try { const rq = await db.collection("homeRoutines").where("deviceId", "==", ref.id).get(); for (const rd of rq.docs) if (rd.data().trigger && rd.data().trigger.kind === "online") await fireTrigger(rd.id, rd.data(), `The computer "${snap.data().name}" just came back online after ${Math.round(gap / 60000)} minutes away.`); } catch (e) { logger.warn("online trigger failed", e.message); } }
-              if (body.noJob) return res.status(200).json({ job: null, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now(), live: LIVE_KINDS.filter((k) => (snap.data()[`live_${k}`] || 0) > Date.now()), liveKey: (snap.data().liveKeyUntil || 0) > Date.now() ? snap.data().liveKey : "" } }); // a heartbeat while a long job is running
+              if (body.noJob) return res.status(200).json({ job: null, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now(), live: LIVE_KINDS.filter((k) => (snap.data()[`live_${k}`] || 0) > Date.now()), liveKey: (snap.data().liveKeyUntil || 0) > Date.now() ? snap.data().liveKey : "", localVision: snap.data().localVision || "fallback", localVisionModel: snap.data().localVisionModel || "" } }); // a heartbeat while a long job is running
               const q = await db.collection("homeJobs").where("deviceId", "==", ref.id).where("status", "==", "pending").limit(10).get();
               const docs = q.docs.sort((a, b) => (a.data().createdAt || 0) - (b.data().createdAt || 0));
               for (const d of docs) {
@@ -1067,9 +1067,9 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
                   tx.update(d.ref, { status: "running", startedAt: Date.now(), ...hide });
                   return before;
                 });
-                if (claimed) return res.status(200).json({ job: { id: d.id, type: claimed.type, args: claimed.args }, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now(), live: LIVE_KINDS.filter((k) => (snap.data()[`live_${k}`] || 0) > Date.now()), liveKey: (snap.data().liveKeyUntil || 0) > Date.now() ? snap.data().liveKey : "" } });
+                if (claimed) return res.status(200).json({ job: { id: d.id, type: claimed.type, args: claimed.args }, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now(), live: LIVE_KINDS.filter((k) => (snap.data()[`live_${k}`] || 0) > Date.now()), liveKey: (snap.data().liveKeyUntil || 0) > Date.now() ? snap.data().liveKey : "", localVision: snap.data().localVision || "fallback", localVisionModel: snap.data().localVisionModel || "" } });
               }
-              return res.status(200).json({ job: null, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now(), live: LIVE_KINDS.filter((k) => (snap.data()[`live_${k}`] || 0) > Date.now()), liveKey: (snap.data().liveKeyUntil || 0) > Date.now() ? snap.data().liveKey : "" } });
+              return res.status(200).json({ job: null, config: { folders: (snap.data().folders || []), watches, fast: (snap.data().viewUntil || 0) > Date.now(), live: LIVE_KINDS.filter((k) => (snap.data()[`live_${k}`] || 0) > Date.now()), liveKey: (snap.data().liveKeyUntil || 0) > Date.now() ? snap.data().liveKey : "", localVision: snap.data().localVision || "fallback", localVisionModel: snap.data().localVisionModel || "" } });
             }
             if (action === "agent_frame") {
               const kind = LIVE_KINDS.includes(body.kind) ? body.kind : "";
@@ -1187,7 +1187,7 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
             const q = await db.collection("homeDevices").where("ownerUid", "==", uid).get();
             const now = Date.now();
             return res.status(200).json({
-              devices: q.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, platform: x.platform || "", hostname: x.hostname || "", lastSeen: x.lastSeen || 0, agentVersion: x.agentVersion || "", caps: x.caps || {}, folders: x.folders || [], locked: !!x.locked && now - (x.lastSeen || 0) < ONLINE_MS, online: now - (x.lastSeen || 0) < ONLINE_MS }; }),
+              devices: q.docs.map((d) => { const x = d.data(); return { id: d.id, name: x.name, platform: x.platform || "", hostname: x.hostname || "", lastSeen: x.lastSeen || 0, agentVersion: x.agentVersion || "", localVision: x.localVision || "fallback", localVisionModel: x.localVisionModel || "", caps: x.caps || {}, folders: x.folders || [], locked: !!x.locked && now - (x.lastSeen || 0) < ONLINE_MS, online: now - (x.lastSeen || 0) < ONLINE_MS }; }),
             });
           }
           if (action === "device_delete") {
@@ -1435,9 +1435,13 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
             const ref = db.collection("homeDevices").doc(String(body.id || "x"));
             const d = await ref.get();
             if (!d.exists || d.data().ownerUid !== uid) return res.status(404).json({ error: "No such device." });
-            const folders = (Array.isArray(body.folders) ? body.folders : []).map((f) => clip(f, 300).trim()).filter(Boolean).slice(0, 10);
-            await ref.update({ folders });
-            return res.status(200).json({ ok: true, folders });
+            const patch = {};
+            if (Array.isArray(body.folders)) patch.folders = body.folders.map((f) => clip(f, 300).trim()).filter(Boolean).slice(0, 10);
+            if (["off", "fallback", "first"].includes(body.localVision)) patch.localVision = body.localVision;
+            if (typeof body.localVisionModel === "string") patch.localVisionModel = clip(body.localVisionModel, 60).trim();
+            if (!Object.keys(patch).length) return res.status(400).json({ error: "Nothing to change." });
+            await ref.update(patch);
+            return res.status(200).json({ ok: true, folders: patch.folders }); 
           }
           if (action === "web") {
             if (!(await capUsage(uid, "web"))) return res.status(429).json({ error: "You have used today's web allowance. It resets tomorrow." });
