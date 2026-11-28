@@ -14,8 +14,8 @@ const DEEPSEEK_API_KEY = defineSecret("DEEPSEEK_API_KEY");
 // Comma separated emails allowed to open the usage dashboard. Put ADMIN_EMAILS=you@example.com in functions/.env
 const ADMIN_EMAILS = defineString("ADMIN_EMAILS", { default: "" });
 // Optional: lets routines read Gmail, Calendar and Drive while you are away. Put these two lines in functions/.env
-const GOOGLE_CLIENT_ID = defineString("GOOGLE_CLIENT_ID", { default: "" });
-const GOOGLE_CLIENT_SECRET = defineString("GOOGLE_CLIENT_SECRET", { default: "" });
+const GOOGLE_CLIENT_ID = defineString("GOOGLE_CLIENT_ID", { default: "none" });
+const GOOGLE_CLIENT_SECRET = defineString("GOOGLE_CLIENT_SECRET", { default: "none" });
 const admins = require("./admins").create({ db, ADMIN_EMAILS }); // owner + ADMIN_EMAILS + admins added in the app
 const isAdminUser = (decoded) => admins.isAdmin(decoded);
 const LANG_NAMES = { fr: "French", es: "Spanish", pt: "Portuguese", de: "German", it: "Italian" };

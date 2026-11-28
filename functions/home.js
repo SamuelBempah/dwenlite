@@ -129,7 +129,7 @@ function create({ admin, db, logger, axios, cors, onRequest, onSchedule, onTaskD
   const adminsApi = admins || require("./admins").create({ db, ADMIN_EMAILS });
   const JOB_POLL_MS = 1500;
   const NEVER = 9e15; // nextRun for routines that are not scheduled
-  const GEMINI_API_KEY = defineString("GEMINI_API_KEY", { default: "" });
+  const GEMINI_API_KEY = defineString("GEMINI_API_KEY", { default: "none" });
   const GEMINI_MODEL = defineString("GEMINI_MODEL", { default: "gemini-3.5-flash" });
 
   // Anyone signed in may use Home (no admin list). To protect the AI budget each person gets a daily allowance.
@@ -167,20 +167,21 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
 
   // ---- vision: free image models turn pictures into text that DeepSeek can use ----
   // Several providers, tried in order. One that runs out of free quota is skipped for a while and the next one answers.
-  const GROQ_API_KEY = defineString("GROQ_API_KEY", { default: "" });
+  const GROQ_API_KEY = defineString("GROQ_API_KEY", { default: "none" });
   const GROQ_VISION_MODEL = defineString("GROQ_VISION_MODEL", { default: "qwen/qwen3.8-27b" });
-  const OPENROUTER_API_KEY = defineString("OPENROUTER_API_KEY", { default: "" });
+  const OPENROUTER_API_KEY = defineString("OPENROUTER_API_KEY", { default: "none" });
   const OPENROUTER_VISION_MODEL = defineString("OPENROUTER_VISION_MODEL", { default: "qwen/qwen3-vl-32b-instruct" }); // Qwen vision, paid per use (about a third of a cent per picture)
   const VISION_DAILY_MAX = defineString("VISION_DAILY_MAX", { default: "3000" }); // a safety cap on how many pictures the paid model reads per day, across everyone
-  const HF_TOKEN = defineString("HF_TOKEN", { default: "" });
+  const HF_TOKEN = defineString("HF_TOKEN", { default: "none" });
   const HF_VISION_MODEL = defineString("HF_VISION_MODEL", { default: "Qwen/Qwen2.5-VL-72B-Instruct" });
   // our own vision model (Qwen), served from a computer or server we control and shared by every user. It is tried first when configured; the online ones are the backup.
-  const OWN_VISION_URL = defineString("OWN_VISION_URL", { default: "" }); // the address of the vision gateway, like https://my-pc.tailnet.ts.net
-  const OWN_VISION_KEY = defineString("OWN_VISION_KEY", { default: "" }); // the gateway's secret
+  const OWN_VISION_URL = defineString("OWN_VISION_URL", { default: "none" }); // the address of the vision gateway, like https://my-pc.tailnet.ts.net
+  const OWN_VISION_KEY = defineString("OWN_VISION_KEY", { default: "none" }); // the gateway's secret
   const OWN_VISION_MODEL = defineString("OWN_VISION_MODEL", { default: "qwen2.5vl:3b" });
   const VISION_ORDER = defineString("VISION_ORDER", { default: "openrouter,groq" }); // paid Qwen first, then Groq as a free backup (set to just openrouter for no backup); "own" is our own server if one is set up
 
-  const visionKeys = () => ({ groq: GROQ_API_KEY.value(), openrouter: OPENROUTER_API_KEY.value(), gemini: GEMINI_API_KEY.value(), huggingface: HF_TOKEN.value(), own: OWN_VISION_URL.value() && OWN_VISION_KEY.value() ? OWN_VISION_KEY.value() : "" });
+  const real = (v) => { const t = String(v == null ? "" : v).trim(); return t && t.toLowerCase() !== "none" ? t : ""; }; // "none" means not set (it stops the deploy from asking)
+  const visionKeys = () => ({ groq: real(GROQ_API_KEY.value()), openrouter: real(OPENROUTER_API_KEY.value()), gemini: real(GEMINI_API_KEY.value()), huggingface: real(HF_TOKEN.value()), own: real(OWN_VISION_URL.value()) && real(OWN_VISION_KEY.value()) ? real(OWN_VISION_KEY.value()) : "" });
   const hasVision = () => { const k = visionKeys(); return VISION_ORDER.value().split(",").map((x) => x.trim().toLowerCase()).some((x) => k[x]); };
   const cooldown = {}; // provider -> time (ms) until which it is skipped
   const lastGood = {}; // provider -> the model name that worked last
@@ -437,8 +438,8 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
   }
 
   // ---- Google that stays connected: the owner agrees once, and routines can then read mail, calendar and Drive while they are away ----
-  const gId = () => String((GOOGLE_CLIENT_ID && GOOGLE_CLIENT_ID.value && GOOGLE_CLIENT_ID.value()) || "").trim();
-  const gSecret = () => String((GOOGLE_CLIENT_SECRET && GOOGLE_CLIENT_SECRET.value && GOOGLE_CLIENT_SECRET.value()) || "").trim();
+  const gId = () => real((GOOGLE_CLIENT_ID && GOOGLE_CLIENT_ID.value && GOOGLE_CLIENT_ID.value()) || "");
+  const gSecret = () => real((GOOGLE_CLIENT_SECRET && GOOGLE_CLIENT_SECRET.value && GOOGLE_CLIENT_SECRET.value()) || "");
   const G_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.compose", "https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/drive.readonly", "https://www.googleapis.com/auth/drive.file"];
   const gKey = () => crypto.createHash("sha256").update("dwenlite-google|" + gSecret()).digest();
   const gSeal = (t) => { const iv = crypto.randomBytes(12); const c = crypto.createCipheriv("aes-256-gcm", gKey(), iv); const enc = Buffer.concat([c.update(String(t), "utf8"), c.final()]); return Buffer.concat([iv, c.getAuthTag(), enc]).toString("base64"); };
