@@ -22,7 +22,7 @@ import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import dns from 'node:dns/promises';
 
-export const VERSION = '2.12.0';
+export const VERSION = '2.13.0';
 export const DEFAULT_URL = 'https://us-central1-leumas-decipher-softwares.cloudfunctions.net/homeApi';
 export const SITE = 'https://www.dwenlite.space';
 const MAX_OUT = 100000;      // characters of command output sent back
@@ -1933,13 +1933,13 @@ Start-Process $u`;
       let shotTitle = ''; let offX = 0; let offY = 0; let screenW; let screenH; let pointsW; let pointsH; let file = out;
       try {
         if (IS_WIN) {
-          const r = await ps(psFile('shot', PS_SHOT), ['-Out', out, '-MaxW', '1280', '-App', a.app ? String(a.app) : '']);
+          const r = await ps(psFile('shot', PS_SHOT), ['-Out', out, '-MaxW', '1024', '-App', a.app ? String(a.app) : '']);
           const [dims, ttl] = r.stdout.trim().split('|'); [screenW, screenH, offX, offY] = dims.split('x').map(Number); shotTitle = (ttl || '').trim();
         } else if (IS_MAC) {
           await run('screencapture', ['-x', '-t', 'jpg', out]);
           const dims = await run('sips', ['-g', 'pixelWidth', '-g', 'pixelHeight', out]);
           screenW = Number(/pixelWidth:\s*(\d+)/.exec(dims.stdout)[1]); screenH = Number(/pixelHeight:\s*(\d+)/.exec(dims.stdout)[1]);
-          await run('sips', ['-Z', '1280', '--setProperty', 'formatOptions', '60', out]);
+          await run('sips', ['-Z', '1024', '--setProperty', 'formatOptions', '60', out]);
           try { const b = await run('osascript', ['-e', 'tell application "Finder" to get bounds of window of desktop']); const n = b.stdout.trim().split(',').map((x) => Number(x.trim())); pointsW = n[2]; pointsH = n[3]; } catch { /* use pixels */ }
         } else {
           const tries = [['import', ['-window', 'root', out]], ['scrot', ['-o', out]], ['gnome-screenshot', ['-f', out]], ['grim', [out]]];
@@ -1948,7 +1948,7 @@ Start-Process $u`;
           if (!ok) throw new Error('No screenshot tool found. Install one of: imagemagick (import), scrot, gnome-screenshot or grim.');
           const sz = imageSize(fs.readFileSync(out)); screenW = sz.w; screenH = sz.h;
           const conv = (await have('magick')) ? ['magick', []] : (await have('convert')) ? ['convert', []] : null;
-          if (conv && screenW > 1280) { const small = out.replace(/\.png$/, '-s.jpg'); await run(conv[0], [out, '-resize', '1280x', '-quality', '60', small]); file = small; }
+          if (conv && screenW > 1024) { const small = out.replace(/\.png$/, '-s.jpg'); await run(conv[0], [out, '-resize', '1024x', '-quality', '60', small]); file = small; }
         }
       } catch (e) {
         throw new Error('Screenshot failed: ' + (e.stderr || e.message).toString().trim().slice(0, 400));

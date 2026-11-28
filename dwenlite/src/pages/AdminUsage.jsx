@@ -25,7 +25,8 @@ export default function AdminUsage() {
   const [adminMsg, setAdminMsg] = useState({ type: '', text: '' });
   const [busy, setBusy] = useState(false);
   const [homeDays, setHomeDays] = useState(null);
-  useEffect(() => { homeCall('home_usage').then((r) => setHomeDays(r.days)).catch(() => setHomeDays(null)); }, []);
+  const [homeVision, setHomeVision] = useState([]);
+  useEffect(() => { homeCall('home_usage').then((r) => { setHomeDays(r.days); setHomeVision(r.vision || []); }).catch(() => setHomeDays(null)); }, []);
 
   const loadAdmins = async () => { try { const j = await adminCall('admin_list'); setAdmins(j.admins); setYou(j.you || ''); } catch (e) { setAdmins(null); } };
   const changeAdmin = async (task, addr) => {
@@ -66,6 +67,20 @@ export default function AdminUsage() {
 
   return (
     <div className="mx-auto max-w-3xl p-4 md:p-8 text-white">
+      {homeVision.length > 0 && (
+        <section className="mb-8 rounded-2xl border border-white/10 bg-slate-900/60 p-4">
+          <h2 className="text-lg font-bold">Image reading</h2>
+          <p className="mt-1 text-xs text-slate-400">Pictures read by the paid model. The cost is an estimate (about $0.10 per million input tokens and $0.42 per million output tokens); check your provider's page for the exact amount.</p>
+          <ul className="mt-3 space-y-1.5">
+            {homeVision.slice(0, 7).map((d) => (
+              <li key={d.day} className="flex flex-wrap items-baseline justify-between gap-x-3 rounded-xl bg-slate-800/60 px-3 py-2 text-sm">
+                <span className="font-semibold">{shortDay(d.day)}</span>
+                <span className="text-xs text-slate-300">{fmt(d.calls)} pictures · about ${((d.input / 1e6) * 0.1 + (d.output / 1e6) * 0.42).toFixed(3)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {homeDays && homeDays.length > 0 && (
         <section className="mb-8 rounded-2xl border border-white/10 bg-slate-900/60 p-4">
           <h2 className="text-lg font-bold">Dwenlite Home</h2>

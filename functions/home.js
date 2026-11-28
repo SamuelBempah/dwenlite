@@ -170,14 +170,15 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
   const GROQ_API_KEY = defineString("GROQ_API_KEY", { default: "" });
   const GROQ_VISION_MODEL = defineString("GROQ_VISION_MODEL", { default: "qwen/qwen3.8-27b" });
   const OPENROUTER_API_KEY = defineString("OPENROUTER_API_KEY", { default: "" });
-  const OPENROUTER_VISION_MODEL = defineString("OPENROUTER_VISION_MODEL", { default: "openrouter/free" }); // a router that picks a free model that accepts images
+  const OPENROUTER_VISION_MODEL = defineString("OPENROUTER_VISION_MODEL", { default: "qwen/qwen3-vl-32b-instruct" }); // Qwen vision, paid per use (about a third of a cent per picture)
+  const VISION_DAILY_MAX = defineString("VISION_DAILY_MAX", { default: "3000" }); // a safety cap on how many pictures the paid model reads per day, across everyone
   const HF_TOKEN = defineString("HF_TOKEN", { default: "" });
   const HF_VISION_MODEL = defineString("HF_VISION_MODEL", { default: "Qwen/Qwen2.5-VL-72B-Instruct" });
   // our own vision model (Qwen), served from a computer or server we control and shared by every user. It is tried first when configured; the online ones are the backup.
   const OWN_VISION_URL = defineString("OWN_VISION_URL", { default: "" }); // the address of the vision gateway, like https://my-pc.tailnet.ts.net
   const OWN_VISION_KEY = defineString("OWN_VISION_KEY", { default: "" }); // the gateway's secret
   const OWN_VISION_MODEL = defineString("OWN_VISION_MODEL", { default: "qwen2.5vl:3b" });
-  const VISION_ORDER = defineString("VISION_ORDER", { default: "own,groq" }); // our own first, then Groq; add others (comma separated) as more backups
+  const VISION_ORDER = defineString("VISION_ORDER", { default: "openrouter,groq" }); // paid Qwen first, then Groq as a free backup (set to just openrouter for no backup); "own" is our own server if one is set up
 
   const visionKeys = () => ({ groq: GROQ_API_KEY.value(), openrouter: OPENROUTER_API_KEY.value(), gemini: GEMINI_API_KEY.value(), huggingface: HF_TOKEN.value(), own: OWN_VISION_URL.value() && OWN_VISION_KEY.value() ? OWN_VISION_KEY.value() : "" });
   const hasVision = () => { const k = visionKeys(); return VISION_ORDER.value().split(",").map((x) => x.trim().toLowerCase()).some((x) => k[x]); };
@@ -192,16 +193,16 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
     return { st, msg: clip(typeof msg === "string" ? msg : JSON.stringify(msg), 220) };
   };
 
-  async function openAiStyle({ name, url, key, models, headers, prompt, mime, b64, timeout }) {
+  async function openAiStyle({ name, url, key, models, headers, prompt, mime, b64, timeout, maxTokens, onUsage }) {
     let lastErr = "";
     for (const model of [...new Set([lastGood[name], ...models].filter(Boolean))]) {
       try {
         const r = await axios.post(url, {
-          model, temperature: 0.2, max_tokens: 1500,
+          model, temperature: 0.2, max_tokens: maxTokens || 1500,
           messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: `data:${mime};base64,${b64}` } }] }],
         }, { headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", ...(headers || {}) }, timeout: timeout || 45000 });
         const text = String((r.data.choices && r.data.choices[0] && r.data.choices[0].message && r.data.choices[0].message.content) || "").trim();
-        if (text) { lastGood[name] = model; return text; }
+        if (text) { lastGood[name] = model; if (onUsage) onUsage(name, r.data.usage); return text; }
         lastErr = `${model}: the model returned nothing`;
       } catch (err) {
         const { st, msg } = errText(err);
@@ -252,14 +253,14 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
   const VISION_CALLS = {
     own: (a) => ownVision(a),
     groq: (a) => openAiStyle({ ...a, name: "groq", url: "https://api.groq.com/openai/v1/chat/completions", key: GROQ_API_KEY.value(), models: [GROQ_VISION_MODEL.value(), "qwen/qwen3.8-27b", "qwen/qwen3.6-27b", "meta-llama/llama-4-scout-17b-16e-instruct"] }),
-    openrouter: (a) => openAiStyle({ ...a, name: "openrouter", url: "https://openrouter.ai/api/v1/chat/completions", key: OPENROUTER_API_KEY.value(), models: [OPENROUTER_VISION_MODEL.value(), "openrouter/free"], headers: { "HTTP-Referer": "https://www.dwenlite.space", "X-Title": "Dwenlite Home" } }),
+    openrouter: (a) => openAiStyle({ ...a, name: "openrouter", url: "https://openrouter.ai/api/v1/chat/completions", key: OPENROUTER_API_KEY.value(), models: [OPENROUTER_VISION_MODEL.value(), "qwen/qwen3-vl-8b-instruct", "qwen/qwen2.5-vl-72b-instruct"], headers: { "HTTP-Referer": "https://www.dwenlite.space", "X-Title": "Dwenlite Home" } }),
     gemini: (a) => geminiVision(a),
     huggingface: (a) => openAiStyle({ ...a, name: "huggingface", url: "https://router.huggingface.co/v1/chat/completions", key: HF_TOKEN.value(), models: [HF_VISION_MODEL.value()] }),
   };
 
   async function vision({ b64, mime, mode, instruction, lang, width, height }) {
     const keys = visionKeys();
-    if (!hasVision()) { const e = new Error("Image model is not configured. Add GROQ_API_KEY (or OWN_VISION_URL and OWN_VISION_KEY) to functions/.env."); e.code = "no_vision"; throw e; }
+    if (!hasVision()) { const e = new Error("Image reading is not available right now."); e.code = "no_vision"; logger.error("no image model is configured: add OPENROUTER_API_KEY to functions/.env"); throw e; }
     mime = mime || "image/jpeg";
     let prompt = (VISION_PROMPTS[mode] || VISION_PROMPTS.describe).replace("{lang}", clip(lang || "English", 30));
     if (instruction) prompt += `\n\nInstruction from the user: ${clip(instruction, 1000)}`;
@@ -267,15 +268,25 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
     const cacheKey = crypto.createHash("sha256").update(mime + prompt).update(b64).digest("hex");
     const hit = seen.get(cacheKey);
     let text = hit && Date.now() - hit.at < 120000 ? hit.text : "";
+    if (!text) { // the same picture and question read within the last day costs nothing
+      try { const c = await db.collection("homeVisionCache").doc(cacheKey).get(); if (c.exists && Date.now() - (c.data().at || 0) < 86400000) text = String(c.data().text || ""); } catch (e) { /* the cache is a bonus */ }
+    }
     const fails = [];
+    const usage = { calls: 0, input: 0, output: 0 };
     if (!text) {
+      const day = new Date().toISOString().slice(0, 10);
       const order = VISION_ORDER.value().split(",").map((x) => x.trim().toLowerCase()).filter((x) => VISION_CALLS[x] && keys[x]);
+      // a safety cap on the paid model: past it, only the free backups are used
+      let paidOk = true;
+      try { const u = await db.collection("homeUsage").doc(`vision_${day}`).get(); if (u.exists && (u.data().calls || 0) >= (Number(VISION_DAILY_MAX.value()) || 3000)) paidOk = false; } catch (e) { /* ignore */ }
       const now = Date.now();
       // providers that are cooling down go last, so something is still tried if everything is cooling down
-      const sorted = [...order.filter((x) => !(cooldown[x] > now)), ...order.filter((x) => cooldown[x] > now)];
+      const usable = order.filter((x) => paidOk || x !== "openrouter");
+      const sorted = [...usable.filter((x) => !(cooldown[x] > now)), ...usable.filter((x) => cooldown[x] > now)];
+      const maxTokens = mode === "screen" ? 650 : mode === "ocr" || mode === "translate" ? 1400 : 1000;
       for (const name of sorted) {
         try {
-          text = await VISION_CALLS[name]({ prompt, mime, b64 });
+          text = await VISION_CALLS[name]({ prompt, mime, b64, maxTokens, onUsage: (n, u) => { usage.calls++; usage.input += Number(u && u.prompt_tokens) || 0; usage.output += Number(u && u.completion_tokens) || 0; } });
           if (text) { delete cooldown[name]; break; }
         } catch (e) {
           const st = e.status;
@@ -288,9 +299,14 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
           else if (st >= 500 || !st) cooldown[name] = Date.now() + 60 * 1000;
         }
       }
-      if (!text) { const e = new Error(`Image models failed. ${fails.join(" | ") || "No provider answered."}`); e.code = "vision_failed"; throw e; }
+      if (!text) { const e = new Error("The image reader is overloaded right now. Please try again in a little while."); e.code = "vision_failed"; e.detail = fails.join(" | ") || "No provider answered."; logger.error("all image models failed", e.detail); throw e; }
       seen.set(cacheKey, { text, at: Date.now() });
       if (seen.size > 30) seen.delete(seen.keys().next().value);
+      db.collection("homeVisionCache").doc(cacheKey).set({ text: clip(text, 8000), at: Date.now() }).catch(() => {});
+      if (usage.calls) { // counts, for the daily cap and for the cost view (never the picture or the answer)
+        const ref = db.collection("homeUsage").doc(`vision_${day}`);
+        db.runTransaction(async (tx) => { const d = await tx.get(ref); const x = d.exists ? d.data() : {}; tx.set(ref, { day, kind: "vision", calls: (x.calls || 0) + usage.calls, input: (x.input || 0) + usage.input, output: (x.output || 0) + usage.output }); }).catch(() => {});
+      }
     }
     if (mode === "screen" && width && height) {
       // model coordinates are on a 0-1000 grid: convert to real screenshot pixels
@@ -798,6 +814,7 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
       const old = await db.collection("homeEvents").where("at", "<=", now - 2 * 86400000).limit(300).get();
       await Promise.all(old.docs.map((d) => d.ref.delete()));
       try { const oldF = await db.collection("homeFrames").where("seq", "<=", now - 3600000).limit(50).get(); await Promise.all(oldF.docs.map((d) => d.ref.delete())); const oldI = await db.collection("homeInputs").where("at", "<=", now - 600000).limit(50).get(); await Promise.all(oldI.docs.map((d) => d.ref.delete())); } catch (e) { /* tidy-up only */ }
+      try { const oldC = await db.collection("homeVisionCache").where("at", "<=", now - 2 * 86400000).limit(100).get(); await Promise.all(oldC.docs.map((d) => d.ref.delete())); } catch (e) { /* tidy-up only */ }
       const oldAsks = await db.collection("homeApprovals").where("createdAt", "<=", now - 86400000).limit(100).get(); await Promise.all(oldAsks.docs.map((d) => d.ref.delete()));
       const oldRuns = await db.collection("homeRuns").where("createdAt", "<=", now - 3 * 86400000).limit(100).get();
       await Promise.all(oldRuns.docs.filter((d) => d.data().kind === "chat").map((d) => d.ref.delete()));
@@ -1587,7 +1604,9 @@ const DAILY = { chat: 150, see: 100, web: 150, file: 120, push: 40, routine: 30,
           if (action === "home_usage") {
             if (!(await uidIsAdmin(uid))) return res.status(403).json({ error: "Only admins can see usage." });
             const q = await db.collection("homeUsage").where("kind", "==", "ai").get();
-            return res.status(200).json({ days: q.docs.map((d) => d.data()).sort((a, b) => String(b.day).localeCompare(String(a.day))).slice(0, 14) });
+            const vq = await db.collection("homeUsage").where("kind", "==", "vision").get();
+            const byDay = (r) => r.docs.map((d) => d.data()).sort((a, b) => String(b.day).localeCompare(String(a.day))).slice(0, 14);
+            return res.status(200).json({ days: byDay(q), vision: byDay(vq) });
           }
           if (action === "settings_get") { const st = await getSettings(uid); return res.status(200).json({ shareSkills: st.shareSkills !== false }); }
           if (action === "settings_set") { await settingsRef(uid).set({ shareSkills: body.shareSkills !== false }, { merge: true }); return res.status(200).json({ ok: true }); }
